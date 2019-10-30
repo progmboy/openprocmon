@@ -8,8 +8,8 @@ VOID CProcess::InsertModule(const CModule& mod)
 	m_ModuleList.push_back(mod);
 }
 
-CProcess::CProcess(CRefPtr<COperator> opt) :
-	CProcCreateInfoView(opt)
+CProcess::CProcess(CRefPtr<CLogEvent> pEvent) :
+	CProcCreateInfoView(pEvent)
 {
 	
 	//

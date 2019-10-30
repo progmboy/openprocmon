@@ -1,11 +1,14 @@
 #pragma once
 
+#include "refobject.hpp"
+#include "event.hpp"
+
 class CBaseView
 {
 public:
-	CBaseView(CRefPtr<COperator> Opt)
+	CBaseView(CRefPtr<CLogEvent> pEvent)
 	{
-		m_Opt = Opt;
+		m_Event = pEvent;
 	}
 
 	CBaseView()
@@ -32,10 +35,10 @@ public:
 	CString GetDetail();
 	NTSTATUS GetResult();
 	DWORD GetProcessSeq();
-	CRefPtr<COperator> GetOpt();
+	CRefPtr<CLogEvent> GetEvent();
 	DWORD GetCallStack(std::vector<PVOID>& callStacks);
 
-	void SetOpt(CRefPtr<COperator> Opt);
+	void SetEvent(CRefPtr<CLogEvent> pEvent);
 
 protected:
 
@@ -43,14 +46,14 @@ protected:
 	PLOG_ENTRY GetPostLogEntry();
 
 protected:
-	CRefPtr<COperator> m_Opt;
+	CRefPtr<CLogEvent> m_Event;
 };
 
 class CProcCreateInfoView : public CBaseView
 {
 public:
 	CProcCreateInfoView();
-	CProcCreateInfoView(CRefPtr<COperator> Opt);
+	CProcCreateInfoView(CRefPtr<CLogEvent> Opt);
 	~CProcCreateInfoView();
 
 public:

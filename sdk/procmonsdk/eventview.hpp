@@ -2,21 +2,22 @@
 
 #include <vector>
 #include "refobject.hpp"
+#include "process.hpp"
 #include "module.hpp"
-#include "operator.hpp"
+#include "event.hpp"
 #include "viewer.hpp"
 
-class COptView : public CRefBase
+class CEventView : public CRefBase
 {
 
 public:
-	COptView();
-	~COptView();
+	CEventView();
+	~CEventView();
 
 public:
 
-	void SetEventOpt(CRefPtr<COperator> Opt);
-	void SnapProcess(CRefPtr<CProcess> Opt);
+	void SetEventOpt(CRefPtr<CLogEvent> pEvent);
+	void SnapProcess(CRefPtr<CProcess> pProcess);
 
 public:
 	
@@ -64,8 +65,6 @@ public:
 
 
 private:
-	//CRefPtr<COperator> m_EventOpt;
-	//CRefPtr<COperator> m_ProcOpt;
 
 	CProcCreateInfoView m_ProcView;
 	CBaseView m_EventView;

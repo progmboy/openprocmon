@@ -2,7 +2,7 @@
 #include "pch.hpp"
 #include "procmgr.hpp"
 #include "fileopt.hpp"
-#include "optview.hpp"
+#include "eventview.hpp"
 
 #define IRP_MJ_CREATE                   0x00
 #define IRP_MJ_CREATE_NAMED_PIPE        0x01
@@ -33,42 +33,26 @@
 #define IRP_MJ_SET_QUOTA                0x1a
 #define IRP_MJ_PNP                      0x1b
 
-BOOL CFileOpt::Process(const CRefPtr<COperator> Operator)
+
+CString CFileEvent::GetPath()
 {
+	PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(getPreLog().GetBuffer());
+	PLOG_FILE_OPT pFileOpt = TO_EVENT_DATA(PLOG_FILE_OPT, pEntry);
 
-	//
-	// 负责解析生成CFileOPtView
-	//
-	
-	return TRUE;
-	
-
-}
-
-BOOL CFileOpt::IsType(ULONG MonitorType)
-{
-	return MonitorType == MONITOR_TYPE_FILE;
-}
-
-BOOL CFileOpt::Parse(const CRefPtr<COperator> Operator)
-{
-	PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(Operator->getPreLog().GetBuffer());
-	PLOG_ENTRY pPostEntry = reinterpret_cast<PLOG_ENTRY>(Operator->getPostLog().GetBuffer());
-	PVOID pInfo = TO_EVENT_DATA(PVOID, pEntry);//(PUCHAR)(pEntry + 1) + sizeof(PVOID) * pEntry->nFrameChainCounts;
-	UCHAR MajorFunction = pEntry->NotifyType - 20;
-
-	PLOG_FILE_OPT pFileOpt = reinterpret_cast<PLOG_FILE_OPT>(pInfo);
 	CString strFileName;
-	CString strDetail;
-
 	strFileName.Append(pFileOpt->Name, pFileOpt->NameLength);
-	
-	//
-	// Set Operator Path
-	//
-	
-	Operator->SetPath(strFileName);
 
+	return strFileName;
+}
+
+CString CFileEvent::GetDetail()
+{
+	PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(getPreLog().GetBuffer());
+	PLOG_ENTRY pPostEntry = reinterpret_cast<PLOG_ENTRY>(getPostLog().GetBuffer());
+
+	PLOG_FILE_OPT pFileOpt = TO_EVENT_DATA(PLOG_FILE_OPT, pEntry);
+	UCHAR MajorFunction = pEntry->NotifyType - 20;
+	CString strDetail;
 
 	switch (MajorFunction)
 	{
@@ -99,12 +83,9 @@ BOOL CFileOpt::Parse(const CRefPtr<COperator> Operator)
 	}
 		break;
 	default:
-		strDetail = TEXT("TODO\r\n");
+		strDetail = TEXT("TODO");
 		break;
 	}
 
-	Operator->SetDetail(strDetail);
-
-	return TRUE;
-
+	return strDetail;
 }

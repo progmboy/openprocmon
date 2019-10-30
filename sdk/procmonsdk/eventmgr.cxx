@@ -2,21 +2,21 @@
 #include "pch.hpp"
 #include "process.hpp"
 #include "procmgr.hpp"
-#include "optmgr.hpp"
+#include "eventmgr.hpp"
 
 #include "procopt.hpp"
 #include "fileopt.hpp"
+#include "eventfactory.hpp"
 
 #include <conio.h>
 
-COperatorMgr::COperatorMgr()
+CEventMgr::CEventMgr()
 {
 	RegisterProcessor(new CProcOpt);
-	RegisterProcessor(new CFileOpt);
 }
 
 BOOL
-COperatorMgr::ProcessMsgBlocks(
+CEventMgr::ProcessMsgBlocks(
 	_In_ PLOG_ENTRY pEntries,
 	_In_ ULONG Length)
 {
@@ -59,7 +59,7 @@ COperatorMgr::ProcessMsgBlocks(
 }
 
 BOOL
-COperatorMgr::ProcessEntry(
+CEventMgr::ProcessEntry(
 	_In_ const PLOG_ENTRY pEntry
 )
 {
@@ -84,11 +84,6 @@ COperatorMgr::ProcessEntry(
 	// Filter ourself
 	//
 
-	//CRefPtr<CProcess> Process = RefProcess(pEntry->ProcessSeq);
-	//if (!Process.IsNull() && Process->GetProcessId() == GetCurrentProcessId()) {
-	//	return FALSE;
-	//}
-
 	if (pEntry->MonitorType == MONITOR_TYPE_POST) {
 
 
@@ -96,26 +91,22 @@ COperatorMgr::ProcessEntry(
 		// find the pre-operator
 		//
 
-		auto Operator = RefOperator(pEntry->Sequence);
-		if (Operator.IsNull()) {
+		auto pEvent = RefEvent(pEntry->Sequence);
+		if (pEvent.IsNull()) {
 			return FALSE;
 		}
-
-		//PLOG_ENTRY pPreEntry = (PLOG_ENTRY)Operator->getPreLog().GetBuffer();
-		//LogMessage(L_INFO, TEXT("pEntry = 0x%p preEntry =0x%p MonitorType=0x%x event=0x%x seq=0x%x"), 
-		//	pEntry, pPreEntry, (ULONG)pPreEntry->MonitorType, (ULONG)pPreEntry->NotifyType, pPreEntry->Sequence);
 
 		//
 		// Set the post log
 		//
 
-		Operator->setPostLog(pEntry);
+		pEvent->setPostLog(pEntry);
 
 		//
 		// this operator is finish add to queue
 		//
 
-		PushOpt(Operator);
+		PushEvent(pEvent);
 
 		//
 		// 将这个Operator在列表中移除
@@ -130,8 +121,8 @@ COperatorMgr::ProcessEntry(
 		// is will has POST opt
 		//
 
-		CRefPtr<COperator> newOperator = new COperator;
-		newOperator->setPreLog(pEntry);
+		CRefPtr<CLogEvent> newEvent = CEventFactory::CreateInstance(pEntry->MonitorType);
+		newEvent->setPreLog(pEntry);
 
 		if (pEntry->Status == STATUS_PENDING) {
 
@@ -139,32 +130,37 @@ COperatorMgr::ProcessEntry(
 			// Insert to map
 			//
 
-			m_OperatorMap.insert(std::make_pair(pEntry->Sequence, newOperator));
+			InsertOperator(pEntry->Sequence, newEvent);
 
 		}else{
-			PushOpt(newOperator);
+			PushEvent(newEvent);
 		}
 	}
 
 	return TRUE;
 }
 
-CRefPtr<COperator> COperatorMgr::RefOperator(ULONG Seq)
+VOID CEventMgr::InsertOperator(ULONG Seq, CRefPtr<CLogEvent> pEvent)
 {
-	OPERATOR_MAP::iterator it;
-	it = m_OperatorMap.find(Seq);
-	if (it != m_OperatorMap.end()) {
+	m_EventMap.insert(std::make_pair(Seq, pEvent));
+}
+
+CRefPtr<CLogEvent> CEventMgr::RefEvent(ULONG Seq)
+{
+	EVENT_MAP::iterator it;
+	it = m_EventMap.find(Seq);
+	if (it != m_EventMap.end()) {
 		return it->second;
 	}
 
 	return NULL;
 }
 
-VOID COperatorMgr::RemoveFromList(ULONG Seq)
+VOID CEventMgr::RemoveFromList(ULONG Seq)
 {
-	CRefPtr<COperator> OptFind = RefOperator(Seq);
+	CRefPtr<CLogEvent> OptFind = RefEvent(Seq);
 	if (!OptFind.IsNull()) {
-		m_OperatorMap.erase(Seq);
+		m_EventMap.erase(Seq);
 	}else{
 		LogMessage(L_INFO, TEXT("Remove Opt seq 0x%x is not exist in list"), Seq);
 		//__debugbreak();
@@ -172,15 +168,15 @@ VOID COperatorMgr::RemoveFromList(ULONG Seq)
 	}
 }
 
-BOOL COperatorMgr::Process()
+BOOL CEventMgr::Process()
 {
 
 	//
 	// Get one from Operator Queue
 	//
 
-	CRefPtr<COperator> Operator = PopOpt();
-	if (Operator.IsNull()) {
+	CRefPtr<CLogEvent> pEvent = PopEvent();
+	if (pEvent.IsNull()) {
 		return FALSE;
 	}
 
@@ -188,44 +184,36 @@ BOOL COperatorMgr::Process()
 
 	for (auto it = m_Processors.begin(); it != m_Processors.end(); it++)
 	{
-		PLOG_ENTRY pPreEntry = (PLOG_ENTRY)Operator->getPreLog().GetBuffer();
+		PLOG_ENTRY pPreEntry = (PLOG_ENTRY)pEvent->getPreLog().GetBuffer();
 		if ((*it)->IsType(pPreEntry->MonitorType)) {
 
 			//
 			// pre process
 			//
 
-			(*it)->Process(Operator);
+			(*it)->Process(pEvent);
+			break;
+		}
+	}
 
-			//
-			// Parse the operator
-			//
+	//
+	// gen view
+	//
 
-			if ((*it)->Parse(Operator)) {
+	CRefPtr<CProcess> pProcess = PROCMGR().RefProcessBySeq(pEvent->GetProcSeq());
+	if (!pProcess.IsNull()) {
 
-				//
-				// gen view
-				//
+		CRefPtr <CEventView> pView = new CEventView;
+		pView->SetEventOpt(pEvent);
+		pView->SnapProcess(pProcess);
 
-				CRefPtr<CProcess> pProcess = PROCMGR().RefProcessBySeq(Operator->GetProcSeq());
-				if (!pProcess.IsNull()) {
+		//
+		// do callback
+		//
 
-					CRefPtr <COptView> pView = new COptView;
-					pView->SetEventOpt(Operator);
-					pView->SnapProcess(pProcess);
-
-					//
-					// do callback
-					//
-
-					for (auto itcall = m_callBackList.begin(); itcall != m_callBackList.end(); itcall++)
-					{
-						(*itcall)->DoEvent(pView);
-					}
-				}
-
-			}
-
+		for (auto itcall = m_callBackList.begin(); itcall != m_callBackList.end(); itcall++)
+		{
+			(*itcall)->DoEvent(pView);
 		}
 	}
 
@@ -234,17 +222,17 @@ BOOL COperatorMgr::Process()
 
 }
 
-VOID COperatorMgr::RegisterProcessor(CRefPtr<IProcessor> Processor)
+VOID CEventMgr::RegisterProcessor(CRefPtr<IProcessor> Processor)
 {
 	m_Processors.push_back(Processor);
 }
 
-VOID COperatorMgr::RegisterCallback(CRefPtr<IEventCallback> pCallback)
+VOID CEventMgr::RegisterCallback(CRefPtr<IEventCallback> pCallback)
 {
 	m_callBackList.push_back(pCallback);
 }
 
-VOID COperatorMgr::Clear()
+VOID CEventMgr::Clear()
 {
 	m_lock.lock();
 	while (!m_msgQueue.empty()) {
@@ -252,15 +240,15 @@ VOID COperatorMgr::Clear()
 	}
 	m_lock.unlock();
 
-	m_OperatorMap.clear();
+	m_EventMap.clear();
 	m_PushCount = 0;
 	m_PopCount = 0;
 }
 
-VOID COperatorMgr::PushOpt(CRefPtr<COperator> opt)
+VOID CEventMgr::PushEvent(CRefPtr<CLogEvent> pEvent)
 {
 	std::unique_lock<std::mutex> lck(m_lock);
-	m_msgQueue.push(opt);
+	m_msgQueue.push(pEvent);
 
 	//
 	// Notify process thread the log data coming
@@ -272,9 +260,9 @@ VOID COperatorMgr::PushOpt(CRefPtr<COperator> opt)
 	m_convar.notify_all();
 }
 
-CRefPtr<COperator> COperatorMgr::PopOpt()
+CRefPtr<CLogEvent> CEventMgr::PopEvent()
 {
-	CRefPtr<COperator> Operator;
+	CRefPtr<CLogEvent> pEvent;
 	std::unique_lock<std::mutex> lck(m_lock);
 
 	//
@@ -317,8 +305,8 @@ CRefPtr<COperator> COperatorMgr::PopOpt()
 	// get the front of the queue
 	//
 
-	Operator = m_msgQueue.front();
+	pEvent = m_msgQueue.front();
 	m_msgQueue.pop();
 
-	return Operator;
+	return pEvent;
 }

@@ -1,12 +1,12 @@
 
 #include "pch.hpp"
 #include "procmgr.hpp"
-#include "optmgr.hpp"
+#include "eventmgr.hpp"
 #include "procopt.hpp"
 
-BOOL CProcOpt::Process(const CRefPtr<COperator> Operator)
+BOOL CProcOpt::Process(const CRefPtr<CLogEvent> pEvent)
 {
-	PLOG_ENTRY pEntry = (PLOG_ENTRY)Operator->getPreLog().GetBuffer();
+	PLOG_ENTRY pEntry = (PLOG_ENTRY)pEvent->getPreLog().GetBuffer();
 	if (pEntry->MonitorType != MONITOR_TYPE_PROCESS) {
 		return TRUE;
 	}
@@ -16,7 +16,7 @@ BOOL CProcOpt::Process(const CRefPtr<COperator> Operator)
 	case NOTIFY_PROCESS_INIT:
 	case NOTIFY_PROCESS_CREATE:
 	{
-		CRefPtr<CProcess> pProcess = new CProcess(Operator);
+		CRefPtr<CProcess> pProcess = new CProcess(pEvent);
 		PROCMGR().Insert(pProcess);
 	}
 		break;
@@ -42,7 +42,3 @@ BOOL CProcOpt::IsType(ULONG MonitorType)
 	return MonitorType == MONITOR_TYPE_PROCESS;
 }
 
-BOOL CProcOpt::Parse(const CRefPtr<COperator> Operator)
-{
-	return TRUE;
-}

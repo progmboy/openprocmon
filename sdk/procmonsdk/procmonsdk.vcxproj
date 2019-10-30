@@ -155,12 +155,13 @@
   <ItemGroup>
     <ClInclude Include="buffer.hpp" />
     <ClInclude Include="drvload.hpp" />
+    <ClInclude Include="eventfactory.hpp" />
     <ClInclude Include="fileopt.hpp" />
     <ClInclude Include="logger.hpp" />
     <ClInclude Include="module.hpp" />
     <ClInclude Include="monctl.hpp" />
-    <ClInclude Include="operator.hpp" />
-    <ClInclude Include="optmgr.hpp" />
+    <ClInclude Include="event.hpp" />
+    <ClInclude Include="eventmgr.hpp" />
     <ClInclude Include="pch.hpp" />
     <ClInclude Include="process.hpp" />
     <ClInclude Include="procmgr.hpp" />
@@ -171,19 +172,20 @@
     <ClInclude Include="singleton.hpp" />
     <ClInclude Include="thread.hpp" />
     <ClInclude Include="utils.hpp" />
-    <ClInclude Include="optview.hpp" />
+    <ClInclude Include="eventview.hpp" />
     <ClInclude Include="viewer.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="buffer.cxx" />
     <ClCompile Include="drvload.cxx" />
+    <ClCompile Include="eventfactory.cxx" />
     <ClCompile Include="fileopt.cxx" />
     <ClCompile Include="logger.cxx" />
     <ClCompile Include="module.cxx" />
     <ClCompile Include="monctl.cxx" />
-    <ClCompile Include="operator.cxx" />
-    <ClCompile Include="optmgr.cxx" />
-    <ClCompile Include="optview.cxx" />
+    <ClCompile Include="event.cxx" />
+    <ClCompile Include="eventmgr.cxx" />
+    <ClCompile Include="eventview.cxx" />
     <ClCompile Include="pch.cxx" />
     <ClCompile Include="process.cxx" />
     <ClCompile Include="procmgr.cxx" />

@@ -56,7 +56,7 @@ class CProcess : public CProcCreateInfoView,
 	public CRefBase
 {
 public:
-	CProcess(CRefPtr<COperator> opt);
+	CProcess(CRefPtr<CLogEvent> pEvent);
 	virtual ~CProcess();
 
 public:

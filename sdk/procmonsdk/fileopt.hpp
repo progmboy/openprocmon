@@ -1,11 +1,10 @@
 #pragma once
 
-class CFileOpt : public IProcessor
+
+class CFileEvent : public CLogEvent
 {
 public:
-	virtual BOOL Process(const CRefPtr<COperator> Operator);
-	virtual BOOL IsType(ULONG MonitorType);
-	virtual BOOL Parse(const CRefPtr<COperator> Operator);
-private:
+	virtual CString GetPath();
 
+	virtual CString GetDetail();
 };

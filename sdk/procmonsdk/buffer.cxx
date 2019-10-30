@@ -16,7 +16,7 @@
 
 #include "buffer.hpp"
 
-#define ALIGN_SIZE 0x40
+#define ALIGN_SIZE 0x10
 
 /** \fn CBuffer::CBuffer()
     \brief Constructs the buffer with a default size

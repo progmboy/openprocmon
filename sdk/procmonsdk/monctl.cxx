@@ -2,8 +2,9 @@
 #include "pch.hpp"
 #include "monctl.hpp"
 #include "logger.hpp"
-#include "operator.hpp"
+#include "event.hpp"
 #include "procmgr.hpp"
+#include "eventmgr.hpp"
 
 #pragma comment(lib, "FltLib.lib")
 
@@ -263,7 +264,7 @@ void COPtThread::Run()
 		// exit the loop
 		//
 		
-		Singleton<COperatorMgr>::getInstance().Process();
+		Singleton<CEventMgr>::getInstance().Process();
 	}
 
 	LogMessage(L_INFO, TEXT(".......processing thread exit....."));

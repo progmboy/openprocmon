@@ -24,9 +24,6 @@
     <ClInclude Include="fileopt.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="operator.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="procopt.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -66,13 +63,19 @@
     <ClInclude Include="module.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="optview.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="optmgr.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="viewer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="eventfactory.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="eventmgr.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="eventview.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="event.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -95,9 +98,6 @@
     <ClCompile Include="monctl.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="operator.cxx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="procmgr.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -113,16 +113,22 @@
     <ClCompile Include="fileopt.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="optview.cxx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="optmgr.cxx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="utils.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="viewer.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="eventfactory.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="eventmgr.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="eventview.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="event.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

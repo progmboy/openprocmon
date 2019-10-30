@@ -1,9 +1,9 @@
 
 #include "pch.hpp"
-#include "operator.hpp"
+#include "event.hpp"
 #include "viewer.hpp"
 
-CProcCreateInfoView::CProcCreateInfoView(CRefPtr<COperator> Opt) :
+CProcCreateInfoView::CProcCreateInfoView(CRefPtr<CLogEvent> Opt) :
 	CBaseView(Opt)
 {
 
@@ -22,7 +22,7 @@ CProcCreateInfoView::~CProcCreateInfoView()
 BOOL CProcCreateInfoView::IsValid()
 {
 	if (CBaseView::IsValid()){
-		USHORT Type = m_Opt->GetNotifyType();
+		USHORT Type = m_Event->GetNotifyType();
 		if (Type == NOTIFY_PROCESS_CREATE ||
 			Type == NOTIFY_PROCESS_INIT) {
 			return TRUE;
@@ -125,10 +125,8 @@ FORCEINLINE
 PLOG_PROCESSCREATE_INFO 
 CProcCreateInfoView::GetProcCreateInfo()
 {
-	if (m_Opt->getPreLog().GetBufferLen()){
-		PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(m_Opt->getPreLog().GetBuffer());
-// 		return reinterpret_cast<PLOG_PROCESSCREATE_INFO>
-// 			((PUCHAR)(pEntry + 1) + pEntry->nFrameChainCounts * sizeof(PVOID));
+	if (m_Event->getPreLog().GetBufferLen()){
+		PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(m_Event->getPreLog().GetBuffer());
 		return TO_EVENT_DATA(PLOG_PROCESSCREATE_INFO, pEntry);
 	}
 
@@ -137,8 +135,8 @@ CProcCreateInfoView::GetProcCreateInfo()
 
 BOOL CBaseView::IsValid()
 {
-	if (!m_Opt.IsNull()){
-		if (m_Opt->getPreLog().GetBufferLen()){
+	if (!m_Event.IsNull()){
+		if (m_Event->getPreLog().GetBufferLen()){
 			return TRUE;
 		}
 	}
@@ -152,17 +150,17 @@ DWORD CBaseView::GetThreadId()
 
 DWORD CBaseView::GetSeqNumber()
 {
-	return m_Opt->GetSeq();
+	return m_Event->GetSeq();
 }
 
 DWORD CBaseView::GetEventClass()
 {
-	return m_Opt->GetMoniterType();
+	return m_Event->GetMoniterType();
 }
 
 DWORD CBaseView::GetOperator()
 {
-	return m_Opt->GetNotifyType();
+	return m_Event->GetNotifyType();
 }
 
 LARGE_INTEGER CBaseView::GetStartTime()
@@ -185,15 +183,15 @@ LARGE_INTEGER CBaseView::GetCompleteTime()
 CString CBaseView::GetPath()
 {
 	CString strDosPath;
-	if (!m_Opt->GetPath().IsEmpty()){
-		UtilConvertNtInternalPathToDosPath(m_Opt->GetPath(), strDosPath);
+	if (!m_Event->GetPath().IsEmpty()){
+		UtilConvertNtInternalPathToDosPath(m_Event->GetPath(), strDosPath);
 	}
 	return strDosPath;
 }
 
 CString CBaseView::GetDetail()
 {
-	return m_Opt->GetDetail();
+	return m_Event->GetDetail();
 }
 
 NTSTATUS CBaseView::GetResult()
@@ -207,9 +205,9 @@ DWORD CBaseView::GetProcessSeq()
 	return GetPreLogEntry()->ProcessSeq;
 }
 
-CRefPtr<COperator> CBaseView::GetOpt()
+CRefPtr<CLogEvent> CBaseView::GetEvent()
 {
-	return m_Opt;
+	return m_Event;
 }
 
 DWORD CBaseView::GetCallStack(std::vector<PVOID>& callStacks)
@@ -228,9 +226,9 @@ DWORD CBaseView::GetCallStack(std::vector<PVOID>& callStacks)
 	return (DWORD)callStacks.size();
 }
 
-void CBaseView::SetOpt(CRefPtr<COperator> Opt)
+void CBaseView::SetEvent(CRefPtr<CLogEvent> pEvent)
 {
-	m_Opt = Opt;
+	m_Event = pEvent;
 }
 
 FORCEINLINE
@@ -238,7 +236,7 @@ PLOG_ENTRY
 CBaseView::GetPreLogEntry()
 {
 	return reinterpret_cast<PLOG_ENTRY>
-		(m_Opt->getPreLog().GetBuffer());
+		(m_Event->getPreLog().GetBuffer());
 }
 
 FORCEINLINE
@@ -246,5 +244,5 @@ PLOG_ENTRY
 CBaseView::GetPostLogEntry()
 {
 	return reinterpret_cast<PLOG_ENTRY>
-		(m_Opt->getPostLog().GetBuffer());
+		(m_Event->getPostLog().GetBuffer());
 }

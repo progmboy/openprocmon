@@ -6,34 +6,33 @@
 #include <condition_variable>
 #include <queue>
 
-#include "operator.hpp"
-#include "optview.hpp"
+#include "event.hpp"
+#include "eventview.hpp"
 
-#define OPERATORMGR() Singleton<COperatorMgr>::getInstance()
+#define OPERATORMGR() Singleton<CEventMgr>::getInstance()
 
 class IProcessor : public CRefBase
 {
 public:
-	virtual BOOL Process(const CRefPtr<COperator> Operator) = 0;
+	virtual BOOL Process(const CRefPtr<CLogEvent> pEvent) = 0;
 	virtual BOOL IsType(ULONG MonitorType) = 0;
-	virtual BOOL Parse(const CRefPtr<COperator> Operator) = 0;
 };
 
 class IEventCallback : public CRefBase
 {
 public:
-	virtual BOOL DoEvent(const CRefPtr<COptView> pEventView) = 0;
+	virtual BOOL DoEvent(const CRefPtr<CEventView> pEventView) = 0;
 };
 
-typedef std::map<ULONG, CRefPtr<COperator>> OPERATOR_MAP;
+typedef std::map<ULONG, CRefPtr<CLogEvent>> EVENT_MAP;
 typedef std::vector<CRefPtr<IProcessor>> PROCESSOR_LIST;
 
 
-class COperatorMgr
+class CEventMgr
 {
 public:
-	COperatorMgr();
-	virtual ~COperatorMgr() {};
+	CEventMgr();
+	virtual ~CEventMgr() {};
 
 public:
 
@@ -71,20 +70,21 @@ public:
 
 
 private:
-	CRefPtr<COperator> RefOperator(ULONG Seq);
+	VOID InsertOperator(ULONG Seq, CRefPtr<CLogEvent> pEvent);
+	CRefPtr<CLogEvent> RefEvent(ULONG Seq);
 	VOID RemoveFromList(ULONG Seq);
 
-	VOID PushOpt(CRefPtr<COperator> opt);
-	CRefPtr<COperator> PopOpt();
+	VOID PushEvent(CRefPtr<CLogEvent> pEvent);
+	CRefPtr<CLogEvent> PopEvent();
 
 private:
-	OPERATOR_MAP m_OperatorMap;
+	EVENT_MAP m_EventMap;
 	PROCESSOR_LIST m_Processors;
 	std::vector<CRefPtr<IEventCallback>> m_callBackList;
 
 	std::condition_variable m_convar;
 	std::mutex m_lock;
-	std::queue<CRefPtr<COperator>> m_msgQueue;
+	std::queue<CRefPtr<CLogEvent>> m_msgQueue;
 
 	DWORD m_PushCount = 0;
 	DWORD m_PopCount = 0;

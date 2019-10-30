@@ -40,16 +40,12 @@ typedef enum _KEY_VALUE_INFORMATION_CLASS {
 #include "drvload.hpp"
 #include "buffer.hpp"
 #include "utils.hpp"
-#include "operator.hpp"
-#include "process.hpp"
-#include "optmgr.hpp"
-#include "optview.hpp"
-#include "procopt.hpp"
-#include "fileopt.hpp"
-#include "regopt.hpp"
 #include "thread.hpp"
 #include "logger.hpp"
-#include "monctl.hpp"
 #include "utils.hpp"
+
+#include "monctl.hpp"
+#include "eventmgr.hpp"
+#include "eventview.hpp"
 
 
