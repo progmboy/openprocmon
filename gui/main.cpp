@@ -13,6 +13,7 @@
 #include "propproc.h"
 #include "propstack.h"
 #include "MainFrm.h"
+#include "filter.hpp"
 
 #pragma comment(lib, "Shcore.lib")
 
@@ -41,6 +42,7 @@ int Run(LPTSTR /*lpstrCmdLine*/ = NULL, int nCmdShow = SW_SHOWDEFAULT)
 
 int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lpstrCmdLine, int nCmdShow)
 {
+#if 1
 	int CxLarge = GetSystemMetrics(SM_CXICON);
 	int CxSmall = GetSystemMetrics(SM_CXSMICON);
 	int CyLarge = GetSystemMetrics(SM_CYICON);
@@ -60,4 +62,5 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 	::CoUninitialize();
 
 	return nRet;
+#endif
 }

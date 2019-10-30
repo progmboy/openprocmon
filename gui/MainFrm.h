@@ -7,6 +7,7 @@
 #include <vector>
 #include <atltypes.h>
 #include "status.h"
+#include "filtermgr.h"
 #include "dataview.h"
 
 #ifdef _DEBUG
@@ -26,20 +27,12 @@
 #define ID_MEMU_HIGHLIGHT	(WM_USER+105)
 #define ID_MEMU_EXCLUDE		(WM_USER+105)
 
-struct cmpStringNocase {
-	bool operator()(const CString& a, const CString& b) const {
-		return a.CompareNoCase(b) < 0;
-	}
-};
-
 typedef struct _ICONS
 {
 	HICON hSmall;
 	HICON hLarge;
 }ICONS, *PICONS;
 
-std::map<CString, ICONS, cmpStringNocase> m_AppIconCache;
-//std::map<CString, int, cmpStringNocase> m_AppIconCache;
 
 HICON
 UtilGetDefaultIcon(
@@ -101,6 +94,10 @@ public:
 	virtual BOOL OnIdle()
 	{
 		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+		if (m_bScrollDown){
+			m_view.SendMessage(WM_VSCROLL, SB_BOTTOM, NULL);
+		}
+
 		//m_view.SendMessage(WM_VSCROLL, SB_BOTTOM, NULL);
 		//m_view.EnsureVisible()
 		UIUpdateToolBar();
@@ -125,6 +122,12 @@ public:
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_ERASE, OnEraseShow)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_START, OnMonitorStart)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_STOP, OnMonitorStop)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_OPENEDF, OnFileOpen)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_SCROLLDOWN, OnScrollDownClick)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_SCROLLUP, OnScrollUpClick)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILTER, OnFilterClick)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_PROCESS, OnFilterProcessClick)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILE, OnFilterFileClick)
 
 		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnEventProperties)
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
@@ -141,9 +144,72 @@ public:
 
 	LRESULT OnFileSave(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
-		//PostMessage(WM_CLOSE);
+		MessageBox(TEXT("TODO"));
 		return 0;
 	}
+
+	LRESULT OnFilterProcessClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_PROCESS);
+
+		if (bShow){
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_PROCESS));
+		}else{
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_PROCESS));
+		}
+
+		DATAVIEW().ApplyNewFilter();
+		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+
+		return 0;
+	}
+
+	LRESULT OnFilterFileClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_FILE);
+
+		if (bShow) {
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_FILE));
+		}else {
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_FILE));
+		}
+
+		DATAVIEW().ApplyNewFilter();
+		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+
+		return 0;
+	}
+
+	LRESULT OnFileOpen(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		MessageBox(TEXT("TODO"));
+		return 0;
+	}
+
+	LRESULT OnFilterClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		MessageBox(TEXT("TODO"));
+		return 0;
+	}
+
+	LRESULT OnScrollDownClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLUP, FALSE);
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLDOWN, TRUE);
+
+		m_bScrollDown = TRUE;
+		return 0;
+	}
+
+	LRESULT OnScrollUpClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLUP, TRUE);
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLDOWN, FALSE);
+
+		m_bScrollDown = FALSE;
+		return 0;
+	}
+
 
 	LRESULT OnMonitorStart(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
@@ -200,7 +266,7 @@ public:
 				HICON hIcon = CreateIconFromResourceEx(clsIconBuffer.GetBuffer(), 
 					clsIconBuffer.GetBufferLen(), TRUE, 0x30000, 16, 16, 0);
 				if (hIcon){
-					nImageIndex = ImageList_AddIcon(m_ImageList, hIcon);
+					nImageIndex = m_clsImageList.AddIcon(hIcon);
 					DestroyIcon(hIcon);
 
 					//
@@ -232,12 +298,11 @@ public:
 			return 0;
 		}
 
-		if (pItem->mask & LVIF_TEXT) //valid text buffer?
+		if (pItem->mask & LVIF_TEXT)
 		{
 			switch (pItem->iSubItem)
 			{
 				case 0:
-					//StringCchCopy(pItem->pszText, pItem->cchTextMax, TEXT(""));
 					break;
 				case 1: 	
 				{
@@ -259,7 +324,6 @@ public:
 						pItem->iImage = GetProcessIconIndex(pEventView);
 					}
 
-					
 					StringCchCopy(pItem->pszText, pItem->cchTextMax, pEventView->GetProcessName());
 				}
 					break;
@@ -272,9 +336,6 @@ public:
 					break;
 				case 4:
 				{
-					//CString strOperator;
-					//strOperator.Format(TEXT("0x%x"), pEventView->GetOperator());
-
 					DWORD dwClass = pEventView->GetEventClass();
 					DWORD dwOperator = pEventView->GetEventOperator();
 
@@ -284,6 +345,24 @@ public:
 						strOperator.Format(TEXT("%d:%d"), dwClass, dwOperator);
 					}else{
 						strOperator = lpOPt;
+					}
+
+					if (pItem->mask & LVIF_IMAGE)
+					{
+						switch (dwClass)
+						{
+						case MONITOR_TYPE_FILE:
+							pItem->iImage = m_IconFile;
+							break;
+						case MONITOR_TYPE_PROCESS:
+							pItem->iImage = m_IconProcess;
+							break;
+						case MONITOR_TYPE_REG:
+							pItem->iImage = m_IconReg;
+							break;
+						default:
+							break;
+						}
 					}
 
 					StringCchCopy(pItem->pszText, pItem->cchTextMax, strOperator);
@@ -439,16 +518,47 @@ public:
 		//HWND hWndToolBar = CreateSimpleToolBarCtrl(m_hWnd, IDR_MAINFRAME, FALSE, ATL_SIMPLE_TOOLBAR_PANE_STYLE);
 		m_wndToolBar = CreateSimpleToolBarCtrl(m_hWnd, IDR_TOOL, FALSE, ATL_SIMPLE_TOOLBAR_PANE_STYLE);
 
+
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_STOP, FALSE);
 		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_START, TRUE);
+
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLUP, TRUE);
+		m_wndToolBar.HideButton(ID_BUTTON_ICONS8_SCROLLDOWN, FALSE);
+		
+		//
+		// Set button style to check button
+		//
+		
+		TBBUTTONINFO tbButtonInfo;
+		tbButtonInfo.cbSize = sizeof(tbButtonInfo);
+		tbButtonInfo.dwMask = TBIF_STYLE;
+		m_wndToolBar.GetButtonInfo(ID_BUTTON_ICONS8_PROCESS, &tbButtonInfo);
+
+		tbButtonInfo.fsStyle = BTNS_CHECK;
+		m_wndToolBar.SetButtonInfo(ID_BUTTON_ICONS8_PROCESS, &tbButtonInfo);
+		m_wndToolBar.SetButtonInfo(ID_BUTTON_ICONS8_REGISTRY, &tbButtonInfo);
+		m_wndToolBar.SetButtonInfo(ID_BUTTON_ICONS8_FILE, &tbButtonInfo);
+
+		m_wndToolBar.CheckButton(ID_BUTTON_ICONS8_PROCESS);
+		m_wndToolBar.CheckButton(ID_BUTTON_ICONS8_FILE);
+
+		//
+		// set default all on
+		//
+		
+
 
 		CreateSimpleReBar(ATL_SIMPLE_REBAR_NOBORDER_STYLE);
 		AddSimpleReBarBand(hWndCmdBar);
 		AddSimpleReBarBand(m_wndToolBar, NULL, TRUE);
 
+
 		CreateSimpleStatusBar();
 		DWORD SmallX = GetSystemMetrics(SM_CXSMICON);
 		DWORD SmallY = GetSystemMetrics(SM_CYSMICON); 
-		m_ImageList = ImageList_Create(SmallX, SmallY, 0xFF, 256, 256);
+
+		m_clsImageList.Create(SmallX, SmallY, 0xFF, 256, 256);
+
 		m_hWndClient = m_view.Create(m_hWnd, rcDefault, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | \
 			WS_CLIPCHILDREN | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_OWNERDATA, 
 			WS_EX_CLIENTEDGE, IDC_LISTCTRL);
@@ -457,7 +567,7 @@ public:
 		// Add column for list view
 		//
 		
-		m_view.SetImageList(m_ImageList, LVSIL_SMALL);
+		m_view.SetImageList(m_clsImageList, LVSIL_SMALL);
 		m_view.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT | LVS_EX_HEADERDRAGDROP | LVS_EX_SUBITEMIMAGES | LVS_EX_DOUBLEBUFFER);
 
 		int n = 1;
@@ -473,8 +583,20 @@ public:
 
 		HICON hDefault = UtilGetDefaultIcon(TRUE);
 		if(hDefault){
-			m_DefaultAppIcon = ImageList_AddIcon(m_ImageList, hDefault);
+			m_DefaultAppIcon = m_clsImageList.AddIcon(hDefault);
 		}
+
+		CIcon IcoProcess;
+		IcoProcess.LoadIcon(IDI_ICON_PROCESS);
+		m_IconProcess = m_clsImageList.AddIcon(IcoProcess);
+
+		CIcon IcoFile;
+		IcoFile.LoadIcon(IDI_ICON_FILE);
+		m_IconFile = m_clsImageList.AddIcon(IcoFile);
+
+		CIcon IcoReg;
+		IcoReg.LoadIcon(IDI_ICON_REGISTERY);
+		m_IconReg = m_clsImageList.AddIcon(IcoReg);
 
 		UIAddToolBar(m_wndToolBar);
 		UISetCheck(ID_VIEW_TOOLBAR, 1);
@@ -489,7 +611,6 @@ public:
 		pLoop->AddMessageFilter(this);
 		pLoop->AddIdleHandler(this);
 
-#if 1
 		if (MONITORMGR().Connect()) {
 			
 			//
@@ -506,7 +627,6 @@ public:
 			
 			MONITORMGR().Start();
 		}
-#endif
 
 		return 0;
 	}
@@ -524,10 +644,8 @@ public:
 
 		bHandled = FALSE;
 
-#if 1
 		MONITORMGR().Stop();
 		MONITORMGR().Destory();
-#endif
 
 		return 1;
 	}
@@ -580,8 +698,14 @@ public:
 	}
 
 private:
-	HIMAGELIST m_ImageList = NULL;
+	CImageList m_clsImageList;
 	std::map<DWORD, int> m_ImageMap;
 	int m_DefaultAppIcon = 0;
 	CToolBarCtrl m_wndToolBar;
+
+	int m_IconProcess = 0;
+	int m_IconFile = 0;
+	int m_IconReg = 0;
+
+	BOOL m_bScrollDown = FALSE;
 };

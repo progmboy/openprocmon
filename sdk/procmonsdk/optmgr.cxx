@@ -167,7 +167,7 @@ VOID COperatorMgr::RemoveFromList(ULONG Seq)
 		m_OperatorMap.erase(Seq);
 	}else{
 		LogMessage(L_INFO, TEXT("Remove Opt seq 0x%x is not exist in list"), Seq);
-		__debugbreak();
+		//__debugbreak();
 		//_getch();
 	}
 }

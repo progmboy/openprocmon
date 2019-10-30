@@ -33,6 +33,12 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="filter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="filtermgr.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -68,6 +74,12 @@
     <ClInclude Include="propevent.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="filter.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="filtermgr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="procmon_gui.rc">
@@ -85,6 +97,15 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="res\tool.bmp">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="res\file.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="res\process.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="res\registry.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

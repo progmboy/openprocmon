@@ -9,6 +9,10 @@
 #define PROP_EVENT                      205
 #define PROP_PROCESS                    206
 #define PROP_STACKTRACE                 207
+#define IDR_TOOL                        215
+#define IDI_ICON_FILE                   219
+#define IDI_ICON_PROCESS                220
+#define IDI_ICON_REGISTERY              221
 #define ID_PROPERITIES_CLOSE            300
 #define IDC_STATIC20                    1000
 #define IDC_PROP_STACKLIST              1036
@@ -27,25 +31,25 @@
 #define IDC_PROCESS_NAME                1203
 #define IDC_PROCESS_VERSION             1204
 #define IDC_PROCESS_MODULES             1205
-#define IDC_BTN_SEARCH                  40106
-
-#define IDR_TOOL        215
-#define ID_BUTTON_ICONS8_SAVE        32775
-#define ID_BUTTON_ICONS8_START        32776
-#define ID_BUTTON_ICONS8_STOP        32777
-#define ID_BUTTON_ICONS8_SCROLLDOWN        32778
-#define ID_BUTTON_ICONS8_SCROLLUP        32779
-#define ID_BUTTON_ICONS8_ERASE        32780
+#define ID_BUTTON_ICONS8_SAVE           32775
+#define ID_BUTTON_ICONS8_START          32776
+#define ID_BUTTON_ICONS8_STOP           32777
+#define ID_BUTTON_ICONS8_SCROLLDOWN     32778
+#define ID_BUTTON_ICONS8_SCROLLUP       32779
+#define ID_BUTTON_ICONS8_ERASE          32780
 #define ID_BUTTON_ICONS8_PROCESS        32781
-#define ID_BUTTON_ICONS8_FILE        32782
-#define ID_BUTTON_ICONS8_REGISTRY        32783
+#define ID_BUTTON_ICONS8_FILE           32782
+#define ID_BUTTON_ICONS8_REGISTRY       32783
+#define ID_BUTTON_ICONS8_OPENEDF        32785
+#define ID_BUTTON_ICONS8_FILTER         32786
+#define IDC_BTN_SEARCH                  40106
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        217
-#define _APS_NEXT_COMMAND_VALUE         32785
+#define _APS_NEXT_RESOURCE_VALUE        222
+#define _APS_NEXT_COMMAND_VALUE         32788
 #define _APS_NEXT_CONTROL_VALUE         1001
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

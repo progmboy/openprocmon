@@ -20,6 +20,7 @@ public:
 	size_t GetShowViewCounts();
 	void ClearShowViews();
 	void Push(CRefPtr<COptView> pOpt);
+	void ApplyNewFilter();
 
 private:
 
@@ -37,4 +38,5 @@ private:
 
 	std::vector<CRefPtr<COptView>> m_ShowViews;
 	std::shared_mutex m_Viewlock;
+	std::shared_mutex m_OptViewlock;
 };
