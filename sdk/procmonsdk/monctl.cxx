@@ -1,10 +1,10 @@
 
 #include "pch.hpp"
-#include "monctl.hpp"
 #include "logger.hpp"
-#include "event.hpp"
-#include "procmgr.hpp"
 #include "eventmgr.hpp"
+#include "monctl.hpp"
+
+#include <assert.h>
 
 #pragma comment(lib, "FltLib.lib")
 
@@ -233,12 +233,9 @@ void CRecvThread::Run()
 		// pass to operator mgr
 		//
 		
-		//DWORD dwOldProtect;
-		//VirtualProtect(pEntries, MAX_PROCMON_MESSAGE_LEN, PAGE_READONLY, &dwOldProtect);
-		if(!OPERATORMGR().ProcessMsgBlocks(pEntries, pMessage->Length)){
+		if(!Singleton<CEventMgr>::getInstance().ProcessMsgBlocks(pEntries, pMessage->Length)){
 			LogMessage(L_WARN, TEXT("Failed to process msg blocks"));
 		}
-		//VirtualProtect(pEntries, MAX_PROCMON_MESSAGE_LEN, dwOldProtect, &dwOldProtect);
 
 	}
 

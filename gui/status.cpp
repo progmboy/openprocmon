@@ -353,6 +353,7 @@ OPT_OPERATOR_MAP gProcOptMap[] = {
 	{NOTIFY_THREAD_EXIT, TEXT("Thread Exit")},
 	{NOTIFY_IMAGE_LOAD, TEXT("Load Image")},
 	{NOTIFY_PROCESS_THREADPERFORMANCE, TEXT("Thread Profile")},
+	{NOTIFY_PROCESS_START, TEXT("Process Start")},
 	{NOTIFY_PROCESS_PERFORMANCE, TEXT("Process Statistics")},
 	{NOTIFY_SYSTEM_PERFORMANCE, TEXT("System Statistics")},
 };

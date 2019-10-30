@@ -168,6 +168,7 @@
     <ClInclude Include="procopt.hpp" />
     <ClInclude Include="refobject.hpp" />
     <ClInclude Include="regopt.hpp" />
+    <ClInclude Include="kernelsdk.hpp" />
     <ClInclude Include="sdk.hpp" />
     <ClInclude Include="singleton.hpp" />
     <ClInclude Include="thread.hpp" />

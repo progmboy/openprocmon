@@ -1,7 +1,7 @@
 
 #include "pch.hpp"
-#include "event.hpp"
 #include "viewer.hpp"
+#include "utils.hpp"
 
 CProcCreateInfoView::CProcCreateInfoView(CRefPtr<CLogEvent> Opt) :
 	CBaseView(Opt)

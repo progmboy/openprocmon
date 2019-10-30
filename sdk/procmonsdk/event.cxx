@@ -3,6 +3,7 @@
 #include "event.hpp"
 #include "eventview.hpp"
 #include "procmgr.hpp"
+
 #include <assert.h>
 
 USHORT CLogEvent::GetNotifyType()

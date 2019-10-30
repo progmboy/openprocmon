@@ -30,9 +30,6 @@
     <ClInclude Include="regopt.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="sdk.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="utils.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -76,6 +73,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="event.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="kernelsdk.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="sdk.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

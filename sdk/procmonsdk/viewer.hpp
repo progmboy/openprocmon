@@ -2,6 +2,7 @@
 
 #include "refobject.hpp"
 #include "event.hpp"
+#include <vector>
 
 class CBaseView
 {

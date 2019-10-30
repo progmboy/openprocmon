@@ -1,7 +1,6 @@
 
 #include "pch.hpp"
 #include "procmgr.hpp"
-#include "eventmgr.hpp"
 #include "procopt.hpp"
 
 BOOL CProcOpt::Process(const CRefPtr<CLogEvent> pEvent)
@@ -25,8 +24,7 @@ BOOL CProcOpt::Process(const CRefPtr<CLogEvent> pEvent)
 		break;
 	case NOTIFY_IMAGE_LOAD:
 	{
-		PLOG_LOADIMAGE_INFO pImageLoadInfo = (PLOG_LOADIMAGE_INFO)((ULONG_PTR)(pEntry + 1) +
-			pEntry->nFrameChainCounts * sizeof(PVOID));
+		PLOG_LOADIMAGE_INFO pImageLoadInfo = TO_EVENT_DATA(PLOG_LOADIMAGE_INFO, pEntry);
 		PROCMGR().InsertModule(pEntry->ProcessSeq, pImageLoadInfo);
 	}
 		break;
@@ -42,3 +40,36 @@ BOOL CProcOpt::IsType(ULONG MonitorType)
 	return MonitorType == MONITOR_TYPE_PROCESS;
 }
 
+CString CProcEvent::GetPath()
+{
+	PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(getPreLog().GetBuffer());
+
+	switch (pEntry->NotifyType)
+	{
+	case NOTIFY_PROCESS_INIT:
+	case NOTIFY_PROCESS_EXIT:
+		break;
+	case NOTIFY_PROCESS_CREATE:
+	{
+		CProcCreateInfoView clsView(this);
+		return clsView.GetImagePath();
+	}
+	break;
+	case NOTIFY_IMAGE_LOAD:
+	{
+		PLOG_LOADIMAGE_INFO pImageLoadInfo = TO_EVENT_DATA(PLOG_LOADIMAGE_INFO, pEntry);
+		CModule Mod(pImageLoadInfo);
+		return Mod.GetPath();
+	}
+	break;
+	default:
+		break;
+	}
+
+	return TEXT("");
+}
+
+CString CProcEvent::GetDetail()
+{
+	return TEXT("TODO");
+}

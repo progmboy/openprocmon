@@ -1,5 +1,6 @@
 
 #include "pch.hpp"
+#include "event.hpp"
 #include "procopt.hpp"
 #include "fileopt.hpp"
 #include "regopt.hpp"

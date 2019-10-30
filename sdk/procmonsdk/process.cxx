@@ -2,6 +2,7 @@
 
 #include "pch.hpp"
 #include "process.hpp"
+#include "utils.hpp"
 
 VOID CProcess::InsertModule(const CModule& mod)
 {

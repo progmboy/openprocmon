@@ -1,5 +1,6 @@
 #pragma once
 
+#include "event.hpp"
 #include "eventmgr.hpp"
 
 class CProcOpt : public IProcessor
@@ -12,13 +13,6 @@ public:
 class CProcEvent : public CLogEvent
 {
 public:
-	virtual CString GetPath()
-	{
-		return TEXT("TODO");
-	}
-
-	virtual CString GetDetail()
-	{
-		return TEXT("TODO");
-	}
+	virtual CString GetPath();
+	virtual CString GetDetail();
 };

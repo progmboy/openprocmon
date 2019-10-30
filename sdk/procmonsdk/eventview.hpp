@@ -1,11 +1,7 @@
 #pragma once
 
-#include <vector>
-#include "refobject.hpp"
-#include "process.hpp"
-#include "module.hpp"
 #include "event.hpp"
-#include "viewer.hpp"
+#include "process.hpp"
 
 class CEventView : public CRefBase
 {

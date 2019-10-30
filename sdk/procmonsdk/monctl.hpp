@@ -1,7 +1,5 @@
 #pragma once
 
-#include "thread.hpp"
-#include "event.hpp"
 
 #define MONITORMGR() Singleton<CMonitorContoller>::getInstance()
 

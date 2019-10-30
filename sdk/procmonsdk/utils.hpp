@@ -1,5 +1,7 @@
 #pragma once
 
+#include "buffer.hpp"
+
 BOOL
 UtilConvertRegInternalToNormal(
 	IN const CString& strInternalPath,
