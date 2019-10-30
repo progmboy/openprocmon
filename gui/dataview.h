@@ -15,11 +15,11 @@ public:
 
 	void SetSelectIndex(size_t Index);
 	size_t GetSelectIndex();
-	CRefPtr<COptView> GetSelectView();
-	CRefPtr<COptView> GetView(size_t Index);
+	CRefPtr<CEventView> GetSelectView();
+	CRefPtr<CEventView> GetView(size_t Index);
 	size_t GetShowViewCounts();
 	void ClearShowViews();
-	void Push(CRefPtr<COptView> pOpt);
+	void Push(CRefPtr<CEventView> pOpt);
 	void ApplyNewFilter();
 
 private:
@@ -30,13 +30,13 @@ private:
 	// 这里保存了所有的消息
 	//
 
-	std::vector<CRefPtr<COptView>> m_OptViews;
+	std::vector<CRefPtr<CEventView>> m_OptViews;
 
 	//
 	// 这里只保存需要显示的消息
 	//
 
-	std::vector<CRefPtr<COptView>> m_ShowViews;
+	std::vector<CRefPtr<CEventView>> m_ShowViews;
 	std::shared_mutex m_Viewlock;
 	std::shared_mutex m_OptViewlock;
 };

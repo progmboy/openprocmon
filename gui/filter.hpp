@@ -55,7 +55,7 @@ public:
 	CFilter(FILTER_SOURCE_TYPE Src, FILTER_CMP_TYPE Cmp, FILTER_RESULT_TYPE Ret, const CString& strFilter);
 	~CFilter();
 
-	CString GetSrc(FILTER_SOURCE_TYPE SrcType, const CRefPtr<COptView> pOptView);
+	CString GetSrc(FILTER_SOURCE_TYPE SrcType, const CRefPtr<CEventView> pOptView);
 	BOOL BeginWith(const CString& strSrc, const CString& strDst);
 	BOOL EndWith(const CString& strSrc, const CString& strDst);
 	BOOL Is(const CString& strSrc, const CString& strDst);
@@ -64,7 +64,7 @@ public:
 	BOOL Morethan(const CString& strSrc, const CString& strDst);
 	BOOL Contains(const CString& strSrc, const CString& strDst);
 	BOOL NotContains(const CString& strSrc, const CString& strDst);
-	BOOL Filter(const CRefPtr<COptView> pOptView);
+	BOOL Filter(const CRefPtr<CEventView> pOptView);
 
 	BOOL FilterTest(const CString& strSrc);
 

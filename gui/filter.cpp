@@ -24,7 +24,7 @@ CFilter::~CFilter()
 CString
 CFilter::GetSrc(
 	FILTER_SOURCE_TYPE SrcType,
-	const CRefPtr<COptView> pOptView)
+	const CRefPtr<CEventView> pOptView)
 {
 	CString strSrc;
 	switch (SrcType)
@@ -218,7 +218,7 @@ CMPFUNCTION gFunctionTable[] =
 
 BOOL 
 CFilter::Filter(
-	const CRefPtr<COptView> pOptView
+	const CRefPtr<CEventView> pOptView
 )
 {
 	BOOL bFilter = FALSE;

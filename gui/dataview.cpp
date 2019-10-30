@@ -45,12 +45,12 @@ size_t CDataView::GetSelectIndex()
 	return m_SelectIndex;
 }
 
-CRefPtr<COptView> CDataView::GetSelectView()
+CRefPtr<CEventView> CDataView::GetSelectView()
 {
 	return GetView(m_SelectIndex);
 }
 
-CRefPtr<COptView> CDataView::GetView(size_t Index)
+CRefPtr<CEventView> CDataView::GetView(size_t Index)
 {
 	if (Index >= m_ShowViews.size()) {
 		return NULL;
@@ -71,7 +71,7 @@ void CDataView::ClearShowViews()
 	m_ShowViews.clear();
 }
 
-void CDataView::Push(CRefPtr<COptView> pOpt)
+void CDataView::Push(CRefPtr<CEventView> pOpt)
 {
 	
 	//
@@ -104,11 +104,12 @@ void CDataView::ApplyNewFilter()
 	ClearShowViews();
 	
 	std::shared_lock<std::shared_mutex> lock(m_OptViewlock);
-	std::unique_lock<std::shared_mutex> lock1(m_Viewlock);
 	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++)
 	{
 		if (!FILETERMGR().Filter(*it)){
+			m_Viewlock.lock();
 			m_ShowViews.push_back(*it);
+			m_Viewlock.unlock();
 		}
 	}
 

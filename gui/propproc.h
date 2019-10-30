@@ -32,7 +32,7 @@ public:
 	{
 		DlgResize_Init(false);
 
-		CRefPtr<COptView> pView = DATAVIEW().GetSelectView();
+		CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
 		if (pView.IsNull()){
 			return 0;
 		}

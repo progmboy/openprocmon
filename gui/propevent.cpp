@@ -8,7 +8,7 @@
 
 LRESULT CPropEventDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
 {
-	CRefPtr<COptView> pView = DATAVIEW().GetSelectView();
+	CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
 	if (pView.IsNull()){
 		return 0;
 	}

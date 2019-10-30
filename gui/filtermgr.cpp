@@ -2,7 +2,7 @@
 #include "stdafx.h"
 #include "filtermgr.h"
 
-BOOL CFilterMgr::Filter(CRefPtr<COptView> pView)
+BOOL CFilterMgr::Filter(CRefPtr<CEventView> pView)
 {
 	std::shared_lock<std::shared_mutex> lock(m_lock);
 	BOOL bFiler = FALSE;

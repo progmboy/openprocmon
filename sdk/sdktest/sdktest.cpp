@@ -3,14 +3,14 @@
 
 
 #include <conio.h>
-#include "../../sdk/procmonsdk/sdk.hpp"
 #include <atltime.h>
+#include "../../sdk/procmonsdk/sdk.hpp"
 
-class CEvent : public IEventCallback
+class CMyEvent : public IEventCallback
 {
 	
 public:
-	virtual BOOL DoEvent(const CRefPtr<COptView> pEventView)
+	virtual BOOL DoEvent(const CRefPtr<CEventView> pEventView)
 	{
 
 		ULONGLONG Time = pEventView->GetStartTime().QuadPart;
@@ -34,12 +34,12 @@ UINT GetSize(UINT Size, UINT Align)
 int main()
 {
 
-#if 0
+#if 1
 	//_getch();
-	COperatorMgr& Optmgr = Singleton<COperatorMgr>::getInstance();
+	CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
 	CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
 	
-	Optmgr.RegisterCallback(new CEvent);
+	Optmgr.RegisterCallback(new CMyEvent);
 
 	//
 	// Try to connect to procmon driver
@@ -78,24 +78,5 @@ int main()
 	Monitormgr.Stop();
 	Monitormgr.Destory();
 #endif
-
-	CString strFile = TEXT("C:\\windows\\system32\\notepad.exe");
-
-// 	CString strVer;
-// 	CString strCompany;
-// 	CString strDesc;
-// 	if(UtilGetFileVersionInfo(strFile, strDesc, strCompany, strVer)){
-// 		LogMessage(L_INFO, TEXT("\"%s\" \"%s\" \"%s\""), strDesc.GetBuffer(), strCompany.GetBuffer(), strVer.GetBuffer());
-// 	}else{
-// 		LogMessage(L_INFO, TEXT("Error"));
-// 	}
-	
-	//CBuffer bufSmall;
-	//CBuffer bufBig;
-	//UtilExtractIcon(strFile, bufSmall, bufBig);
-
-	//UINT nNewSize = (UINT)ceil(nRequestedSize / 1024.0) * 1024;
-
-
 	return 0;
 }

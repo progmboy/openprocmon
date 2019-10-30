@@ -242,7 +242,7 @@ public:
 		return 0;
 	}
 
-	int GetProcessIconIndex(CRefPtr<COptView> pEventView)
+	int GetProcessIconIndex(CRefPtr<CEventView> pEventView)
 	{
 		DWORD dwProcSeq = pEventView->GetProcessSeq();
 		int nImageIndex = -1;
@@ -293,7 +293,7 @@ public:
 
 		int iItem = pItem->iItem;
 
-		CRefPtr<COptView> pEventView = DATAVIEW().GetView(iItem);
+		CRefPtr<CEventView> pEventView = DATAVIEW().GetView(iItem);
 		if (pEventView.IsNull()){
 			return 0;
 		}
@@ -691,7 +691,7 @@ public:
 		return 0;
 	}
 
-	virtual BOOL DoEvent(CRefPtr<COptView> pEventView)
+	virtual BOOL DoEvent(CRefPtr<CEventView> pEventView)
 	{
 		DATAVIEW().Push(pEventView);
 		return TRUE;

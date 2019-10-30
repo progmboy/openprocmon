@@ -28,7 +28,7 @@ public:
 	{
 		DlgResize_Init();
 
-		CRefPtr<COptView> pView = DATAVIEW().GetSelectView();
+		CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
 
 		CWindow wnd1 = this->GetDlgItem(IDC_PROP_STACKLIST);
 		CListViewCtrl* pListCtrl = (CListViewCtrl*)&wnd1;
