@@ -6,11 +6,8 @@
 #include <atltime.h>
 #include "../../sdk/procmonsdk/sdk.hpp"
 
-std::vector<CRefPtr<CEventView>> m_viewList;
-
 class CMyEvent : public IEventCallback
 {
-	
 public:
 	virtual BOOL DoEvent(const CRefPtr<CEventView> pEventView)
 	{
@@ -27,17 +24,10 @@ public:
 	}
 };
 
-UINT GetSize(UINT Size, UINT Align)
-{
-	return  (UINT)ceil(Size / (float)Align) * Align;
-}
-
-
 
 int main()
 {
 
-#if 1
 	CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
 	CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
 	
@@ -79,6 +69,5 @@ int main()
 
 	Monitormgr.Stop();
 	Monitormgr.Destory();
-#endif
 	return 0;
 }
