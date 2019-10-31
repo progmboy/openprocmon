@@ -1,14 +1,14 @@
-# openprocmon
+# Openprocmon
 open source process monitor
 
-## how to use
+## How to use
 
 1. Use the procmon gui. (build and run procmon_gui.exe)
 2. Use the sdk in you project(build and link sdk)
 
 You don't have a digital signature yourself? It doesn't matter. You can use the original procmon driver, this sdk is 100% compatible with the original procmon driver.
 
-## sdk example
+## SDK example
 
 ```cpp
 #include <conio.h>
