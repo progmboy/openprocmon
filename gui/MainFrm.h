@@ -262,7 +262,7 @@ public:
 				//
 				// Load from memory
 				//
-				
+
 				HICON hIcon = CreateIconFromResourceEx(clsIconBuffer.GetBuffer(), 
 					clsIconBuffer.GetBufferLen(), TRUE, 0x30000, 16, 16, 0);
 				if (hIcon){
@@ -515,7 +515,6 @@ public:
 
 		SetMenu(NULL);
 
-		//HWND hWndToolBar = CreateSimpleToolBarCtrl(m_hWnd, IDR_MAINFRAME, FALSE, ATL_SIMPLE_TOOLBAR_PANE_STYLE);
 		m_wndToolBar = CreateSimpleToolBarCtrl(m_hWnd, IDR_TOOL, FALSE, ATL_SIMPLE_TOOLBAR_PANE_STYLE);
 
 
@@ -617,7 +616,7 @@ public:
 			// register call back
 			//
 			
-			OPERATORMGR().RegisterCallback(this);
+			EVENTMGR().RegisterCallback(this);
 			
 			MONITORMGR().SetMonitor(TRUE, TRUE, FALSE);
 

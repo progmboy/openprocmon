@@ -6,6 +6,8 @@
 #include <atltime.h>
 #include "../../sdk/procmonsdk/sdk.hpp"
 
+std::vector<CRefPtr<CEventView>> m_viewList;
+
 class CMyEvent : public IEventCallback
 {
 	
@@ -20,6 +22,7 @@ public:
 			pEventView->GetProcessName().GetBuffer(),
 			pEventView->GetEventOperator(),
 			pEventView->GetPath().GetBuffer());
+		//m_viewList.push_back(pEventView);
 		return TRUE;
 	}
 };
@@ -35,7 +38,6 @@ int main()
 {
 
 #if 1
-	//_getch();
 	CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
 	CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
 	
@@ -60,18 +62,18 @@ int main()
 		return -1;
 	}
 
-	//_getch();
+	_getch();
 	
 	//
 	// try to stop the monitor
 	//
 	
-	//Monitormgr.Stop();
+	Monitormgr.Stop();
 
-	//LogMessage(L_INFO, TEXT("!!!!!monitor stop press any key to start!!!!"));
-	//_getch();
+	LogMessage(L_INFO, TEXT("!!!!!monitor stop press any key to start!!!!"));
+	_getch();
 
-	//Monitormgr.Start();
+	Monitormgr.Start();
 
 	_getch();
 

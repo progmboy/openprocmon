@@ -103,7 +103,7 @@ BOOL CMonitorContoller::Stop()
 {
 	BOOL bRet;
 	bRet = DisableAll();
-	OPERATORMGR().Clear();
+	EVENTMGR().Clear();
 	//PROCMGR().Clear();
 
 	return bRet;

@@ -3,7 +3,7 @@
 #include "event.hpp"
 #include "eventview.hpp"
 
-#define OPERATORMGR() Singleton<CEventMgr>::getInstance()
+#define EVENTMGR() Singleton<CEventMgr>::getInstance()
 
 class IProcessor : public CRefBase
 {
