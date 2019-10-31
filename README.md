@@ -80,6 +80,18 @@ int main()
 
 It is pertty esay right?
 
+## GUI Snapshot
+
+main window:
+
+![main_window](https://github.com/progmboy/openprocmon/blob/master/images/mian_gui.png)
+
+properties windows
+
+![prop_event](https://github.com/progmboy/openprocmon/blob/master/images/prop_event.png)
+![prop_proc](https://github.com/progmboy/openprocmon/blob/master/images/prop_proc.png)
+![prop_stack](https://github.com/progmboy/openprocmon/blob/master/images/prop_stack.png)
+
 ## TODO
 
 ### Example
