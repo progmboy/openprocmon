@@ -1,12 +1,14 @@
-# openprocmon
+# Openprocmon
 open source process monitor
 
-## how to use
+## How to use
 
 1. Use the procmon gui. (build and run procmon_gui.exe)
 2. Use the sdk in you project(build and link sdk)
 
-## sdk example
+You don't have a digital signature yourself? It doesn't matter. You can use the original procmon driver, this sdk is 100% compatible with the original procmon driver.
+
+## SDK example
 
 ```cpp
 #include <conio.h>
@@ -79,6 +81,18 @@ int main()
 ```
 
 It is pertty esay right?
+
+## GUI Snapshot
+
+main window:
+
+![main_window](https://github.com/progmboy/openprocmon/blob/master/images/mian_gui.png)
+
+properties windows
+
+![prop_event](https://github.com/progmboy/openprocmon/blob/master/images/prop_event.png)
+![prop_proc](https://github.com/progmboy/openprocmon/blob/master/images/prop_proc.png)
+![prop_stack](https://github.com/progmboy/openprocmon/blob/master/images/prop_stack.png)
 
 ## TODO
 
