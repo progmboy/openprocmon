@@ -1,5 +1,6 @@
 #pragma once
 
+#include "eopcheck.hpp"
 #include <vector>
 #include <shared_mutex>
 
@@ -39,4 +40,6 @@ private:
 	std::vector<CRefPtr<CEventView>> m_ShowViews;
 	std::shared_mutex m_Viewlock;
 	std::shared_mutex m_OptViewlock;
+
+	CEopCheck m_EopCheck;
 };

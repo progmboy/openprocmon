@@ -146,7 +146,7 @@ typedef struct _LOG_ENTRY
 }LOG_ENTRY, *PLOG_ENTRY;
 
 
-#define TO_EVENT_DATA(_type, _entry) (_type)((PUCHAR)(pEntry + 1) + pEntry->nFrameChainCounts * sizeof(PVOID))
+#define TO_EVENT_DATA(_type, _entry) (_type)((PUCHAR)((PLOG_ENTRY)_entry + 1) + ((PLOG_ENTRY)_entry)->nFrameChainCounts * sizeof(PVOID))
 #define CALC_ENTRY_SIZE(_entry) (((PLOG_ENTRY)_entry)->DataLength + \
 								(sizeof(PVOID) * ((PLOG_ENTRY)_entry)->nFrameChainCounts) + \
 								sizeof(LOG_ENTRY));

@@ -52,7 +52,7 @@ private:
 	CBuffer m_LargeIcon;
 };
 
-class CProcess : public CProcCreateInfoView, 
+class CProcess : public CProcInfoView, 
 	public CRefBase
 {
 public:

@@ -18,7 +18,7 @@ BOOL CFilterMgr::Filter(CRefPtr<CEventView> pView)
 }
 
 void CFilterMgr::AddFilter(
-	FILTER_SOURCE_TYPE SrcType, 
+	MAP_SOURCE_TYPE SrcType, 
 	FILTER_CMP_TYPE CmpType, 
 	FILTER_RESULT_TYPE RetType, 
 	const CString& strDst
@@ -40,7 +40,7 @@ void CFilterMgr::AddFilterEnd(CRefPtr<CFilter> pFilter)
 }
 
 void CFilterMgr::RemovFilter(
-	FILTER_SOURCE_TYPE SrcType,
+	MAP_SOURCE_TYPE SrcType,
 	FILTER_CMP_TYPE CmpType,
 	FILTER_RESULT_TYPE RetType,
 	const CString& strDst

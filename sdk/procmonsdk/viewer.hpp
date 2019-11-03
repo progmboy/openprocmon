@@ -38,6 +38,8 @@ public:
 	DWORD GetProcessSeq();
 	CRefPtr<CLogEvent> GetEvent();
 	DWORD GetCallStack(std::vector<PVOID>& callStacks);
+	BOOL IsImpersonate();
+	BOOL IsImpersonateOpen();
 
 	void SetEvent(CRefPtr<CLogEvent> pEvent);
 
@@ -50,12 +52,12 @@ protected:
 	CRefPtr<CLogEvent> m_Event;
 };
 
-class CProcCreateInfoView : public CBaseView
+class CProcInfoView : public CBaseView
 {
 public:
-	CProcCreateInfoView();
-	CProcCreateInfoView(CRefPtr<CLogEvent> Opt);
-	~CProcCreateInfoView();
+	CProcInfoView();
+	CProcInfoView(CRefPtr<CLogEvent> Opt);
+	~CProcInfoView();
 
 public:
 	virtual BOOL IsValid();
@@ -73,6 +75,8 @@ public:
 	CString GetProcessName();
 	CString GetImagePath();
 	CString GetCommandLine();
+
+	PSID GetUserSid();
 
 private:
 	PLOG_PROCESSCREATE_INFO GetProcCreateInfo();

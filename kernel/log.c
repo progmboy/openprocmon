@@ -281,6 +281,8 @@ Return Value:
 	return Time;
 }
 
+#define MAKEWORD(a, b) ((USHORT)(((UCHAR)(((ULONG_PTR)(a)) & 0xff)) | ((USHORT)((UCHAR)(((USHORT)(b)) & 0xff))) << 8))
+
 PVOID
 ProcmonGetLogEntryAndInit(
 	_In_ UCHAR MonitorType,
@@ -327,7 +329,7 @@ Return Value:
 
 		pLogEntry->Sequence = DstSequence;
 		pLogEntry->NotifyType = NotifyType;
-		pLogEntry->field_A = 0;
+		pLogEntry->field_A = MAKEWORD(ProcmonIsThreadImpersonation(), 1);
 		pLogEntry->MonitorType = MonitorType;
 		pLogEntry->ProcessSeq = Sequence;
 		pLogEntry->Status = Status;
@@ -337,7 +339,6 @@ Return Value:
 		pLogEntry->Time = ProcmonGetTime();
 		RtlCopyMemory(pLogEntry + 1, pStackFrame, sizeof(PVOID) * FrameChainDepth);
 		return (PVOID)((ULONG_PTR)(pLogEntry + 1) + sizeof(PVOID) * FrameChainDepth);
-
 	}
 
 	return NULL;

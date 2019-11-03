@@ -82,6 +82,10 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 		pOpt->GetEventOperator() == NOTIFY_PROCESS_INIT){
 		return;
 	}
+
+	if(!m_EopCheck.Check(pOpt)){
+		return;
+	}
 	
 	m_OptViewlock.lock();
 	m_OptViews.push_back(pOpt);
@@ -91,7 +95,6 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 	// Is filtered?
 	//
 	
-
 	if (!FILETERMGR().Filter(pOpt)){
 		m_Viewlock.lock();
 		m_ShowViews.push_back(pOpt);

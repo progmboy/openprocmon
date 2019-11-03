@@ -80,8 +80,7 @@ CProcMgr::Insert(
 		//
 
 		m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
-	}
-	else {
+	}else{
 
 		if (ProcessFind->IsMarkExit()) {
 
@@ -118,16 +117,16 @@ CProcMgr::Insert(
 
 VOID 
 CProcMgr::Remove(
-	_In_ ULONG Seq
+	_In_ const CRefPtr<CLogEvent> pEvent
 )
 {
-	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(Seq);
+	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(pEvent->GetProcSeq());
 	if (!ProcessFind.IsNull()) {
 		//LogMessage(L_INFO, TEXT("Process id 0x%x seq 0x%x mark with exit"), ProcessFind->GetProcessId(), Seq);
 		//m_ProcessList.erase(Seq);
 		ProcessFind->MarkExit(TRUE);
 	}else{
-		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), Seq);
+		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), pEvent->GetProcSeq());
 	}
 }
 

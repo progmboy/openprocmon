@@ -34,6 +34,8 @@ public:
 	DWORD GetCallStack(std::vector<PVOID>& callStacks);
 	DWORD GetProcessSeq();
 	PLOG_ENTRY GetPreEventEntry();
+	BOOL IsImpersonate();
+	BOOL IsImpersonateOpen();
 
 	//
 	// for Process
@@ -45,6 +47,7 @@ public:
 	DWORD GetParentProcessId();
 	LUID GetAuthId();
 	CString GetUserName();
+	PSID GetUserSid();
 	DWORD GetIntegrity();
 	BOOL IsVirtualize();
 	CString GetProcessName();
@@ -62,7 +65,7 @@ public:
 
 private:
 
-	CProcCreateInfoView m_ProcView;
+	CProcInfoView m_ProcView;
 	CBaseView m_EventView;
 
 	std::vector<CModule> m_ModuleInfo;

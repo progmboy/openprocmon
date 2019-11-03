@@ -35,7 +35,7 @@ public:
 	);
 
 	VOID Remove(
-		_In_ ULONG Seq
+		_In_ const CRefPtr<CLogEvent> pEvent
 	);
 
 	VOID Dump();

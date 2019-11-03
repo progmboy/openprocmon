@@ -10,7 +10,7 @@ VOID CProcess::InsertModule(const CModule& mod)
 }
 
 CProcess::CProcess(CRefPtr<CLogEvent> pEvent) :
-	CProcCreateInfoView(pEvent)
+	CProcInfoView(pEvent)
 {
 	
 	//

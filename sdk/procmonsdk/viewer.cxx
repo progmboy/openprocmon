@@ -3,23 +3,23 @@
 #include "viewer.hpp"
 #include "utils.hpp"
 
-CProcCreateInfoView::CProcCreateInfoView(CRefPtr<CLogEvent> Opt) :
+CProcInfoView::CProcInfoView(CRefPtr<CLogEvent> Opt) :
 	CBaseView(Opt)
 {
 
 }
 
-CProcCreateInfoView::CProcCreateInfoView()
+CProcInfoView::CProcInfoView()
 {
 
 }
 
-CProcCreateInfoView::~CProcCreateInfoView()
+CProcInfoView::~CProcInfoView()
 {
 
 }
 
-BOOL CProcCreateInfoView::IsValid()
+BOOL CProcInfoView::IsValid()
 {
 	if (CBaseView::IsValid()){
 		USHORT Type = m_Event->GetNotifyType();
@@ -31,57 +31,91 @@ BOOL CProcCreateInfoView::IsValid()
 	return FALSE;
 }
 
-DWORD CProcCreateInfoView::GetProcSeq()
+DWORD CProcInfoView::GetProcSeq()
 {
 	return GetProcCreateInfo()->Seq;
 }
 
-DWORD CProcCreateInfoView::GetProcessId()
+DWORD CProcInfoView::GetProcessId()
 {
 	return GetProcCreateInfo()->ProcessId;
 }
 
-DWORD CProcCreateInfoView::GetSessionId()
+DWORD CProcInfoView::GetSessionId()
 {
 	return GetProcCreateInfo()->SessionId;
 }
 
-DWORD CProcCreateInfoView::GetParentProcessId()
+DWORD CProcInfoView::GetParentProcessId()
 {
 	return GetProcCreateInfo()->ParentId;
 }
 
-LUID CProcCreateInfoView::GetAuthId()
+LUID CProcInfoView::GetAuthId()
 {
 	return GetProcCreateInfo()->AuthenticationId;
 }
 
-CString CProcCreateInfoView::GetUserName()
+CString CProcInfoView::GetUserName()
 {
 	return TEXT("");
 }
 
-DWORD CProcCreateInfoView::GetIntegrity()
+DWORD CProcInfoView::GetIntegrity()
 {
-	return 0;
+	
+	//
+	// Get the sid buffer
+	//
+	
+	DWORD dwIntegrity = 0;
+
+	PLOG_PROCESSCREATE_INFO pCreateInfo = GetProcCreateInfo();
+	if (pCreateInfo){
+		PUCHAR pBufferTemp = (PUCHAR)(pCreateInfo + 1);
+		
+		//
+		// Skip user SID
+		//
+
+		pBufferTemp += pCreateInfo->SidLength;
+
+		PSID pIntegritySid = (PSID)pBufferTemp;
+		
+		//
+		// Is valid sid
+		//
+		
+		if (IsValidSid(pIntegritySid)){
+			
+			//
+			// Get integrity level
+			//
+
+			dwIntegrity = *GetSidSubAuthority(pIntegritySid, (DWORD)(*GetSidSubAuthorityCount(pIntegritySid) - 1));
+		}
+	}
+
+
+	return dwIntegrity;
 }
 
-BOOL CProcCreateInfoView::IsVirtualize()
+BOOL CProcInfoView::IsVirtualize()
 {
 	return GetProcCreateInfo()->TokenVirtualizationEnabled != 0;
 }
 
-BOOL CProcCreateInfoView::IsWow64()
+BOOL CProcInfoView::IsWow64()
 {
 	return !GetProcCreateInfo()->IsWow64;
 }
 
-CString CProcCreateInfoView::GetProcessName()
+CString CProcInfoView::GetProcessName()
 {
 	return CString(PathFindFileName(GetImagePath()));
 }
 
-CString CProcCreateInfoView::GetImagePath()
+CString CProcInfoView::GetImagePath()
 {
 	CString strProcessName;
 	PLOG_PROCESSCREATE_INFO pCreateInfo = GetProcCreateInfo();
@@ -106,7 +140,7 @@ CString CProcCreateInfoView::GetImagePath()
 	return strProcessName;
 }
 
-CString CProcCreateInfoView::GetCommandLine()
+CString CProcInfoView::GetCommandLine()
 {
 	CString strCmdline;
 	PLOG_PROCESSCREATE_INFO pCreateInfo = GetProcCreateInfo();
@@ -121,9 +155,19 @@ CString CProcCreateInfoView::GetCommandLine()
 	return strCmdline;
 }
 
+PSID CProcInfoView::GetUserSid()
+{
+	PLOG_PROCESSCREATE_INFO pCreateInfo = GetProcCreateInfo();
+
+	if (pCreateInfo) {
+		return (PSID)(pCreateInfo + 1);
+	}
+	return NULL;
+}
+
 FORCEINLINE
 PLOG_PROCESSCREATE_INFO 
-CProcCreateInfoView::GetProcCreateInfo()
+CProcInfoView::GetProcCreateInfo()
 {
 	if (m_Event->getPreLog().GetBufferLen()){
 		PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(m_Event->getPreLog().GetBuffer());
@@ -245,4 +289,19 @@ CBaseView::GetPostLogEntry()
 {
 	return reinterpret_cast<PLOG_ENTRY>
 		(m_Event->getPostLog().GetBuffer());
+}
+
+BOOL CBaseView::IsImpersonate()
+{
+	USHORT Value = GetPreLogEntry()->field_A;
+	if (HIBYTE(Value) == 1) {
+		return LOBYTE(Value);
+	}
+	return FALSE;
+}
+
+BOOL CBaseView::IsImpersonateOpen()
+{
+	USHORT Value = GetPreLogEntry()->field_A;
+	return HIBYTE(Value);
 }

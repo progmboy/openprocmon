@@ -73,3 +73,6 @@ ProcmonSafeCopy(
 	_In_ PVOID pSrcBuffer,
 	_Inout_ PULONG pLength
 );
+
+BOOLEAN
+ProcmonIsThreadImpersonation();

@@ -39,6 +39,9 @@
     <ClCompile Include="filtermgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="eopcheck.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -78,6 +81,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="filtermgr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="eopcheck.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
