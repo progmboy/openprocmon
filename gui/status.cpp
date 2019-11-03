@@ -1,8 +1,8 @@
 
 #include "stdafx.h"
 #include <tchar.h>
-
 #include <winternl.h>
+#include "status.h"
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L) 
 #define STATUS_UNSUCCESSFUL ((NTSTATUS)0xC0000001L)
@@ -380,52 +380,6 @@ OPT_OPERATOR_MAP gRegOptMap[] = {
 	{NOTIFY_REG_QUERYKEYSECURITY, TEXT("RegQueryKeySecurity")},
 };
 
-#define IRP_MJ_CREATE                   0x00
-#define IRP_MJ_CREATE_NAMED_PIPE        0x01
-#define IRP_MJ_CLOSE                    0x02
-#define IRP_MJ_READ                     0x03
-#define IRP_MJ_WRITE                    0x04
-#define IRP_MJ_QUERY_INFORMATION        0x05
-#define IRP_MJ_SET_INFORMATION          0x06
-#define IRP_MJ_QUERY_EA                 0x07
-#define IRP_MJ_SET_EA                   0x08
-#define IRP_MJ_FLUSH_BUFFERS            0x09
-#define IRP_MJ_QUERY_VOLUME_INFORMATION 0x0a
-#define IRP_MJ_SET_VOLUME_INFORMATION   0x0b
-#define IRP_MJ_DIRECTORY_CONTROL        0x0c
-#define IRP_MJ_FILE_SYSTEM_CONTROL      0x0d
-#define IRP_MJ_DEVICE_CONTROL           0x0e
-#define IRP_MJ_INTERNAL_DEVICE_CONTROL  0x0f
-#define IRP_MJ_SHUTDOWN                 0x10
-#define IRP_MJ_LOCK_CONTROL             0x11
-#define IRP_MJ_CLEANUP                  0x12
-#define IRP_MJ_CREATE_MAILSLOT          0x13
-#define IRP_MJ_QUERY_SECURITY           0x14
-#define IRP_MJ_SET_SECURITY             0x15
-#define IRP_MJ_POWER                    0x16
-#define IRP_MJ_SYSTEM_CONTROL           0x17
-#define IRP_MJ_DEVICE_CHANGE            0x18
-#define IRP_MJ_QUERY_QUOTA              0x19
-#define IRP_MJ_SET_QUOTA                0x1a
-#define IRP_MJ_PNP                      0x1b
-
-#define IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION   ((UCHAR)-1)
-#define IRP_MJ_RELEASE_FOR_SECTION_SYNCHRONIZATION   ((UCHAR)-2)
-#define IRP_MJ_ACQUIRE_FOR_MOD_WRITE                 ((UCHAR)-3)
-#define IRP_MJ_RELEASE_FOR_MOD_WRITE                 ((UCHAR)-4)
-#define IRP_MJ_ACQUIRE_FOR_CC_FLUSH                  ((UCHAR)-5)
-#define IRP_MJ_RELEASE_FOR_CC_FLUSH                  ((UCHAR)-6)
-#define IRP_MJ_QUERY_OPEN                            ((UCHAR)-7)
-
-#define IRP_MJ_FAST_IO_CHECK_IF_POSSIBLE             ((UCHAR)-13)
-#define IRP_MJ_NETWORK_QUERY_OPEN                    ((UCHAR)-14)
-#define IRP_MJ_MDL_READ                              ((UCHAR)-15)
-#define IRP_MJ_MDL_READ_COMPLETE                     ((UCHAR)-16)
-#define IRP_MJ_PREPARE_MDL_WRITE                     ((UCHAR)-17)
-#define IRP_MJ_MDL_WRITE_COMPLETE                    ((UCHAR)-18)
-#define IRP_MJ_VOLUME_MOUNT                          ((UCHAR)-19)
-#define IRP_MJ_VOLUME_DISMOUNT                       ((UCHAR)-20)
-
 
 #define FILE_SUB_OPT_DEF(_minjor, _fastioname, _show) {_minjor, _fastioname, _show}
 #define FILE_SUB_OPT_DEF_END() {0, NULL, NULL}
@@ -696,4 +650,204 @@ GetOperatorStringMap(
 	}
 
 	return NULL;
+}
+
+LPCTSTR
+GetIntegrityLevelDesc(DWORD dwIntegrityLevel)
+{
+	switch (dwIntegrityLevel)
+	{
+	case SECURITY_MANDATORY_LOW_RID:
+		return TEXT("Low");
+	case SECURITY_MANDATORY_MEDIUM_RID:
+		return TEXT("Medium");
+	case SECURITY_MANDATORY_MEDIUM_PLUS_RID:
+		return TEXT("Medium+");
+	case SECURITY_MANDATORY_UNTRUSTED_RID:
+		return TEXT("Untrusted");
+	case SECURITY_MANDATORY_HIGH_RID:
+		return TEXT("High");
+	case SECURITY_MANDATORY_SYSTEM_RID:
+		return TEXT("System");
+	case SECURITY_MANDATORY_PROTECTED_PROCESS_RID:
+		return TEXT("Protected");
+	default:
+		return TEXT("Invalid");
+	}
+}
+
+CString
+GetUserNameFromSid(
+	IN PSID pSid
+)
+{
+
+	CString strUserName;
+	DWORD dwNameLength = 0, dwDomainNameLength = 0;
+	SID_NAME_USE Use;
+	BOOL bRet = FALSE;
+	LPTSTR pName = NULL, pDomainName = NULL;
+	LPTSTR pStrSid = NULL;
+
+	//
+	// Is local user SID?
+	//
+
+	bRet = LookupAccountSid(NULL, pSid, NULL, &dwNameLength, NULL, &dwDomainNameLength, &Use);
+	if (!bRet && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+
+		//
+		// Allocate buffer for Names
+		//
+
+		if (dwNameLength) {
+			pName = (LPTSTR)LocalAlloc(0, dwNameLength * sizeof(TCHAR));
+		}
+
+		if (dwDomainNameLength) {
+			pDomainName = (LPTSTR)LocalAlloc(0, dwDomainNameLength * sizeof(TCHAR));
+		}
+
+		//
+		// Call the function again
+		//
+
+		bRet = LookupAccountSid(NULL, pSid, pName, &dwNameLength, pDomainName, &dwDomainNameLength, &Use);
+		if (bRet) {
+
+			//
+			// Show SID first
+			//
+
+			if (dwDomainNameLength) {
+				strUserName.Format(TEXT("%s\\%s"), pDomainName, pName);
+			}else{
+				strUserName = pName;
+			}
+		}
+	}else{
+
+		//
+		// Can not convert to local user name. just show SID string
+		//
+
+		strUserName = pStrSid;
+	}
+
+	if (pStrSid) {
+		LocalFree(pStrSid);
+	}
+
+	if (pName) {
+		LocalFree(pName);
+	}
+
+	if (pDomainName) {
+		LocalFree(pDomainName);
+	}
+
+	return strUserName;
+}
+
+CString
+MapMonitorResult(
+	MAP_SOURCE_TYPE SrcType,
+	const CRefPtr<CEventView> pOptView)
+{
+	CString strSrc;
+	switch (SrcType)
+	{
+	case emArchiteture:
+		strSrc = pOptView->IsWow64() ? TEXT("32-bit") : TEXT("64-bit");
+		break;
+	case emAuthId:
+		LUID AuthId = pOptView->GetAuthId();
+		strSrc.Format(TEXT("%08x:%08x"), AuthId.HighPart, AuthId.LowPart);
+		break;
+	case emCategory:
+		break;
+	case emCommandLine:
+		strSrc = pOptView->GetCommandLine();
+		break;
+	case emCompany:
+		strSrc = pOptView->GetCompanyName();
+		break;
+	case emCompletionTime:
+		strSrc = UtilConvertTimeOfDay(pOptView->GetCompleteTime());
+		break;
+	case emDataTime:
+		strSrc = UtilConvertDay(pOptView->GetStartTime());
+		break;
+	case emDescription:
+		strSrc = pOptView->GetDisplayName();
+		break;
+	case emDetail:
+		strSrc = pOptView->GetDetail();
+		break;
+	case emDuration:
+
+		//
+		// TODO
+		//
+
+		break;
+	case emEventClass:
+		strSrc = GetClassStringMap(pOptView->GetEventClass());
+		break;
+	case emImagePath:
+		strSrc = pOptView->GetImagePath();
+		break;
+	case emIntegrity:
+		strSrc = GetIntegrityLevelDesc(pOptView->GetIntegrity());
+		break;
+	case emOperation:
+		strSrc = GetOperatorStringMap(pOptView->GetPreEventEntry());
+		break;
+	case emParentPid:
+		strSrc.Format(TEXT("%d"), pOptView->GetParentProcessId());
+		break;
+	case emPath:
+		strSrc = pOptView->GetPath();
+		break;
+	case emPID:
+		strSrc.Format(TEXT("%d"), pOptView->GetProcessId());
+		break;
+	case emProcessName:
+		strSrc = pOptView->GetProcessName();
+		break;
+	case emRelativeTime:
+
+		//
+		// TODO
+		//
+
+		break;
+	case emResult:
+		strSrc = StatusGetDesc(pOptView->GetResult());
+		break;
+	case emSequence:
+		strSrc.Format(TEXT("%lu"), pOptView->GetSeqNumber());
+		break;
+	case emSession:
+		strSrc.Format(TEXT("%u"), pOptView->GetSessionId());
+		break;
+	case emTID:
+		strSrc.Format(TEXT("%d"), pOptView->GetThreadId());
+		break;
+	case emTimeOfDay:
+		strSrc = UtilConvertTimeOfDay(pOptView->GetStartTime());
+		break;
+	case emUser:
+		strSrc = GetUserNameFromSid(pOptView->GetUserSid());
+		break;
+	case emVersion:
+		strSrc = pOptView->GetVersion();
+		break;
+	case emVirtualize:
+		strSrc = pOptView->IsVirtualize() ? TEXT("True") : TEXT("False");
+	default:
+		break;
+	}
+
+	return strSrc;
 }

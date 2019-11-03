@@ -51,7 +51,7 @@ CString CProcEvent::GetPath()
 		break;
 	case NOTIFY_PROCESS_CREATE:
 	{
-		CProcCreateInfoView clsView(this);
+		CProcInfoView clsView(this);
 		return clsView.GetImagePath();
 	}
 	break;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "status.h"
 #include "dataview.h"
 
 extern
@@ -37,7 +38,7 @@ public:
 			return 0;
 		}
 
-
+		CString strTmp;
 		CWindow wnd = this->GetDlgItem(1029);
 		CStatic* pImg = (CStatic*)&wnd;
 
@@ -61,42 +62,49 @@ public:
 
 		pImg->SetIcon(hIcon);
 
-		this->GetDlgItem(1035).SetWindowText(pView->GetDisplayName());
-		this->GetDlgItem(1034).SetWindowText(pView->GetCompanyName());
-		this->GetDlgItem(IDC_PROCESS_NAME).SetWindowText(pView->GetProcessName());
-		this->GetDlgItem(IDC_PROCESS_VERSION).SetWindowText(pView->GetVersion());
+		this->GetDlgItem(1035).SetWindowText(MapMonitorResult(emDescription, pView));
+		this->GetDlgItem(1034).SetWindowText(MapMonitorResult(emCompany, pView));
+		this->GetDlgItem(IDC_PROCESS_NAME).SetWindowText(MapMonitorResult(emProcessName, pView));
+		this->GetDlgItem(IDC_PROCESS_VERSION).SetWindowText(MapMonitorResult(emVersion, pView));
 
-		this->GetDlgItem(IDC_PROCESS_PATH).SetWindowText(pView->GetImagePath());
-		this->GetDlgItem(IDC_PROCESS_CMDLINE).SetWindowText(pView->GetCommandLine());
+		this->GetDlgItem(IDC_PROCESS_PATH).SetWindowText(MapMonitorResult(emImagePath, pView));
+		this->GetDlgItem(IDC_PROCESS_CMDLINE).SetWindowText(MapMonitorResult(emCommandLine, pView));
 
-		CString strTmp;
 
-		strTmp.Format(TEXT("%d"), pView->GetProcessId());
-		this->GetDlgItem(1137).SetWindowText(strTmp);
+		this->GetDlgItem(1137).SetWindowText(MapMonitorResult(emPID, pView));
+		this->GetDlgItem(1136).SetWindowText(MapMonitorResult(emParentPid, pView));
+		this->GetDlgItem(1135).SetWindowText(MapMonitorResult(emSession, pView));
 
-		strTmp.Format(TEXT("%d"), pView->GetParentProcessId());
-		this->GetDlgItem(1136).SetWindowText(strTmp);
+		
+		//
+		// User
+		//
+		
+		this->GetDlgItem(1134).SetWindowText(MapMonitorResult(emUser, pView));
 
-		strTmp.Format(TEXT("%d"), pView->GetSessionId());
-		this->GetDlgItem(1135).SetWindowText(strTmp);
+		//
+		// StartTime
+		//
+		
+		this->GetDlgItem(1133).SetWindowText(MapMonitorResult(emDataTime, pView));
 
-		strTmp = TEXT("TODO");
-		this->GetDlgItem(1134).SetWindowText(strTmp);
+		//
+		// Ended
+		//
+		
+		//strTmp = pView->IsRuning() ? TEXT("Runing") : UtilConvertTimeOfDay(pView->GetExitTime());
+		this->GetDlgItem(1142).SetWindowText(TEXT("TODO"));
 
-		strTmp = TEXT("TODO");
-		this->GetDlgItem(1133).SetWindowText(strTmp);
+		this->GetDlgItem(1138).SetWindowText(MapMonitorResult(emArchiteture, pView));
+		this->GetDlgItem(1139).SetWindowText(MapMonitorResult(emAuthId, pView));
+		this->GetDlgItem(1140).SetWindowText(MapMonitorResult(emVirtualize, pView));
 
-		strTmp = TEXT("TODO");
-		this->GetDlgItem(1142).SetWindowText(strTmp);
-
-		strTmp = pView->IsWow64() ? TEXT("32-bit") : TEXT("64-bit");
-		this->GetDlgItem(1138).SetWindowText(strTmp);
-
-		strTmp = pView->IsVirtualize() ? TEXT("True") : TEXT("False");
-		this->GetDlgItem(1140).SetWindowText(strTmp);
-
-		strTmp = TEXT("TODO");
-		this->GetDlgItem(1141).SetWindowText(strTmp);
+		
+		//
+		// Integrity
+		//
+		
+		this->GetDlgItem(1141).SetWindowText(MapMonitorResult(emIntegrity, pView));
 
 		
 		//
@@ -126,6 +134,8 @@ public:
 			
 			strTmp.Format(TEXT("%08x"), it->GetSize());
 			pListCtrl->SetItemText(nIndex, 2, strTmp);
+
+			pListCtrl->SetItemText(nIndex, 3, it->GetPath());
 
 			nIndex++;
 		}

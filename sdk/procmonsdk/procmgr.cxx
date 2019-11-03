@@ -80,8 +80,7 @@ CProcMgr::Insert(
 		//
 
 		m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
-	}
-	else {
+	}else{
 
 		if (ProcessFind->IsMarkExit()) {
 

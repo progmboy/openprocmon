@@ -4,6 +4,7 @@
 class CModule
 {
 public:
+	CModule();
 	CModule(_In_ PLOG_LOADIMAGE_INFO pInfo);
 	~CModule();
 

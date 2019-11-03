@@ -5,7 +5,7 @@
 #include "status.h"
 
 CFilter::CFilter(
-	FILTER_SOURCE_TYPE Src, 
+	MAP_SOURCE_TYPE Src, 
 	FILTER_CMP_TYPE Cmp, 
 	FILTER_RESULT_TYPE Ret, 
 	const CString& strFilter
@@ -18,120 +18,6 @@ m_strFilter(strFilter)
 CFilter::~CFilter()
 {
 
-}
-
-
-CString
-CFilter::GetSrc(
-	FILTER_SOURCE_TYPE SrcType,
-	const CRefPtr<CEventView> pOptView)
-{
-	CString strSrc;
-	switch (SrcType)
-	{
-	case emArchiteture:
-		strSrc = pOptView->IsWow64() ? TEXT("32-bit") : TEXT("64-bit");
-		break;
-	case emAuthId:
-		LUID AuthId = pOptView->GetAuthId();
-		strSrc.Format(TEXT("%08x:%08x"), AuthId.HighPart, AuthId.LowPart);
-		break;
-	case emCategory:
-		break;
-	case emCommandLine:
-		strSrc = pOptView->GetCommandLine();
-		break;
-	case emCompany:
-		strSrc = pOptView->GetCompanyName();
-		break;
-	case emCompletionTime:
-		break;
-	case emDataTime:
-		break;
-	case emDescription:
-		strSrc = pOptView->GetDisplayName();
-		break;
-	case emDetail:
-		strSrc = pOptView->GetDetail();
-		break;
-	case emDuration:
-		
-		//
-		// TODO
-		//
-		
-		break;
-	case emEventClass:
-		strSrc = GetClassStringMap(pOptView->GetEventClass());
-		break;
-	case emImagePath:
-		strSrc = pOptView->GetImagePath();
-		break;
-	case emIntegrity:
-		
-		//
-		// TODO
-		//
-		
-		break;
-	case emOperation:
-		strSrc = GetOperatorStringMap(pOptView->GetPreEventEntry());
-		break;
-	case emParentPid:
-		strSrc.Format(TEXT("%d"), pOptView->GetParentProcessId());
-		break;
-	case emPath:
-		strSrc = pOptView->GetPath();
-		break;
-	case emPID:
-		strSrc.Format(TEXT("%d"), pOptView->GetProcessId());
-		break;
-	case emProcessName:
-		strSrc = pOptView->GetProcessName();
-		break;
-	case emRelativeTime:
-		
-		//
-		// TODO
-		//
-		
-		break;
-	case emResult:
-		strSrc = StatusGetDesc(pOptView->GetResult());
-		break;
-	case emSequence:
-		strSrc.Format(TEXT("%lu"), pOptView->GetSeqNumber());
-		break;
-	case emSession:
-		strSrc.Format(TEXT("%u"), pOptView->GetSessionId());
-		break;
-	case emTID:
-		strSrc.Format(TEXT("%d"), pOptView->GetThreadId());
-		break;
-	case emTimeOfDay:
-		
-		//
-		// TODO
-		//
-		
-		break;
-	case emUser:
-		
-		//
-		// TODO
-		//
-		
-		break;
-	case emVersion:
-		strSrc = pOptView->GetVersion();
-		break;
-	case emVirtualize:
-		strSrc = pOptView->IsVirtualize() ? TEXT("True") : TEXT("False");
-	default:
-		break;
-	}
-
-	return strSrc;
 }
 
 typedef BOOL (CFilter::* CMPFUNCTION)(const CString& strSrc, const CString& strDst);
@@ -223,7 +109,7 @@ CFilter::Filter(
 {
 	BOOL bFilter = FALSE;
 	CString strSrc;
-	strSrc = GetSrc(m_SrcType, pOptView);
+	strSrc = MapMonitorResult(m_SrcType, pOptView);
 	
 	//
 	// Do not filter if is empty

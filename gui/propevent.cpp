@@ -17,26 +17,21 @@ LRESULT CPropEventDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 
 	GetDlgItem(1040).SetWindowText(strTime);
 
-	CString strTmp;
+	GetDlgItem(1029).SetWindowText(MapMonitorResult(emTID, pView));
 
-	strTmp.Format(TEXT("%d"), pView->GetThreadId());
-	GetDlgItem(1029).SetWindowText(strTmp);
+	GetDlgItem(1030).SetWindowText(MapMonitorResult(emEventClass, pView));
 
-	//strTmp.Format(TEXT("%d"), pView->GetEventClass());
-	strTmp = GetClassStringMap(pView->GetEventClass());
-	GetDlgItem(1030).SetWindowText(strTmp);
-
-	//strTmp.Format(TEXT("%d"), pView->GetEventOperator());
-	strTmp = GetOperatorStringMap(pView->GetPreEventEntry());
-	GetDlgItem(1041).SetWindowText(strTmp);
-	
-	strTmp = StatusGetDesc(pView->GetResult());
-	GetDlgItem(1042).SetWindowText(strTmp);
+	GetDlgItem(1041).SetWindowText(MapMonitorResult(emOperation, pView));
+	GetDlgItem(1042).SetWindowText(MapMonitorResult(emResult, pView));
 
 	GetDlgItem(1027).SetWindowText(pView->GetPath());
 	
-	strTmp.Format(TEXT("TODO %d"), 0);
-	GetDlgItem(1028).SetWindowText(strTmp);
+	
+	//
+	// Duration
+	//
+	
+	GetDlgItem(1028).SetWindowText(MapMonitorResult(emDuration, pView));
 	
 	GetDlgItem(1017).SetWindowText(pView->GetDetail());
 

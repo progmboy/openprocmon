@@ -119,6 +119,11 @@ CString CEventView::GetUserName()
 	return m_ProcView.GetUserName();
 }
 
+PSID CEventView::GetUserSid()
+{
+	return m_ProcView.GetUserSid();
+}
+
 DWORD CEventView::GetIntegrity()
 {
 	return m_ProcView.GetIntegrity();
@@ -148,6 +153,7 @@ BOOL CEventView::IsWow64()
 {
 	return m_ProcView.IsWow64();
 }
+
 
 CBuffer& CEventView::GetProcIcon(BOOL bSmall)
 {

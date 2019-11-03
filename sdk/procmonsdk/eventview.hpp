@@ -45,6 +45,7 @@ public:
 	DWORD GetParentProcessId();
 	LUID GetAuthId();
 	CString GetUserName();
+	PSID GetUserSid();
 	DWORD GetIntegrity();
 	BOOL IsVirtualize();
 	CString GetProcessName();
