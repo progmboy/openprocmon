@@ -1,5 +1,6 @@
 #pragma once
 
+
 class CDrvLoader
 {
 public:
@@ -15,12 +16,12 @@ public:
 	BOOL EnablePrivilege();
 	BOOL Load();
 	BOOL UnLoad();
+	BOOL IsReady();
 
 private:
 
 	BOOL CreateServiceKey();
 	VOID DeleteServiceKey();
-	BOOL IsReady();
 
 private:
 

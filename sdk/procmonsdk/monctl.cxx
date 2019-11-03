@@ -21,21 +21,48 @@ CMonitorContoller::~CMonitorContoller()
 
 BOOL CMonitorContoller::Connect()
 {
+	BOOL bOk = FALSE;
 	ULONG Flag = 0;
-	HRESULT hResult = FilterConnectCommunicationPort(PROCMON_PORTNAME,
-		0,
-		&Flag,
-		sizeof(ULONG),
-		NULL,
-		&m_hPort);
+	int i = 2;
 
-	if (IS_ERROR(hResult)) {
-		LogMessage(L_ERROR, TEXT("Could not connect to filter: 0x%08x"), hResult);
-		return FALSE;
+	while (i--)
+	{
+		HRESULT hResult = FilterConnectCommunicationPort(PROCMON_PORTNAME,
+			0,
+			&Flag,
+			sizeof(ULONG),
+			NULL,
+			&m_hPort);
+
+		if (IS_ERROR(hResult)) {
+
+			//
+			// Try to load driver
+			//
+
+			if (hResult == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)){
+				CDrvLoader& drvLoader = Singleton<CDrvLoader>::getInstance();
+				if (drvLoader.IsReady() && drvLoader.Load()) {
+					continue;
+				}else{
+					LogMessage(L_ERROR, TEXT("Could not connect to filter: 0x%08x"), hResult);
+					return FALSE;
+				}
+			}else{
+				break;
+			}
+
+		}else{
+			bOk = TRUE;
+			break;
+		}
+	}
+
+	if (bOk){
+		m_RecvThread.Init(m_hPort);
 	}
 	
-	m_RecvThread.Init(m_hPort);
-	return TRUE;
+	return bOk;
 }
 
 VOID 

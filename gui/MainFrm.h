@@ -516,6 +516,13 @@ public:
 
 	LRESULT OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
 	{
+
+		CDrvLoader& Drvload = Singleton<CDrvLoader>::getInstance();
+		CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
+		CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
+
+		Drvload.Init(TEXT("PROCMON24"), TEXT("procmon.sys"));
+
 		//
 		// create command bar window
 		//
@@ -635,21 +642,22 @@ public:
 		pLoop->AddMessageFilter(this);
 		pLoop->AddIdleHandler(this);
 
-		if (MONITORMGR().Connect()) {
+		if (Monitormgr.Connect()) {
 			
 			//
 			// register call back
 			//
 			
-			EVENTMGR().RegisterCallback(this);
-			
-			MONITORMGR().SetMonitor(TRUE, TRUE, FALSE);
+			Optmgr.RegisterCallback(this);
+			Monitormgr.SetMonitor(TRUE, TRUE, FALSE);
 
 			//
 			// start
 			//
 			
-			MONITORMGR().Start();
+			Monitormgr.Start();
+		}else{
+			MessageBox(TEXT("Failed to connect driver"), TEXT("Failed"), MB_OK | MB_ICONERROR);
 		}
 
 		return 0;

@@ -116,9 +116,6 @@
     <ClCompile Include="fileopt.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="utils.cc">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="viewer.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -132,6 +129,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="event.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="utils.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

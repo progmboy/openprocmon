@@ -63,6 +63,8 @@ public:
 	VOID Dump();
 	VOID InsertModule(const CModule& mod);
 
+	VOID SetExitEvent(CRefPtr<CLogEvent> pEvent);
+
 	VOID MarkExit(BOOL bMark)
 	{
 		m_bMarkExit = bMark;
@@ -75,9 +77,11 @@ public:
 
 	std::vector<CModule>& GetModuleList();
 	CRefPtr<CProcInfo> GetProcInfo();
+	CRefPtr<CLogEvent> GetExitEvent();
 
 private:
 	BOOL m_bMarkExit = FALSE;
 	std::vector<CModule> m_ModuleList;
 	CRefPtr<CProcInfo> m_ProcessInfo;
+	CRefPtr<CLogEvent> m_ProcessExit;
 };
