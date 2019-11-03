@@ -219,8 +219,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AboutDlg.h" />
+    <ClInclude Include="filerdlg.h" />
     <ClInclude Include="filter.hpp" />
     <ClInclude Include="filtermgr.h" />
+    <ClInclude Include="fltprocess.h" />
     <ClInclude Include="propevent.h" />
     <ClInclude Include="dataview.h" />
     <ClInclude Include="MainFrm.h" />

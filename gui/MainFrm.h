@@ -128,6 +128,7 @@ public:
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILTER, OnFilterClick)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_PROCESS, OnFilterProcessClick)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILE, OnFilterFileClick)
+		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_REGISTRY, OnFilterRegClick)
 
 		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnEventProperties)
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
@@ -158,7 +159,9 @@ public:
 			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_PROCESS));
 		}
 
-		DATAVIEW().ApplyNewFilter();
+		CFltProcessDlg Dlg;
+		Dlg.DoModal();
+
 		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
 
 		return 0;
@@ -174,7 +177,27 @@ public:
 			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_FILE));
 		}
 
-		DATAVIEW().ApplyNewFilter();
+		CFltProcessDlg Dlg;
+		Dlg.DoModal();
+
+		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+
+		return 0;
+	}
+
+	LRESULT OnFilterRegClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_REGISTRY);
+
+		if (bShow) {
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_REG));
+		}else{
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_REG));
+		}
+
+		CFltProcessDlg Dlg;
+		Dlg.DoModal();
+
 		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
 
 		return 0;
@@ -188,7 +211,9 @@ public:
 
 	LRESULT OnFilterClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
-		MessageBox(TEXT("TODO"));
+		//MessageBox(TEXT("TODO"));
+		CFilterDlg Dlg;
+		Dlg.DoModal();
 		return 0;
 	}
 

@@ -3,6 +3,7 @@
 // Used by procmon_gui.rc
 //
 #define IDD_ABOUTBOX                    100
+#define IDC_FILTER_CANCEL               106
 #define IDR_MAINFRAME                   128
 #define IDC_LISTCTRL                    129
 #define IDD_DIALOG_PROPERTIES           204
@@ -13,8 +14,13 @@
 #define IDI_ICON_FILE                   219
 #define IDI_ICON_PROCESS                220
 #define IDI_ICON_REGISTERY              221
+#define IDD_PROGRESS                    222
+#define FILTER_INIT                     223
 #define ID_PROPERITIES_CLOSE            300
 #define IDC_STATIC20                    1000
+#define IDC_FILTER_OPT                  1018
+#define IDC_FILTER_SRC                  1019
+#define IDC_FILTER_RET                  1022
 #define IDC_PROP_STACKLIST              1036
 #define IDC_TAB_PROPERTIES              1038
 #define IDC_PROPERITES_PREV             1050
@@ -22,6 +28,7 @@
 #define IDC_PROPERTIES_CHECK            1054
 #define IDC_STATIC_STAUS                1071
 #define IDC_BTN_PROPS                   1072
+#define IDC_FILTER_APPLY                1094
 #define IDC_BTN_SAVE                    1097
 #define IDC_PROPERITES_COPYALL          1118
 #define IDC_BTN_SOURCE                  1121
@@ -31,6 +38,13 @@
 #define IDC_PROCESS_NAME                1203
 #define IDC_PROCESS_VERSION             1204
 #define IDC_PROCESS_MODULES             1205
+#define IDC_FILTER_OK                   1312
+#define IDC_FILTER_LIST                 1317
+#define IDC_FILTER_ADD                  1320
+#define IDC_FILTER_REMOVE               1321
+#define IDC_FILTER_DEST                 1323
+#define IDC_FILTER_THEN                 1324
+#define IDC_FILTER_RESET                1325
 #define ID_BUTTON_ICONS8_SAVE           32775
 #define ID_BUTTON_ICONS8_START          32776
 #define ID_BUTTON_ICONS8_STOP           32777
@@ -48,7 +62,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        222
+#define _APS_NEXT_RESOURCE_VALUE        226
 #define _APS_NEXT_COMMAND_VALUE         32788
 #define _APS_NEXT_CONTROL_VALUE         1001
 #define _APS_NEXT_SYMED_VALUE           101

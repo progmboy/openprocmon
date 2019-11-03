@@ -80,6 +80,12 @@
     <ClInclude Include="filtermgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="fltprocess.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="filerdlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="procmon_gui.rc">

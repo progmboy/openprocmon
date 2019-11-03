@@ -20,7 +20,7 @@ public:
 	size_t GetShowViewCounts();
 	void ClearShowViews();
 	void Push(CRefPtr<CEventView> pOpt);
-	void ApplyNewFilter();
+	void ApplyNewFilter(FLTPROCGRESSCB Callback=NULL, LPVOID pParameter = NULL);
 
 private:
 
