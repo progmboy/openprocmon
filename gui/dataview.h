@@ -6,6 +6,8 @@
 
 #define DATAVIEW()  Singleton<CDataView>::getInstance()
 
+typedef VOID (*FLTPROCGRESSCB)(size_t Total, size_t Current, PVOID pParameter);
+
 class CDataView
 {
 public:
@@ -21,7 +23,7 @@ public:
 	size_t GetShowViewCounts();
 	void ClearShowViews();
 	void Push(CRefPtr<CEventView> pOpt);
-	void ApplyNewFilter();
+	void ApplyNewFilter(FLTPROCGRESSCB Callback=NULL, LPVOID pParameter = NULL);
 
 private:
 

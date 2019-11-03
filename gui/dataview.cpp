@@ -102,17 +102,25 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 	}
 }
 
-void CDataView::ApplyNewFilter()
+void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
 {
 	ClearShowViews();
 	
 	std::shared_lock<std::shared_mutex> lock(m_OptViewlock);
-	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++)
+
+	size_t Total = m_OptViews.size();
+	size_t Now = m_OptViews.size();
+
+	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++, Now++)
 	{
 		if (!FILETERMGR().Filter(*it)){
 			m_Viewlock.lock();
 			m_ShowViews.push_back(*it);
 			m_Viewlock.unlock();
+
+			if (Callback){
+				Callback(Total, Now, pParameter);
+			}
 		}
 	}
 

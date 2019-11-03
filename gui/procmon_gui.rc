@@ -79,6 +79,21 @@ BEGIN
     0
 END
 
+FILTER_INIT AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON                    "res\\procmon_gui.ico"
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -185,6 +200,38 @@ BEGIN
     PUSHBUTTON      "Search...",IDC_BTN_SEARCH,137,131,50,14
 END
 
+IDD_PROGRESS DIALOGEX 0, 0, 249, 63
+STYLE DS_SETFONT | DS_MODALFRAME | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION
+CAPTION "Dialog"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    PUSHBUTTON      "Cancel",2,192,42,50,14
+    CONTROL         "",1093,"msctls_progress32",WS_BORDER,7,23,235,14
+    LTEXT           "Initializing...",1095,7,7,235,8
+END
+
+FILTER_INIT DIALOGEX 50, 50, 337, 177
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+EXSTYLE WS_EX_CONTROLPARENT
+CAPTION "Process Monitor Filter"
+FONT 8, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    LTEXT           "Filters were in effect the last time you exited Process Monitor:",-1,8,8,204,8
+    LTEXT           "Display entries matching these conditions:",-1,7,21,138,8
+    DEFPUSHBUTTON   "&OK",IDOK,170,156,50,14
+    PUSHBUTTON      "&Cancel",IDCANCEL,225,156,50,14
+    PUSHBUTTON      "A&pply",IDC_FILTER_APPLY,280,156,50,14
+    COMBOBOX        IDC_FILTER_SRC,7,33,78,238,CBS_DROPDOWNLIST | CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_FILTER_OPT,87,33,54,248,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_FILTER_DEST,142,33,118,184,CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    CTEXT           "then",IDC_FILTER_THEN,261,35,20,8
+    COMBOBOX        IDC_FILTER_RET,285,33,45,69,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Reset",IDC_FILTER_RESET,7,55,50,14
+    PUSHBUTTON      "&Add",IDC_FILTER_ADD,225,55,50,14
+    PUSHBUTTON      "&Remove",IDC_FILTER_REMOVE,280,55,50,14
+    CONTROL         "",IDC_FILTER_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_OWNERDATA | WS_BORDER | WS_TABSTOP,7,78,323,73
+END
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -219,6 +266,10 @@ BEGIN
     PROP_STACKTRACE, DIALOG
     BEGIN
         BOTTOMMARGIN, 147
+    END
+
+    FILTER_INIT, DIALOG
+    BEGIN
     END
 END
 #endif    // APSTUDIO_INVOKED
@@ -345,16 +396,6 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Icon
-//
-
-// Icon with lowest ID value placed first to ensure application icon
-// remains consistent on all systems.
-IDR_MAINFRAME           ICON                    "res\\procmon_gui.ico"
-
-
-/////////////////////////////////////////////////////////////////////////////
-//
 // Accelerator
 //
 
@@ -433,17 +474,22 @@ END
 
 STRINGTABLE
 BEGIN
-    ID_BUTTON_ICONS8_OPENEDF         "Open an existing log file\nOpen"
-    ID_BUTTON_ICONS8_SAVE            "Show save log dialog\nSave"
-    ID_BUTTON_ICONS8_START           "Start monitor\nStart"
-    ID_BUTTON_ICONS8_STOP            "Stop monitor\nStop"
-    ID_BUTTON_ICONS8_FILTER          "Show filter dialog\nFilter"
-    ID_BUTTON_ICONS8_SCROLLDOWN      "Auto scroll to bottom\nAuto Scroll"
-    ID_BUTTON_ICONS8_SCROLLUP        "Disable auto scroll to bottom\nDisable Auto Scroll"
-    ID_BUTTON_ICONS8_ERASE           "Erase current event list\nErase"
-    ID_BUTTON_ICONS8_PROCESS         "Filter Process event\nProcess Event"
-    ID_BUTTON_ICONS8_FILE            "Filter File event\nFile Event"
-    ID_BUTTON_ICONS8_REGISTRY        "Filter Registery event\nReg Event"
+    ID_BUTTON_ICONS8_OPENEDF "Open an existing log file\nOpen"
+    ID_BUTTON_ICONS8_FILTER "Show filter dialog\nFilter"
+END
+
+STRINGTABLE
+BEGIN
+    ID_BUTTON_ICONS8_SAVE   "Show save log dialog\nSave"
+    ID_BUTTON_ICONS8_START  "Start monitor\nStart"
+    ID_BUTTON_ICONS8_STOP   "Stop monitor\nStop"
+    ID_BUTTON_ICONS8_SCROLLDOWN "Auto scroll to bottom\nAuto Scroll"
+    ID_BUTTON_ICONS8_SCROLLUP 
+                            "Disable auto scroll to bottom\nDisable Auto Scroll"
+    ID_BUTTON_ICONS8_ERASE  "Erase current event list\nErase"
+    ID_BUTTON_ICONS8_PROCESS "Filter Process event\nProcess Event"
+    ID_BUTTON_ICONS8_FILE   "Filter File event\nFile Event"
+    ID_BUTTON_ICONS8_REGISTRY "Filter Registery event\nReg Event"
 END
 
 STRINGTABLE
