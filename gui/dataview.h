@@ -5,6 +5,7 @@
 
 #define DATAVIEW()  Singleton<CDataView>::getInstance()
 
+typedef VOID (*FLTPROCGRESSCB)(size_t Total, size_t Current, PVOID pParameter);
 class CDataView
 {
 public:

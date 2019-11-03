@@ -63,7 +63,7 @@ public:
 
 private:
 
-	CProcCreateInfoView m_ProcView;
+	CProcInfoView m_ProcView;
 	CBaseView m_EventView;
 
 	std::vector<CModule> m_ModuleInfo;

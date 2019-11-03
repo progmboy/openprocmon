@@ -14,7 +14,7 @@
 #include "propstack.h"
 #include "filter.hpp"
 #include "fltprocess.h"
-#include "filerdlg.h"
+#include "filterdlg.h"
 #include "MainFrm.h"
 
 #pragma comment(lib, "Shcore.lib")
