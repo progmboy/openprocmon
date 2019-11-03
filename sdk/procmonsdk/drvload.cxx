@@ -44,15 +44,33 @@ CDrvLoader::Init(
 	IN const CString& strDriverName, 
 	IN const CString& strDriverPath)
 {
+
 	CPath DriverPath(strDriverPath);
+	if (DriverPath.IsRelative()){
+		TCHAR szFullName[MAX_PATH] = { 0 };
+		GetModuleFileName(NULL, szFullName, MAX_PATH);
+		PathRemoveFileSpec(szFullName);
+		PathAppend(szFullName, DriverPath);
+		DriverPath = szFullName;
+	}
+
 	if(!DriverPath.FileExists()){
 		LogMessage(L_WARN, TEXT("Driver file not exist"));
 		return FALSE;
 	}else{
-		m_strDriverName = strDriverName;
-		m_strDriverPath = strDriverPath;
+
+		//
+		// Try enable driver load privilege
+		//
+
+		if (EnablePrivilege()){
+			m_strDriverPath = (LPCTSTR)DriverPath;
+			m_strDriverName = strDriverName;
+
+			return TRUE;
+		}
 	}
-	return TRUE;
+	return FALSE;
 }
 
 BOOL 
@@ -85,6 +103,8 @@ CDrvLoader::EnablePrivilege()
 	return TRUE;
 }
 
+#define STATUS_IMAGE_ALREADY_LOADED ((NTSTATUS)0xC000010EL)
+
 BOOL CDrvLoader::Load()
 {
 	
@@ -109,7 +129,7 @@ BOOL CDrvLoader::Load()
 	RtlInitUnicodeString(&UniDrvSrvName, strDriverSrvName);
 	Status = NtLoadDriver(&UniDrvSrvName);
 
-	if (!NT_SUCCESS(Status)){
+	if (!NT_SUCCESS(Status) && Status != STATUS_IMAGE_ALREADY_LOADED){
 		LogMessage(L_ERROR, TEXT("NtLoadDriver Failed code 0x%x"), Status);
 		return FALSE;
 	}
@@ -183,8 +203,8 @@ BOOL CDrvLoader::CreateServiceKey()
 
 	if (dwDisposition != REG_CREATED_NEW_KEY) {
 		LogMessage(L_WARN, TEXT("RegCreateKeyEx return REG_CREATED_NEW_KEY"));
-		RegCloseKey(hKey);
-		return TRUE;
+		//RegCloseKey(hKey);
+		//return TRUE;
 	}
 
 	dwImagPathSize = (DWORD)(((DWORD)strServiceImagePath.GetLength() + 1) * sizeof(TCHAR));

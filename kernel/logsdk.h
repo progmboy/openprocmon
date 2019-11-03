@@ -2,6 +2,16 @@
 
 #define MAX_PROCMON_MESSAGE_LEN	0x20000
 
+#ifdef OPENPROCMON
+
+#define PROCMON_PORTNAME L"\\OpenProcessMonitor24Port"
+#define PROCMON_DEBUGLOGGER_DEVICE_NAME L"\\device\\OpenProcmonDebugLogger"
+#define PROCMON_DEBUGLOGGER_SYMBOL_NAME L"\\DosDevices\\Global\\OpenProcmonDebugLogger"
+#define PROCMON_EXTLOGGER_DEVICE_NAME L"\\device\\OpenProcmonExternalLogger"
+#define PROCMON_EXTLOGGER_ENABLE_EVENT_NAME L"\\??\\OpenProcmonExternalLoggerEnabled"
+#define PROCMON_DEFAULT_LOGFILE L"\\SystemRoot\\OpenProcmon.pmb"
+
+#else
 #define PROCMON_PORTNAME L"\\ProcessMonitor24Port"
 #define PROCMON_DEBUGLOGGER_DEVICE_NAME L"\\device\\ProcmonDebugLogger"
 #define PROCMON_DEBUGLOGGER_SYMBOL_NAME L"\\DosDevices\\Global\\ProcmonDebugLogger"
@@ -9,12 +19,7 @@
 #define PROCMON_EXTLOGGER_ENABLE_EVENT_NAME L"\\??\\ProcmonExternalLoggerEnabled"
 #define PROCMON_DEFAULT_LOGFILE L"\\SystemRoot\\Procmon.pmb"
 
-#define OPENPROCMON_PORTNAME L"\\OpenProcessMonitor24Port"
-#define OPENPROCMON_DEBUGLOGGER_DEVICE_NAME L"\\device\\OpenProcmonDebugLogger"
-#define OPENPROCMON_DEBUGLOGGER_SYMBOL_NAME L"\\DosDevices\\Global\\OpenProcmonDebugLogger"
-#define OPENPROCMON_EXTLOGGER_DEVICE_NAME L"\\device\\OpenProcmonExternalLogger"
-#define OPENPROCMON_EXTLOGGER_ENABLE_EVENT_NAME L"\\??\\OpenProcmonExternalLoggerEnabled"
-#define OPENPROCMON_DEFAULT_LOGFILE L"\\SystemRoot\\OpenProcmon.pmb"
+#endif
 
 
 //

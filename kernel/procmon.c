@@ -1795,7 +1795,7 @@ Return Value:
 		DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchProcmonExternalLoggerCreateClose;
 		DriverObject->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] = DispatchProcmonExternalLogger;
 		DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchProcmonExternalLogger;
-		RtlInitUnicodeString(&EventName, OPENPROCMON_EXTLOGGER_ENABLE_EVENT_NAME);
+		RtlInitUnicodeString(&EventName, PROCMON_EXTLOGGER_ENABLE_EVENT_NAME);
 		pEvent = IoCreateNotificationEvent(&EventName, &ghEventHandle);
 		gProcmonExternalLoggerEnabledEvent = pEvent;
 		if (pEvent){

@@ -106,10 +106,14 @@ void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
 {
 	ClearShowViews();
 	
-	std::shared_lock<std::shared_mutex> lock(m_OptViewlock);
+	std::unique_lock<std::shared_mutex> lock(m_OptViewlock);
 
 	size_t Total = m_OptViews.size();
-	size_t Now = m_OptViews.size();
+	size_t Now = 0;
+
+	if (Callback) {
+		Callback(Total, Now, pParameter);
+	}
 
 	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++, Now++)
 	{

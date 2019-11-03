@@ -9,6 +9,11 @@ VOID CProcess::InsertModule(const CModule& mod)
 	m_ModuleList.push_back(mod);
 }
 
+VOID CProcess::SetExitEvent(CRefPtr<CLogEvent> pEvent)
+{
+	m_ProcessExit = pEvent;
+}
+
 CProcess::CProcess(CRefPtr<CLogEvent> pEvent) :
 	CProcInfoView(pEvent)
 {
@@ -39,6 +44,11 @@ std::vector<CModule>& CProcess::GetModuleList()
 CRefPtr<CProcInfo> CProcess::GetProcInfo()
 {
 	return m_ProcessInfo;
+}
+
+CRefPtr<CLogEvent> CProcess::GetExitEvent()
+{
+	return m_ProcessExit;
 }
 
 CProcInfo::CProcInfo(const CString& strPath)

@@ -8,6 +8,6 @@
     <RemoteDebuggerWorkingDirectory>C:\tools\</RemoteDebuggerWorkingDirectory>
     <RemoteDebuggerServerName>192.168.10.159</RemoteDebuggerServerName>
     <RemoteDebuggerConnection>RemoteWithoutAuthentication</RemoteDebuggerConnection>
-    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+    <DebuggerFlavor>WindowsRemoteDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>

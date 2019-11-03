@@ -30,7 +30,11 @@ int main()
 
 	CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
 	CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
+	CDrvLoader& Drvload = Singleton<CDrvLoader>::getInstance();
 	
+	if(!Drvload.Init(TEXT("PROCMON24"), TEXT("procmon.sys"))){
+		return -1;
+	}
 	Optmgr.RegisterCallback(new CMyEvent);
 
 	//
