@@ -263,6 +263,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 				}
 			}
 			break;
+		//case IRP_MJ_SET_INFORMATION:
 		case IRP_MJ_SET_SECURITY:
 		{
 			if (IsImpersonateOpen && !IsImpersonate) {

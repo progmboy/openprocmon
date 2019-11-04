@@ -9,6 +9,7 @@
 
 #include "View.h"
 #include "aboutdlg.h"
+#include "tabctrlex.h"
 #include "propdlg.h"
 #include "propproc.h"
 #include "propstack.h"
@@ -16,6 +17,7 @@
 #include "fltprocess.h"
 #include "filterdlg.h"
 #include "MainFrm.h"
+
 
 #pragma comment(lib, "Shcore.lib")
 

@@ -39,7 +39,7 @@ public:
 		}
 
 		CString strTmp;
-		CWindow wnd = this->GetDlgItem(1029);
+		CWindow wnd = this->GetDlgItem(IDC_PROCESS_ICON);
 		CStatic* pImg = (CStatic*)&wnd;
 
 		CBuffer& clsIconBuffer = pView->GetProcIcon(FALSE);
@@ -62,8 +62,8 @@ public:
 
 		pImg->SetIcon(hIcon);
 
-		this->GetDlgItem(1035).SetWindowText(MapMonitorResult(emDescription, pView));
-		this->GetDlgItem(1034).SetWindowText(MapMonitorResult(emCompany, pView));
+		this->GetDlgItem(IDC_PROCESS_DESC).SetWindowText(MapMonitorResult(emDescription, pView));
+		this->GetDlgItem(IDC_PROCESS_COMPANY).SetWindowText(MapMonitorResult(emCompany, pView));
 		this->GetDlgItem(IDC_PROCESS_NAME).SetWindowText(MapMonitorResult(emProcessName, pView));
 		this->GetDlgItem(IDC_PROCESS_VERSION).SetWindowText(MapMonitorResult(emVersion, pView));
 
@@ -71,40 +71,40 @@ public:
 		this->GetDlgItem(IDC_PROCESS_CMDLINE).SetWindowText(MapMonitorResult(emCommandLine, pView));
 
 
-		this->GetDlgItem(1137).SetWindowText(MapMonitorResult(emPID, pView));
-		this->GetDlgItem(1136).SetWindowText(MapMonitorResult(emParentPid, pView));
-		this->GetDlgItem(1135).SetWindowText(MapMonitorResult(emSession, pView));
+		this->GetDlgItem(IDC_PROCESS_PID).SetWindowText(MapMonitorResult(emPID, pView));
+		this->GetDlgItem(IDC_PROCESS_PPID).SetWindowText(MapMonitorResult(emParentPid, pView));
+		this->GetDlgItem(IDC_PROCESS_SESSION).SetWindowText(MapMonitorResult(emSession, pView));
 
 		
 		//
 		// User
 		//
 		
-		this->GetDlgItem(1134).SetWindowText(MapMonitorResult(emUser, pView));
+		this->GetDlgItem(IDC_PROCESS_USER).SetWindowText(MapMonitorResult(emUser, pView));
 
 		//
 		// StartTime
 		//
 		
-		this->GetDlgItem(1133).SetWindowText(MapMonitorResult(emDataTime, pView));
+		this->GetDlgItem(IDC_PROCESS_STARTTIME).SetWindowText(MapMonitorResult(emDataTime, pView));
 
 		//
 		// Ended
 		//
 		
 		//strTmp = pView->IsRuning() ? TEXT("Runing") : UtilConvertTimeOfDay(pView->GetExitTime());
-		this->GetDlgItem(1142).SetWindowText(TEXT("TODO"));
+		this->GetDlgItem(IDC_PROCESS_ENDED).SetWindowText(TEXT("TODO"));
 
-		this->GetDlgItem(1138).SetWindowText(MapMonitorResult(emArchiteture, pView));
-		this->GetDlgItem(1139).SetWindowText(MapMonitorResult(emAuthId, pView));
-		this->GetDlgItem(1140).SetWindowText(MapMonitorResult(emVirtualize, pView));
+		this->GetDlgItem(IDC_PROCESS_ARCH).SetWindowText(MapMonitorResult(emArchiteture, pView));
+		this->GetDlgItem(IDC_PROCESS_AUTHID).SetWindowText(MapMonitorResult(emAuthId, pView));
+		this->GetDlgItem(IDC_PROCESS_VIRTUALIZED).SetWindowText(MapMonitorResult(emVirtualize, pView));
 
 		
 		//
 		// Integrity
 		//
 		
-		this->GetDlgItem(1141).SetWindowText(MapMonitorResult(emIntegrity, pView));
+		this->GetDlgItem(IDC_PROCESS_INTERGRITY).SetWindowText(MapMonitorResult(emIntegrity, pView));
 
 		
 		//

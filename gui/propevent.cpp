@@ -15,25 +15,19 @@ LRESULT CPropEventDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 
 	CString strTime = UtilConvertTimeOfDay(pView->GetStartTime());
 
-	GetDlgItem(1040).SetWindowText(strTime);
-
-	GetDlgItem(1029).SetWindowText(MapMonitorResult(emTID, pView));
-
-	GetDlgItem(1030).SetWindowText(MapMonitorResult(emEventClass, pView));
-
-	GetDlgItem(1041).SetWindowText(MapMonitorResult(emOperation, pView));
-	GetDlgItem(1042).SetWindowText(MapMonitorResult(emResult, pView));
-
-	GetDlgItem(1027).SetWindowText(pView->GetPath());
-	
+	GetDlgItem(IDC_EVENT_DATA).SetWindowText(strTime);
+	GetDlgItem(IDC_EVENT_THREAD).SetWindowText(MapMonitorResult(emTID, pView));
+	GetDlgItem(IDC_EVENT_CLASS).SetWindowText(MapMonitorResult(emEventClass, pView));
+	GetDlgItem(IDC_EVENT_OPT).SetWindowText(MapMonitorResult(emOperation, pView));
+	GetDlgItem(IDC_EVENT_RET).SetWindowText(MapMonitorResult(emResult, pView));
+	GetDlgItem(IDC_EVENT_PATH).SetWindowText(pView->GetPath());
 	
 	//
 	// Duration
 	//
 	
-	GetDlgItem(1028).SetWindowText(MapMonitorResult(emDuration, pView));
-	
-	GetDlgItem(1017).SetWindowText(pView->GetDetail());
+	GetDlgItem(IDC_EVENT_DURATION).SetWindowText(MapMonitorResult(emDuration, pView));
+	GetDlgItem(IDC_EVENT_DETAIL).SetWindowText(pView->GetDetail());
 
 	return 0;
 }
