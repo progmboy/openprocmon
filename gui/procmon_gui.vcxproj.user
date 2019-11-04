@@ -6,7 +6,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <RemoteDebuggerCommand>C:\tools\procmon_gui.exe</RemoteDebuggerCommand>
     <RemoteDebuggerWorkingDirectory>C:\tools\</RemoteDebuggerWorkingDirectory>
-    <RemoteDebuggerServerName>192.168.10.159</RemoteDebuggerServerName>
+    <RemoteDebuggerServerName>192.168.2.193</RemoteDebuggerServerName>
     <RemoteDebuggerConnection>RemoteWithoutAuthentication</RemoteDebuggerConnection>
     <DebuggerFlavor>WindowsRemoteDebugger</DebuggerFlavor>
   </PropertyGroup>

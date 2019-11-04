@@ -37,3 +37,12 @@ const CString& CModule::GetPath()
 {
 	return m_strPath;
 }
+
+BOOL CModule::IsAddressIn(LPVOID lpAddress)
+{
+	if ((ULONG_PTR)lpAddress >= (ULONG_PTR)m_ImageBase &&
+		(ULONG_PTR)(lpAddress) < ((ULONG_PTR)m_ImageBase + m_Size)) {
+		return TRUE;
+	}
+	return FALSE;
+}

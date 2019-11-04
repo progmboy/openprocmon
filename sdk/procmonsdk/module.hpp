@@ -13,6 +13,7 @@ public:
 	PVOID GetImageBase();
 	ULONG GetSize();
 	const CString& GetPath();
+	BOOL IsAddressIn(LPVOID lpAddress);
 
 private:
 	PVOID m_ImageBase = NULL;

@@ -1,58 +1,28 @@
 #pragma once
 
 #include "dataview.h"
-#include <psapi.h>
 
-#if 0
+#define WM_SYMBOL_PARSE WM_USER+250
+
+
 class CModuleInfo : public CRefBase
 {
 public:
 	CModuleInfo() {};
 	virtual ~CModuleInfo() {};
 
-	BOOL Init(IN HANDLE hProcess, IN HMODULE hModule)
-	{
-		TCHAR szModName[MAX_PATH] = { 0 };
-		MODULEINFO modInfo;
+	BOOL Init(CModule& Module);
 
-		//
-		// query module basic information
-		//
+	BOOL Init(IN HANDLE hProcess, IN HMODULE hModule);
 
-		if (!GetModuleInformation(hProcess, hModule, &modInfo, sizeof(modInfo))) {
-			LogMessage(L_ERROR, TEXT("Failed to get module information err 0x%x"), GetLastError());
-			return FALSE;
-		}
-
-		m_pBase = modInfo.lpBaseOfDll;
-		m_Size = modInfo.SizeOfImage;
-
-		//
-		// query module image name
-		//
-
-		if (!GetModuleFileNameEx(hProcess, hModule, szModName, MAX_PATH)) {
-			LogMessage(L_ERROR, TEXT("Failed to get module filename err 0x%x"), GetLastError());
-			return FALSE;
-		}
-
-		m_strPath = szModName;
-
-		//
-		// Save module info
-		//
-
-		m_hModule = hModule;
-
-		return TRUE;
-	}
+	BOOL Init(IN const CString& strPath, IN PVOID pImageBase, IN ULONG Size);
 
 	CString getName()
 	{
 		return PathFindFileName(m_strPath);
 	}
 
-	const CPath& getPath()
+	const CString& getPath()
 	{
 		return m_strPath;
 	}
@@ -78,19 +48,52 @@ public:
 private:
 
 	/** specific the module image path*/
-	CPath m_strPath;
+	CString m_strPath;
 
 	/** specific the module base address*/
 	LPVOID m_pBase = NULL;
 
 	/** specific the module image size*/
 	ULONG m_Size = 0;
-
-	/** specific the module handle same as m_pBase*/
-	HMODULE m_hModule = NULL;
 };
-#endif
 
+class CProcessInfo : public CRefBase
+{
+public:
+	CProcessInfo()
+	{
+
+	}
+	~CProcessInfo()
+	{
+	
+	}
+
+	BOOL LookupSymbolByAddress(
+		IN LPVOID lpAddress,
+		OUT CString& strSymbol
+	);
+
+	BOOL ListKernelModule();
+	BOOL ListModule(DWORD dwProcessId);
+	CRefPtr<CModuleInfo> LookupModuleByAddress(IN LPVOID lpAddress);
+	BOOL ListModuleFromLog(std::vector<CModule>& modList);
+
+private:
+	std::vector<CRefPtr<CModuleInfo>> m_ModuleList;
+};
+
+class CResolveSymbolThread : public CThread
+{
+public:
+	virtual void Run();
+	void SetProcInf(CRefPtr<CProcessInfo> pProcInfo);
+	void SetFrameStack(std::vector<PVOID>& FrameStack);
+
+private:
+	CRefPtr<CProcessInfo> m_ProcInfo;
+	std::vector<PVOID> m_FrameStack;
+};
 
 class CPropStackDlg : public CDialogImpl<CPropStackDlg>, public CDialogResize<CPropStackDlg>
 {
@@ -101,6 +104,8 @@ public:
 
 	BEGIN_MSG_MAP(CPropStackDlg)
 		MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+		MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
+		MESSAGE_HANDLER(WM_SYMBOL_PARSE, OnSymbolParse)
 		CHAIN_MSG_MAP(CDialogResize<CPropStackDlg>)
 	END_MSG_MAP()
 
@@ -113,179 +118,14 @@ public:
 		DLGRESIZE_CONTROL(IDC_STATIC_STAUS, DLSZ_MOVE_Y | DLSZ_SIZE_X)
 	END_DLGRESIZE_MAP()
 
-#if 0
-	BOOL ListModule(DWORD dwProcessId)
-	{
-		BOOL bRet = FALSE;
-		HMODULE* phModules = NULL;
-		DWORD dwSize = 0x200 * sizeof(HMODULE);
-		DWORD cbNeeded = 0;
-		BOOL bOpened = FALSE;
-
-		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcessId);
-		if (!hProcess) {
-			return FALSE;
-		}
-
-		m_ModuleList.clear();
-
-		do
-		{
-
-			if (phModules) {
-				LocalFree(phModules);
-			}
-
-			//
-			// Reallocate buffer
-			//
-
-			phModules = (HMODULE*)LocalAlloc(0, dwSize);
-			if (!phModules) {
-				bRet = FALSE;
-				break;
-			}
-
-			//
-			// get need size of buffer
-			//
-
-			bRet = EnumProcessModules(hProcess, phModules, dwSize, &cbNeeded);
-			if (!bRet) {
-				break;
-			}
-
-			if (cbNeeded > dwSize) {
-				dwSize += (0x200 * sizeof(HMODULE));
-			}
-			else {
-				break;
-			}
-
-		} while (TRUE);
-
-
-		if (bRet) {
-			for (int i = 0; i < (cbNeeded / sizeof(HMODULE)); i++)
-			{
-				CRefPtr<CModuleInfo> pModule = new CModuleInfo;
-
-				//
-				// Init module information
-				//
-
-				if (pModule->Init(hProcess, phModules[i])) {
-
-					//
-					// save the module information
-					//
-
-					m_ModuleList.push_back(pModule);
-				}else{
-					LogMessage(L_WARN, TEXT("Faile to init module 0x%p err 0x%x"), phModules[i], GetLastError());
-				}
-			}
-		}
-
-		if (phModules) {
-			LocalFree(phModules);
-		}
-
-		if (bOpened) {
-			CloseHandle(hProcess);
-		}
-
-		return bRet;
-	}
-
-	CRefPtr<CModuleInfo>
-	lookupModuleByAddress(
-			IN LPVOID lpAddress
-		)
-	{
-		for (auto it = m_ModuleList.begin(); it != m_ModuleList.end(); it++) {
-			if ((*it)->IsAddressIn(lpAddress)) {
-				return (*it);
-			}
-		}
-		return NULL;
-	}
-#endif
-
-	BOOL
-	lookupModuleByAddress(
-		IN LPVOID lpAddress,
-		IN CModule& cModule
-	)
-	{
-		for (auto it = m_ModuleList.begin(); it != m_ModuleList.end(); it++) {
-// 			if ((*it)->IsAddressIn(lpAddress)) {
-// 				return (*it);
-// 			}
-
-			ULONG_PTR pBase = (ULONG_PTR)((*it).GetImageBase());
-
-			if ((ULONG_PTR)lpAddress >= pBase &&
-				(ULONG_PTR)(lpAddress) < (pBase + (*it).GetSize())) {
-				cModule = (*it);
-				return TRUE;
-			}
-		}
-		return FALSE;
-	}
-
-
-	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
-	{
-		DlgResize_Init();
-
-		BOOL bExit = FALSE;
-		CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
-
-		//bExit = ListModule(pView->GetProcessId());
-
-		CWindow wnd1 = this->GetDlgItem(IDC_PROP_STACKLIST);
-		CListViewCtrl* pListCtrl = (CListViewCtrl*)&wnd1;
-
-		pListCtrl->SetExtendedListViewStyle(LVS_EX_FULLROWSELECT);
-		pListCtrl->InsertColumn(0, TEXT("Frame"), 0, 50);
-		pListCtrl->InsertColumn(1, TEXT("Module"), 0, 100);
-		pListCtrl->InsertColumn(2, TEXT("Location"), 0, 200);
-		pListCtrl->InsertColumn(3, TEXT("Address"), 0, 150);
-		pListCtrl->InsertColumn(4, TEXT("Path"), 0, 400);
-
-		std::vector<PVOID> pStackFrame;
-		pView->GetCallStack(pStackFrame);
-		m_ModuleList = pView->GetModuleList();
-
-		//
-		// 首先判断进程是否存在.
-		//
-		
-		int nIndex = 0;
-		for (auto it = pStackFrame.begin(); it != pStackFrame.end(); it++)
-		{
-			CString strTmp;
-
-			strTmp.Format(TEXT("%d"), nIndex);
-			pListCtrl->InsertItem(nIndex, strTmp);
-
-			strTmp.Format(TEXT("0x%p"), *it);
-			pListCtrl->SetItemText(nIndex, 3, strTmp);
-
-			CModule cModule;
-			if (lookupModuleByAddress(*it, cModule)){
-				pListCtrl->SetItemText(nIndex, 1, PathFindFileName(cModule.GetPath()));
-				pListCtrl->SetItemText(nIndex, 4, cModule.GetPath());
-			}
-
-			nIndex++;
-		}
-
-		return TRUE;
-	}
+	BOOL InitSymbol();
+	void CleanSymbols();
+	LRESULT OnSymbolParse(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOOL& /*bHandled*/);
+	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 
 private:
-	//std::vector<CRefPtr<CModuleInfo>> m_ModuleList;
-	std::vector<CModule> m_ModuleList;
+	CRefPtr<CProcessInfo> m_ProcInfo;
+	CResolveSymbolThread m_ResoveSymbolThread;
+	CListViewCtrl m_ListCtrl;
 };

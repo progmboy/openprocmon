@@ -118,7 +118,7 @@ Return Value:
 			static TCHAR szSystemRoot[MAX_PATH] = { 0 };
 
 			if (szSystemRoot[0] == 0) {
-				GetSystemDirectory(szSystemRoot, MAX_PATH);
+				GetWindowsDirectory(szSystemRoot, MAX_PATH);
 			}
 
 			strDosPath += szSystemRoot;

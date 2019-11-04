@@ -3,6 +3,7 @@
 #include "singleton.hpp"
 #include "process.hpp"
 #include <map>
+#include <shared_mutex>
 
 #define PROCMGR()  Singleton<CProcMgr>::getInstance()
 
@@ -49,6 +50,7 @@ private:
 	// 这里只有一个线程去处理数据,所以我们没必要加锁
 	//
 	
+	std::shared_mutex m_lock;
 	PROCESSLISTMAP m_ProcessList;
 
 };

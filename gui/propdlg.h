@@ -3,7 +3,6 @@
 #include "propevent.h"
 #include "propproc.h"
 #include "propstack.h"
-#include "tabctrlex.h"
 
 class CPropertiesDlg : public CDialogImpl<CPropertiesDlg>, public CDialogResize<CPropertiesDlg>
 {

@@ -92,8 +92,8 @@ public:
 		// Ended
 		//
 		
-		//strTmp = pView->IsRuning() ? TEXT("Runing") : UtilConvertTimeOfDay(pView->GetExitTime());
-		this->GetDlgItem(IDC_PROCESS_ENDED).SetWindowText(TEXT("TODO"));
+		strTmp = pView->IsProcessExit() ? TEXT("Runing") : UtilConvertTimeOfDay(pView->GetProcessExitTime());
+		this->GetDlgItem(IDC_PROCESS_ENDED).SetWindowText(strTmp);
 
 		this->GetDlgItem(IDC_PROCESS_ARCH).SetWindowText(MapMonitorResult(emArchiteture, pView));
 		this->GetDlgItem(IDC_PROCESS_AUTHID).SetWindowText(MapMonitorResult(emAuthId, pView));

@@ -18,8 +18,12 @@ CProcMgr::RefProcessBySeq(
 	_In_ ULONG Seq
 )
 {
-	PROCESSLISTMAP::iterator it;
-	it = m_ProcessList.find(Seq);
+	//
+	// aquire read lock
+	//
+
+	std::shared_lock<std::shared_mutex> lock(m_lock);
+	auto it = m_ProcessList.find(Seq);
 	if (it == m_ProcessList.end()) {
 		return NULL;
 	}
@@ -38,6 +42,12 @@ CProcMgr::RefProcessByProcessId(
 	// Do not use this method if is necessary
 	//
 	
+	//
+	// aquire read lock
+	//
+
+	std::shared_lock<std::shared_mutex> lock(m_lock);
+
 	for (auto it = m_ProcessList.begin(); it != m_ProcessList.end(); it++)
 	{
 		CRefPtr<CProcess> Process = it->second;
@@ -66,6 +76,12 @@ CProcMgr::Insert(
 	_In_ CRefPtr<CProcess> Process
 )
 {
+	//
+	// Aquire write lock
+	//
+
+	std::unique_lock<std::shared_mutex> lock(m_lock);
+
 	//
 	// Check is process already in list
 	//
@@ -110,8 +126,6 @@ CProcMgr::Insert(
 
 			__debugbreak();
 		}
-
-
 	}
 }
 
@@ -122,8 +136,6 @@ CProcMgr::Remove(
 {
 	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(pEvent->GetProcSeq());
 	if (!ProcessFind.IsNull()) {
-		//LogMessage(L_INFO, TEXT("Process id 0x%x seq 0x%x mark with exit"), ProcessFind->GetProcessId(), Seq);
-		//m_ProcessList.erase(Seq);
 		ProcessFind->MarkExit(TRUE);
 	}else{
 		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), pEvent->GetProcSeq());

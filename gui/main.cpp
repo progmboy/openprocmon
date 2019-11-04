@@ -9,7 +9,6 @@
 
 #include "View.h"
 #include "aboutdlg.h"
-#include "tabctrlex.h"
 #include "propdlg.h"
 #include "propproc.h"
 #include "propstack.h"
