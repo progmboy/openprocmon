@@ -29,6 +29,21 @@ public:
 		DLGRESIZE_CONTROL(IDC_PROPERTIES_CHECK, DLSZ_MOVE_Y)
 	END_DLGRESIZE_MAP()
 
+	void Resize()
+	{
+		CRect rcItem;
+		m_TabCtrl.GetItemRect(0, &rcItem);
+
+		CRect rc;
+		m_TabCtrl.GetClientRect(&rc);
+
+		rc.top += rcItem.Height();
+
+		m_EventDlg.MoveWindow(&rc);
+		m_ProcDlg.MoveWindow(&rc);
+		m_StackDlg.MoveWindow(&rc);
+	}
+
 	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
 	{
 		DlgResize_Init();
@@ -49,6 +64,8 @@ public:
 		m_EventDlg.ShowWindow(SW_SHOW);
 		m_ProcDlg.ShowWindow(SW_HIDE);
 		m_StackDlg.ShowWindow(SW_HIDE);
+
+		Resize();
 
 		CenterWindow(GetParent());
 
@@ -85,17 +102,7 @@ public:
 
 	LRESULT OnWindowPosChanged(UINT, WPARAM, LPARAM, BOOL& bHandled)
 	{
-		CRect rcItem;
-		m_TabCtrl.GetItemRect(0, &rcItem);
-		
-		CRect rc;
-		m_TabCtrl.GetClientRect(&rc);
-
-		rc.top += rcItem.Height();
-
-		m_EventDlg.MoveWindow(&rc);
-		m_ProcDlg.MoveWindow(&rc);
-		m_StackDlg.MoveWindow(&rc);
+		Resize();
 
 		bHandled = FALSE;
 
