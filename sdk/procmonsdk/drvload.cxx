@@ -157,6 +157,33 @@ BOOL CDrvLoader::UnLoad()
 	return TRUE;
 }
 
+BOOL CDrvLoader::CreateServiceInstanceKey(HKEY hKey)
+{
+	HKEY hKeySubIns;
+	HKEY hKeyInstance;
+	CString strTemp;
+	DWORD Data = 3;
+
+	RegSetValueExW(hKey, TEXT("SupportedFeatures"), 0, REG_DWORD, (const BYTE*)&Data, sizeof(DWORD));
+	RegCreateKey(hKey, L"Instances", &hKeyInstance);
+
+	strTemp = TEXT("Process Monitor 24 Instance");
+	RegSetValueEx(hKeyInstance, TEXT("DefaultInstance"), 0, REG_SZ, (const BYTE*)strTemp.GetBuffer(),
+		(DWORD)(((DWORD)strTemp.GetLength() + 1) * sizeof(TCHAR)));
+	RegCreateKey(hKeyInstance, TEXT("Process Monitor 24 Instance"), &hKeySubIns);
+
+	strTemp = TEXT("385200");
+	RegSetValueEx(hKeySubIns, TEXT("Altitude"), 0, REG_SZ, (const BYTE*)strTemp.GetBuffer(), 
+		(DWORD)(((DWORD)strTemp.GetLength() + 1) * sizeof(TCHAR)));
+	Data = 0;
+	RegSetValueEx(hKeySubIns, TEXT("Flags"), 0, REG_DWORD, (const BYTE*)&Data, sizeof(DWORD));
+
+	RegCloseKey(hKeySubIns);
+	RegCloseKey(hKeyInstance);
+
+	return TRUE;
+}
+
 BOOL CDrvLoader::CreateServiceKey()
 {
 	CString strRegistryPath;
@@ -258,6 +285,8 @@ BOOL CDrvLoader::CreateServiceKey()
 		REG_DWORD,
 		(const BYTE*)&dwServiceStart,
 		sizeof(dwServiceStart));
+
+	CreateServiceInstanceKey(hKey);
 
 	//
 	// Finish cleanup

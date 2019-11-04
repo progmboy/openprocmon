@@ -21,6 +21,7 @@ public:
 private:
 
 	BOOL CreateServiceKey();
+	BOOL CreateServiceInstanceKey(HKEY hKey);
 	VOID DeleteServiceKey();
 
 private:
