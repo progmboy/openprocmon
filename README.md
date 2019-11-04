@@ -101,13 +101,13 @@ properties windows
 
 ### GUI
 
-- [ ] Filter dialog.
-- [ ] Filter apply processing dialog.
+- [x] Filter dialog.
+- [x] Filter apply processing dialog.
 - [ ] Save the capture log to file.
 - [ ] Load capture log.
-- [ ] Load Driver.
+- [x] Load Driver.
 - [ ] Sybmol support for call stack view.
-- [ ] Integrity level parse.
+- [x] Integrity level parse.
 - [ ] Registery event capture.
 - [ ] Parse detail for File/Registery Event.
 - [ ] Filter plugin support.
