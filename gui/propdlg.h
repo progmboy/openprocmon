@@ -14,6 +14,7 @@ public:
 	BEGIN_MSG_MAP(CPropertiesDlg)
 		MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
 		NOTIFY_HANDLER(IDC_TAB_PROPERTIES, TCN_SELCHANGE, OnSelTabChange)
+		COMMAND_HANDLER(IDC_PROPERITES_COPYALL, BN_CLICKED, OnCopyAllClick)
 		COMMAND_HANDLER(ID_PROPERITIES_CLOSE, BN_CLICKED, OnCloseCmd)
 		COMMAND_ID_HANDLER(IDCANCEL, OnCloseCmd)
 		MESSAGE_HANDLER(WM_SIZE, OnSize)
@@ -102,6 +103,68 @@ public:
 	LRESULT OnCloseCmd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
 		EndDialog(wID);
+		return 0;
+	}
+
+	VOID CopyToClipboard(CString& strData) {
+
+		if (strData.IsEmpty()){
+			return;
+		}
+
+		OpenClipboard();
+		EmptyClipboard();
+		HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (strData.GetLength() + 1) * sizeof(TCHAR));
+		if (!hMem) {
+			CloseClipboard();
+			return;
+		}
+		
+		//
+		// Copy data
+		//
+		
+		CopyMemory(GlobalLock(hMem), strData.GetBuffer(), (strData.GetLength() + 1) * sizeof(TCHAR));
+		GlobalUnlock(hMem);
+		
+		//
+		// set data
+		//
+		
+#ifdef _UNICODE
+		SetClipboardData(CF_UNICODETEXT, hMem);
+#else
+		SetClipboardData(CF_TEXT, hMem);
+#endif
+		
+		//
+		// Cleanup
+		//
+		
+		CloseClipboard();
+		GlobalFree(hMem);
+	}
+
+	LRESULT OnCopyAllClick(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		int nIndex = m_TabCtrl.GetCurSel();
+		CString strCopy;
+		switch (nIndex)
+		{
+		case 0:
+			strCopy = m_EventDlg.CopyAll();
+			break;
+		case 1:
+			strCopy = m_ProcDlg.CopyAll();
+			break;
+		case 2:
+			strCopy = m_StackDlg.CopyAll();
+		default:
+			break;
+		}
+
+		CopyToClipboard(strCopy);
+
 		return 0;
 	}
 

@@ -196,7 +196,7 @@ std::vector<CModule>& CEventView::GetModuleList()
 
 BOOL CEventView::IsProcessExit()
 {
-	ULONG Seq = m_ProcView.GetProcessSeq();
+	ULONG Seq = m_EventView.GetProcessSeq();
 	CProcMgr& procMgr = Singleton<CProcMgr>::getInstance();
 
 	CRefPtr<CProcess> pProcess = procMgr.RefProcessBySeq(Seq);
@@ -210,7 +210,7 @@ BOOL CEventView::IsProcessExit()
 LARGE_INTEGER CEventView::GetProcessExitTime()
 {
 	LARGE_INTEGER ExitTime;
-	ULONG Seq = m_ProcView.GetProcessSeq();
+	ULONG Seq = m_EventView.GetProcessSeq();
 	CProcMgr& procMgr = Singleton<CProcMgr>::getInstance();
 
 	ExitTime.QuadPart = 0;

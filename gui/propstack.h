@@ -124,8 +124,12 @@ public:
 	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 
+	CString CopyAll();
+
 private:
 	CRefPtr<CProcessInfo> m_ProcInfo;
 	CResolveSymbolThread m_ResoveSymbolThread;
 	CListViewCtrl m_ListCtrl;
+	CStatic m_StatusCtl;
+	
 };

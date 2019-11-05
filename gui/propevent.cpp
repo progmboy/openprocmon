@@ -33,4 +33,45 @@ LRESULT CPropEventDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 }
 
 
+CString CPropEventDlg::CopyAll()
+{
+	CString strCopy;
+	CString strTemp;
+	CString strItem;
+
+	GetDlgItemText(IDC_EVENT_DATA, strItem);
+	strTemp.Format(TEXT("Date: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_THREAD, strItem);
+	strTemp.Format(TEXT("Thread: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_CLASS, strItem);
+	strTemp.Format(TEXT("Event Class: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_OPT, strItem);
+	strTemp.Format(TEXT("Operation: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_RET, strItem);
+	strTemp.Format(TEXT("Result: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_PATH, strItem);
+	strTemp.Format(TEXT("Path: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_DURATION, strItem);
+	strTemp.Format(TEXT("Duration: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_DETAIL, strItem);
+	strTemp.Format(TEXT("Detail: %s\n"), strItem);
+	strCopy += strTemp;
+
+	return strCopy;
+}
+
 

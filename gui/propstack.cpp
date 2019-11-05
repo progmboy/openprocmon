@@ -373,7 +373,7 @@ BOOL CModuleInfo::Init(IN const CString& strPath, IN PVOID pImageBase, IN ULONG 
 	m_pBase = pImageBase;
 	m_Size = Size;
 	m_strPath = strPath;
-	return 0;
+	return TRUE;
 }
 
 BOOL CPropStackDlg::InitSymbol()
@@ -415,6 +415,9 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 
 	CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
 	m_ListCtrl = this->GetDlgItem(IDC_PROP_STACKLIST);
+	m_StatusCtl = this->GetDlgItem(IDC_STATIC_STAUS);
+	
+	m_StatusCtl.SetWindowText(TEXT(""));
 
 	m_ListCtrl.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT);
 	m_ListCtrl.InsertColumn(0, TEXT("Frame"), 0, 50);
@@ -436,7 +439,7 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 	// 如果没有退出的话,这里我们通过打开进程枚举模块的形式获取模块信息
 	//
 
-	if (!pView->IsProcessFromInit() && !pView->IsProcessExit()) {
+	if (pView->IsProcessFromInit() && !pView->IsProcessExit()) {
 
 		//
 		// 从进程中枚举模块
@@ -477,8 +480,8 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 	m_ResoveSymbolThread.setParam((PVOID)this);
 	m_ResoveSymbolThread.SetProcInf(m_ProcInfo);
 	m_ResoveSymbolThread.SetFrameStack(pStackFrame);
+	m_ResoveSymbolThread.SetTimeout(1000);
 	m_ResoveSymbolThread.Start();
-
 
 	return TRUE;
 }
@@ -490,12 +493,46 @@ LRESULT CPropStackDlg::OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lPar
 	return TRUE;
 }
 
+CString CPropStackDlg::CopyAll()
+{
+	CString strCopy;
+	CString strItem;
+	CString strTemp;
+
+	for (int i = 0; i < m_ListCtrl.GetItemCount(); i++)
+	{
+		for (int j = 0; j < m_ListCtrl.GetHeader().GetItemCount(); j++)
+		{
+			m_ListCtrl.GetItemText(i, j, strItem);
+			strTemp += TEXT(" ");
+			strTemp += strItem;
+		}
+
+		strTemp += TEXT("\n");
+		strCopy += strTemp;
+	}
+
+	return strCopy;
+}
+
 LRESULT CPropStackDlg::OnSymbolParse(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOOL& /*bHandled*/)
 {
 	int nIndex = (int)wParam;
 	LPCTSTR lpszSymbol = (LPCTSTR)lParam;
 	m_ListCtrl.SetItemText(nIndex, 2, lpszSymbol);
 	free((PVOID)lpszSymbol);
+
+	if (nIndex < m_ListCtrl.GetItemCount()-1){
+		CString strAddress;
+		m_ListCtrl.GetItemText(nIndex, 3, strAddress);
+
+		CString strShow;
+
+		strShow.Format(TEXT("Parsing symbol for %s"), strAddress.GetBuffer());
+		m_StatusCtl.SetWindowText(strShow);
+	}else{
+		m_StatusCtl.SetWindowText(TEXT(""));
+	}
 
 	return TRUE;
 

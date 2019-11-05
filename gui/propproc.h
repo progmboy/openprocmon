@@ -39,8 +39,7 @@ public:
 		}
 
 		CString strTmp;
-		CWindow wnd = this->GetDlgItem(IDC_PROCESS_ICON);
-		CStatic* pImg = (CStatic*)&wnd;
+		CStatic ImgCtl = this->GetDlgItem(IDC_PROCESS_ICON);
 
 		CBuffer& clsIconBuffer = pView->GetProcIcon(FALSE);
 
@@ -60,7 +59,7 @@ public:
 			hIcon = UtilGetDefaultIcon(FALSE);
 		}
 
-		pImg->SetIcon(hIcon);
+		ImgCtl.SetIcon(hIcon);
 
 		this->GetDlgItem(IDC_PROCESS_DESC).SetWindowText(MapMonitorResult(emDescription, pView));
 		this->GetDlgItem(IDC_PROCESS_COMPANY).SetWindowText(MapMonitorResult(emCompany, pView));
@@ -92,7 +91,7 @@ public:
 		// Ended
 		//
 		
-		strTmp = pView->IsProcessExit() ? TEXT("Runing") : UtilConvertTimeOfDay(pView->GetProcessExitTime());
+		strTmp = pView->IsProcessExit() ? UtilConvertDay(pView->GetProcessExitTime()) : TEXT("Runing");
 		this->GetDlgItem(IDC_PROCESS_ENDED).SetWindowText(strTmp);
 
 		this->GetDlgItem(IDC_PROCESS_ARCH).SetWindowText(MapMonitorResult(emArchiteture, pView));
@@ -111,35 +110,125 @@ public:
 		// set list control
 		//
 		
-		CWindow wnd1 = this->GetDlgItem(IDC_PROCESS_MODULES);
-		CListViewCtrl* pListCtrl = (CListViewCtrl*)&wnd1;
+		m_ListCtrl = this->GetDlgItem(IDC_PROCESS_MODULES);
 
-		pListCtrl->SetExtendedListViewStyle(LVS_EX_FULLROWSELECT);
-		pListCtrl->InsertColumn(0, TEXT("Module"), 0, 150);
-		pListCtrl->InsertColumn(1, TEXT("Address"), 0, 150);
-		pListCtrl->InsertColumn(2, TEXT("Size"), 0, 100);
-		pListCtrl->InsertColumn(3, TEXT("Path"), 0, 200);
-		pListCtrl->InsertColumn(4, TEXT("Company"), 0, 100);
-		pListCtrl->InsertColumn(5, TEXT("Version"), 0, 100);
-		pListCtrl->InsertColumn(6, TEXT("Timestamp"), 0, 180);
+		m_ListCtrl.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT);
+		m_ListCtrl.InsertColumn(0, TEXT("Module"), 0, 150);
+		m_ListCtrl.InsertColumn(1, TEXT("Address"), 0, 150);
+		m_ListCtrl.InsertColumn(2, TEXT("Size"), 0, 100);
+		m_ListCtrl.InsertColumn(3, TEXT("Path"), 0, 200);
+		m_ListCtrl.InsertColumn(4, TEXT("Company"), 0, 100);
+		m_ListCtrl.InsertColumn(5, TEXT("Version"), 0, 100);
+		m_ListCtrl.InsertColumn(6, TEXT("Timestamp"), 0, 180);
 
 		std::vector<CModule>& ModuleList = pView->GetModuleList();
 		int nIndex = 0;
 		for (auto it = ModuleList.begin(); it != ModuleList.end(); it++)
 		{
-			pListCtrl->InsertItem(nIndex, PathFindFileName(it->GetPath()));
+			m_ListCtrl.InsertItem(nIndex, PathFindFileName(it->GetPath()));
 
 			strTmp.Format(TEXT("0x%p"), it->GetImageBase());
-			pListCtrl->SetItemText(nIndex, 1, strTmp);
+			m_ListCtrl.SetItemText(nIndex, 1, strTmp);
 			
 			strTmp.Format(TEXT("%08x"), it->GetSize());
-			pListCtrl->SetItemText(nIndex, 2, strTmp);
+			m_ListCtrl.SetItemText(nIndex, 2, strTmp);
 
-			pListCtrl->SetItemText(nIndex, 3, it->GetPath());
+			m_ListCtrl.SetItemText(nIndex, 3, it->GetPath());
 
 			nIndex++;
 		}
 
 		return 0;
 	}
+
+	CString CopyAll()
+	{
+		CString strCopy;
+		CString strTemp;
+		CString strItem;
+
+		GetDlgItemText(IDC_PROCESS_DESC, strItem);
+		strTemp.Format(TEXT("Description: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_COMPANY, strItem);
+		strTemp.Format(TEXT("Compnay: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_NAME, strItem);
+		strTemp.Format(TEXT("Process Name: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_VERSION, strItem);
+		strTemp.Format(TEXT("Version: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_ARCH, strItem);
+		strTemp.Format(TEXT("Arch: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_AUTHID, strItem);
+		strTemp.Format(TEXT("Auth Id: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_VIRTUALIZED, strItem);
+		strTemp.Format(TEXT("Virtualized: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_INTERGRITY, strItem);
+		strTemp.Format(TEXT("Integrity: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_PATH, strItem);
+		strTemp.Format(TEXT("Image Path: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_CMDLINE, strItem);
+		strTemp.Format(TEXT("CommandLine: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_PID, strItem);
+		strTemp.Format(TEXT("Pid: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_PPID, strItem);
+		strTemp.Format(TEXT("Parent Pid: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_SESSION, strItem);
+		strTemp.Format(TEXT("Session id: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_USER, strItem);
+		strTemp.Format(TEXT("User: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_STARTTIME, strItem);
+		strTemp.Format(TEXT("StartTime: %s\n"), strItem);
+		strCopy += strTemp;
+
+		GetDlgItemText(IDC_PROCESS_ENDED, strItem);
+		strTemp.Format(TEXT("Ended: %s\n"), strItem);
+		strCopy += strTemp;
+
+		for (int i = 0; i < m_ListCtrl.GetItemCount(); i++)
+		{
+			strTemp.Format(TEXT("%d"), i);
+			
+			for (int j = 0; j < m_ListCtrl.GetHeader().GetItemCount(); j++)
+			{
+				m_ListCtrl.GetItemText(i, j, strItem);
+				strTemp += TEXT(" ");
+				strTemp += strItem;
+			}
+
+			strTemp += TEXT("\n");
+			strCopy += strTemp;
+		}
+
+		return strCopy;
+	}
+
+private:
+	CListViewCtrl m_ListCtrl;
 };

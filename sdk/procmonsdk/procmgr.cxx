@@ -76,11 +76,6 @@ CProcMgr::Insert(
 	_In_ CRefPtr<CProcess> Process
 )
 {
-	//
-	// Aquire write lock
-	//
-
-	std::unique_lock<std::shared_mutex> lock(m_lock);
 
 	//
 	// Check is process already in list
@@ -95,10 +90,14 @@ CProcMgr::Insert(
 		// Add to process list
 		//
 
+		m_lock.lock();
 		m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
+		m_lock.unlock();
 	}else{
 
 		if (ProcessFind->IsMarkExit()) {
+
+			m_lock.lock();
 
 			//
 			// remove from list
@@ -111,6 +110,8 @@ CProcMgr::Insert(
 			//
 
 			m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
+
+			m_lock.unlock();
 
 		}else{
 			
@@ -137,6 +138,7 @@ CProcMgr::Remove(
 	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(pEvent->GetProcSeq());
 	if (!ProcessFind.IsNull()) {
 		ProcessFind->MarkExit(TRUE);
+		ProcessFind->SetExitEvent(pEvent);
 	}else{
 		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), pEvent->GetProcSeq());
 	}
@@ -161,5 +163,6 @@ VOID CProcMgr::Dump()
 
 VOID CProcMgr::Clear()
 {
+	std::unique_lock<std::shared_mutex> lock(m_lock);
 	m_ProcessList.clear();
 }
