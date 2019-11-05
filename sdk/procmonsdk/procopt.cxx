@@ -20,7 +20,7 @@ BOOL CProcOpt::Process(const CRefPtr<CLogEvent> pEvent)
 	}
 		break;
 	case NOTIFY_PROCESS_EXIT:
-		PROCMGR().Remove(pEntry->ProcessSeq);
+		PROCMGR().Remove(pEvent);
 		break;
 	case NOTIFY_IMAGE_LOAD:
 	{

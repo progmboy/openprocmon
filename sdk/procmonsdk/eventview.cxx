@@ -184,4 +184,42 @@ std::vector<CModule>& CEventView::GetModuleList()
 	return m_ModuleInfo;
 }
 
+BOOL CEventView::IsProcessExit()
+{
+	ULONG Seq = m_EventView.GetProcessSeq();
+	CProcMgr& procMgr = Singleton<CProcMgr>::getInstance();
+
+	CRefPtr<CProcess> pProcess = procMgr.RefProcessBySeq(Seq);
+	if (pProcess.IsNull()) {
+		return TRUE;
+	}else{
+		return pProcess->IsMarkExit();
+	}
+}
+
+LARGE_INTEGER CEventView::GetProcessExitTime()
+{
+	LARGE_INTEGER ExitTime;
+	ULONG Seq = m_EventView.GetProcessSeq();
+	CProcMgr& procMgr = Singleton<CProcMgr>::getInstance();
+
+	ExitTime.QuadPart = 0;
+
+	CRefPtr<CProcess> pProcess = procMgr.RefProcessBySeq(Seq);
+	if (!pProcess.IsNull()) {
+		CRefPtr<CLogEvent> pExitEvent = pProcess->GetExitEvent();
+		if (!pExitEvent.IsNull()) {
+			CBaseView baseView(pExitEvent);
+			return baseView.GetStartTime();
+		}
+	}
+
+	return ExitTime;
+}
+
+BOOL CEventView::IsProcessFromInit()
+{
+	return m_ProcView.GetEventClass() == NOTIFY_PROCESS_INIT;
+}
+
 

@@ -17,6 +17,7 @@
 #include "filterdlg.h"
 #include "MainFrm.h"
 
+
 #pragma comment(lib, "Shcore.lib")
 
 CAppModule _Module;

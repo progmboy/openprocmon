@@ -15,28 +15,63 @@ LRESULT CPropEventDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 
 	CString strTime = UtilConvertTimeOfDay(pView->GetStartTime());
 
-	GetDlgItem(1040).SetWindowText(strTime);
-
-	GetDlgItem(1029).SetWindowText(MapMonitorResult(emTID, pView));
-
-	GetDlgItem(1030).SetWindowText(MapMonitorResult(emEventClass, pView));
-
-	GetDlgItem(1041).SetWindowText(MapMonitorResult(emOperation, pView));
-	GetDlgItem(1042).SetWindowText(MapMonitorResult(emResult, pView));
-
-	GetDlgItem(1027).SetWindowText(pView->GetPath());
-	
+	GetDlgItem(IDC_EVENT_DATA).SetWindowText(strTime);
+	GetDlgItem(IDC_EVENT_THREAD).SetWindowText(MapMonitorResult(emTID, pView));
+	GetDlgItem(IDC_EVENT_CLASS).SetWindowText(MapMonitorResult(emEventClass, pView));
+	GetDlgItem(IDC_EVENT_OPT).SetWindowText(MapMonitorResult(emOperation, pView));
+	GetDlgItem(IDC_EVENT_RET).SetWindowText(MapMonitorResult(emResult, pView));
+	GetDlgItem(IDC_EVENT_PATH).SetWindowText(pView->GetPath());
 	
 	//
 	// Duration
 	//
 	
-	GetDlgItem(1028).SetWindowText(MapMonitorResult(emDuration, pView));
-	
-	GetDlgItem(1017).SetWindowText(pView->GetDetail());
+	GetDlgItem(IDC_EVENT_DURATION).SetWindowText(MapMonitorResult(emDuration, pView));
+	GetDlgItem(IDC_EVENT_DETAIL).SetWindowText(pView->GetDetail());
 
 	return 0;
 }
 
+
+CString CPropEventDlg::CopyAll()
+{
+	CString strCopy;
+	CString strTemp;
+	CString strItem;
+
+	GetDlgItemText(IDC_EVENT_DATA, strItem);
+	strTemp.Format(TEXT("Date: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_THREAD, strItem);
+	strTemp.Format(TEXT("Thread: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_CLASS, strItem);
+	strTemp.Format(TEXT("Event Class: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_OPT, strItem);
+	strTemp.Format(TEXT("Operation: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_RET, strItem);
+	strTemp.Format(TEXT("Result: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_PATH, strItem);
+	strTemp.Format(TEXT("Path: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_DURATION, strItem);
+	strTemp.Format(TEXT("Duration: %s\n"), strItem);
+	strCopy += strTemp;
+
+	GetDlgItemText(IDC_EVENT_DETAIL, strItem);
+	strTemp.Format(TEXT("Detail: %s\n"), strItem);
+	strCopy += strTemp;
+
+	return strCopy;
+}
 
 

@@ -180,8 +180,6 @@ BOOL CEventMgr::Process()
 		return FALSE;
 	}
 
-	//LogMessage(L_INFO, TEXT("Pop event 0x%x"), Operator->GetSeq());
-
 	for (auto it = m_Processors.begin(); it != m_Processors.end(); it++)
 	{
 		PLOG_ENTRY pPreEntry = (PLOG_ENTRY)pEvent->getPreLog().GetBuffer();
@@ -253,8 +251,6 @@ VOID CEventMgr::PushEvent(CRefPtr<CLogEvent> pEvent)
 	//
 	// Notify process thread the log data coming
 	//
-
-	//LogMessage(L_INFO, TEXT("Queue %d not process"), m_PushCount - m_PopCount);
 
 	m_PushCount++;
 	m_convar.notify_all();

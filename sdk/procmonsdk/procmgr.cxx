@@ -18,8 +18,12 @@ CProcMgr::RefProcessBySeq(
 	_In_ ULONG Seq
 )
 {
-	PROCESSLISTMAP::iterator it;
-	it = m_ProcessList.find(Seq);
+	//
+	// aquire read lock
+	//
+
+	std::shared_lock<std::shared_mutex> lock(m_lock);
+	auto it = m_ProcessList.find(Seq);
 	if (it == m_ProcessList.end()) {
 		return NULL;
 	}
@@ -38,6 +42,12 @@ CProcMgr::RefProcessByProcessId(
 	// Do not use this method if is necessary
 	//
 	
+	//
+	// aquire read lock
+	//
+
+	std::shared_lock<std::shared_mutex> lock(m_lock);
+
 	for (auto it = m_ProcessList.begin(); it != m_ProcessList.end(); it++)
 	{
 		CRefPtr<CProcess> Process = it->second;
@@ -66,6 +76,7 @@ CProcMgr::Insert(
 	_In_ CRefPtr<CProcess> Process
 )
 {
+
 	//
 	// Check is process already in list
 	//
@@ -79,10 +90,14 @@ CProcMgr::Insert(
 		// Add to process list
 		//
 
+		m_lock.lock();
 		m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
+		m_lock.unlock();
 	}else{
 
 		if (ProcessFind->IsMarkExit()) {
+
+			m_lock.lock();
 
 			//
 			// remove from list
@@ -95,6 +110,8 @@ CProcMgr::Insert(
 			//
 
 			m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
+
+			m_lock.unlock();
 
 		}else{
 			
@@ -110,23 +127,20 @@ CProcMgr::Insert(
 
 			__debugbreak();
 		}
-
-
 	}
 }
 
 VOID 
 CProcMgr::Remove(
-	_In_ ULONG Seq
+	_In_ const CRefPtr<CLogEvent> pEvent
 )
 {
-	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(Seq);
+	CRefPtr<CProcess> ProcessFind = RefProcessBySeq(pEvent->GetProcSeq());
 	if (!ProcessFind.IsNull()) {
-		//LogMessage(L_INFO, TEXT("Process id 0x%x seq 0x%x mark with exit"), ProcessFind->GetProcessId(), Seq);
-		//m_ProcessList.erase(Seq);
 		ProcessFind->MarkExit(TRUE);
+		ProcessFind->SetExitEvent(pEvent);
 	}else{
-		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), Seq);
+		LogMessage(L_INFO, TEXT("Remove process seq 0x%x is not exist in list"), pEvent->GetProcSeq());
 	}
 }
 
@@ -149,5 +163,6 @@ VOID CProcMgr::Dump()
 
 VOID CProcMgr::Clear()
 {
+	std::unique_lock<std::shared_mutex> lock(m_lock);
 	m_ProcessList.clear();
 }

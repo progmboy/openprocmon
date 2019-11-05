@@ -209,6 +209,7 @@
     <ClCompile Include="dataview.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="propdlg.cpp" />
+    <ClCompile Include="propstack.cpp" />
     <ClCompile Include="status.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

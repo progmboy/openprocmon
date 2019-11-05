@@ -2,6 +2,7 @@
 
 #include "event.hpp"
 #include "process.hpp"
+#include "procmgr.hpp"
 
 class CEventView : public CRefBase
 {
@@ -59,6 +60,10 @@ public:
 	const CString& GetVersion();
 
 	std::vector<CModule>& GetModuleList();
+
+	BOOL IsProcessExit();
+	LARGE_INTEGER GetProcessExitTime();
+	BOOL IsProcessFromInit();
 
 
 private:

@@ -2,6 +2,99 @@
 
 #include "dataview.h"
 
+#define WM_SYMBOL_PARSE WM_USER+250
+
+
+class CModuleInfo : public CRefBase
+{
+public:
+	CModuleInfo() {};
+	virtual ~CModuleInfo() {};
+
+	BOOL Init(CModule& Module);
+
+	BOOL Init(IN HANDLE hProcess, IN HMODULE hModule);
+
+	BOOL Init(IN const CString& strPath, IN PVOID pImageBase, IN ULONG Size);
+
+	CString getName()
+	{
+		return PathFindFileName(m_strPath);
+	}
+
+	const CString& getPath()
+	{
+		return m_strPath;
+	}
+	LPVOID getBaseAddress()
+	{
+		return m_pBase;
+	}
+
+	ULONG getSize()
+	{
+		return m_Size;
+	}
+
+	BOOL IsAddressIn(LPVOID lpAddress)
+	{
+		if ((ULONG_PTR)lpAddress >= (ULONG_PTR)m_pBase &&
+			(ULONG_PTR)(lpAddress) < ((ULONG_PTR)m_pBase + m_Size)) {
+			return TRUE;
+		}
+		return FALSE;
+	}
+
+private:
+
+	/** specific the module image path*/
+	CString m_strPath;
+
+	/** specific the module base address*/
+	LPVOID m_pBase = NULL;
+
+	/** specific the module image size*/
+	ULONG m_Size = 0;
+};
+
+class CProcessInfo : public CRefBase
+{
+public:
+	CProcessInfo()
+	{
+
+	}
+	~CProcessInfo()
+	{
+	
+	}
+
+	BOOL LookupSymbolByAddress(
+		IN LPVOID lpAddress,
+		OUT CString& strSymbol
+	);
+
+	BOOL ListKernelModule();
+	BOOL ListModule(DWORD dwProcessId);
+	CRefPtr<CModuleInfo> LookupModuleByAddress(IN LPVOID lpAddress);
+	BOOL ListModuleFromLog(std::vector<CModule>& modList);
+
+private:
+	std::vector<CRefPtr<CModuleInfo>> m_ModuleList;
+};
+
+class CResolveSymbolThread : public CThread
+{
+public:
+	virtual void Run();
+	void SetProcInf(CRefPtr<CProcessInfo> pProcInfo);
+	void SetFrameStack(std::vector<PVOID>& FrameStack);
+
+private:
+	CRefPtr<CProcessInfo> m_ProcInfo;
+	std::vector<PVOID> m_FrameStack;
+};
+
 class CPropStackDlg : public CDialogImpl<CPropStackDlg>, public CDialogResize<CPropStackDlg>
 {
 public:
@@ -11,6 +104,8 @@ public:
 
 	BEGIN_MSG_MAP(CPropStackDlg)
 		MESSAGE_HANDLER(WM_INITDIALOG, OnInitDialog)
+		MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
+		MESSAGE_HANDLER(WM_SYMBOL_PARSE, OnSymbolParse)
 		CHAIN_MSG_MAP(CDialogResize<CPropStackDlg>)
 	END_MSG_MAP()
 
@@ -23,40 +118,18 @@ public:
 		DLGRESIZE_CONTROL(IDC_STATIC_STAUS, DLSZ_MOVE_Y | DLSZ_SIZE_X)
 	END_DLGRESIZE_MAP()
 
+	BOOL InitSymbol();
+	void CleanSymbols();
+	LRESULT OnSymbolParse(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOOL& /*bHandled*/);
+	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 
-	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
-	{
-		DlgResize_Init();
+	CString CopyAll();
 
-		CRefPtr<CEventView> pView = DATAVIEW().GetSelectView();
-
-		CWindow wnd1 = this->GetDlgItem(IDC_PROP_STACKLIST);
-		CListViewCtrl* pListCtrl = (CListViewCtrl*)&wnd1;
-
-		pListCtrl->SetExtendedListViewStyle(LVS_EX_FULLROWSELECT);
-		pListCtrl->InsertColumn(0, TEXT("Frame"), 0, 50);
-		pListCtrl->InsertColumn(1, TEXT("Module"), 0, 100);
-		pListCtrl->InsertColumn(2, TEXT("Location"), 0, 200);
-		pListCtrl->InsertColumn(3, TEXT("Address"), 0, 150);
-		pListCtrl->InsertColumn(4, TEXT("Path"), 0, 400);
-
-		std::vector<PVOID> pStackFrame;
-		pView->GetCallStack(pStackFrame);
-
-		int nIndex = 0;
-		for (auto it = pStackFrame.begin(); it != pStackFrame.end(); it++)
-		{
-			CString strTmp;
-
-			strTmp.Format(TEXT("%d"), nIndex);
-			pListCtrl->InsertItem(nIndex, strTmp);
-
-			strTmp.Format(TEXT("0x%p"), *it);
-			pListCtrl->SetItemText(nIndex, 3, strTmp);
-
-			nIndex++;
-		}
-
-		return TRUE;
-	}
+private:
+	CRefPtr<CProcessInfo> m_ProcInfo;
+	CResolveSymbolThread m_ResoveSymbolThread;
+	CListViewCtrl m_ListCtrl;
+	CStatic m_StatusCtl;
+	
 };

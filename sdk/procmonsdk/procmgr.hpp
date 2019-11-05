@@ -3,6 +3,7 @@
 #include "singleton.hpp"
 #include "process.hpp"
 #include <map>
+#include <shared_mutex>
 
 #define PROCMGR()  Singleton<CProcMgr>::getInstance()
 
@@ -35,7 +36,7 @@ public:
 	);
 
 	VOID Remove(
-		_In_ ULONG Seq
+		_In_ const CRefPtr<CLogEvent> pEvent
 	);
 
 	VOID Dump();
@@ -49,6 +50,7 @@ private:
 	// 这里只有一个线程去处理数据,所以我们没必要加锁
 	//
 	
+	std::shared_mutex m_lock;
 	PROCESSLISTMAP m_ProcessList;
 
 };
