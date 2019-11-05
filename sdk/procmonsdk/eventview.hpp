@@ -35,6 +35,7 @@ public:
 	DWORD GetCallStack(std::vector<PVOID>& callStacks);
 	DWORD GetProcessSeq();
 	PLOG_ENTRY GetPreEventEntry();
+	PLOG_ENTRY GetPostEventEntry();
 	BOOL IsImpersonate();
 	BOOL IsImpersonateOpen();
 

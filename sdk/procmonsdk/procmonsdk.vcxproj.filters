@@ -81,6 +81,9 @@
     <ClInclude Include="sdk.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="fltuser.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cxx">

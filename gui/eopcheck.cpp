@@ -6,11 +6,17 @@
 #include <sddl.h>
 
 #define FILE_WRITE_ACESS_MASK      (FILE_WRITE_DATA          |\
-                                   FILE_WRITE_ATTRIBUTES     |\
-                                   FILE_WRITE_EA             |\
-                                   FILE_APPEND_DATA)
+                                    FILE_WRITE_ATTRIBUTES    |\
+                                    FILE_WRITE_EA            |\
+                                    FILE_APPEND_DATA	     |\
+									DELETE)
 
 #define IS_FILE_ACCESSMASK_HAS_WRITE(_accessmask) (_accessmask == GENERIC_WRITE || (_accessmask & FILE_WRITE_ACESS_MASK))
+
+#define IS_DIRECTORY_ACCESSMASK_HAS_WRITE(_accessmask) (_accessmask == GENERIC_WRITE || \
+				(_accessmask == FILE_GENERIC_WRITE) || \
+				((_accessmask & FILE_WRITE_ACESS_MASK) == FILE_WRITE_ACESS_MASK) || \
+				(_accessmask & WRITE_DAC))
 
 
 CEopCheck::CEopCheck()
@@ -117,6 +123,42 @@ CEopCheck::RefDesktopProcessToken(
 
 BOOL
 CEopCheck::IsFileWritableByMeduimProcess(
+	IN const CString& lpszFilePath
+)
+{
+	BOOL bAccess = FALSE;
+	DWORD GrantedAccess = 0;
+
+	if(GetFileGrantedAccessByMeduimProcess(lpszFilePath, &GrantedAccess)){
+		if (IS_FILE_ACCESSMASK_HAS_WRITE(GrantedAccess)) {
+			bAccess = TRUE;
+		}
+	}
+
+	return bAccess;
+}
+
+BOOL
+CEopCheck::IsFileDirWritableByMeduimProcess(
+	IN const CString& lpszFilePath
+)
+{
+	BOOL bAccess = FALSE;
+	DWORD GrantedAccess = 0;
+
+	CString strDir = GetFileDirectory(lpszFilePath);
+
+	if (GetFileGrantedAccessByMeduimProcess(strDir, &GrantedAccess)) {
+		if (IS_DIRECTORY_ACCESSMASK_HAS_WRITE(GrantedAccess)) {
+			bAccess = TRUE;
+		}
+	}
+
+	return bAccess;
+}
+
+BOOL
+CEopCheck::GetFileGrantedAccessByMeduimProcess(
 	IN const CString& lpszFilePath,
 	OUT PDWORD pGrantedAccess
 )
@@ -139,7 +181,11 @@ CEopCheck::IsFileWritableByMeduimProcess(
 	//
 
 	if (IsFileWriteAccessFromCache(lpszFilePath, &GrantedAccess)) {
-		return IS_FILE_ACCESSMASK_HAS_WRITE(GrantedAccess);
+		if (pGrantedAccess){
+			*pGrantedAccess = GrantedAccess;
+		}
+		
+		return TRUE;
 	}
 
 	//
@@ -154,7 +200,9 @@ CEopCheck::IsFileWritableByMeduimProcess(
 	DWORD dwError = GetLastError();
 	if (!bRet && dwError == ERROR_INSUFFICIENT_BUFFER) {
 		pSecurityDescriptor = (PSECURITY_DESCRIPTOR)LocalAlloc(0, dwLengthNeeded);
-		assert(pSecurityDescriptor);
+		if (!pSecurityDescriptor){
+			return FALSE;
+		}
 		bRet = GetFileSecurity(lpszFilePath, LABEL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION |
 			GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, pSecurityDescriptor,
 			dwLengthNeeded, &dwLengthNeeded);
@@ -164,11 +212,9 @@ CEopCheck::IsFileWritableByMeduimProcess(
 			MAXIMUM_ALLOWED, &Mapping, &PrivilegeSet,
 			&PrivilegeSetLength, &GrantedAccess, &AccessStatus);
 		if (bRet) {
-			if (IS_FILE_ACCESSMASK_HAS_WRITE(GrantedAccess)) {
-				bAccess = TRUE;
-				if (pGrantedAccess) {
-					*pGrantedAccess = GrantedAccess;
-				}
+
+			if (pGrantedAccess){
+				*pGrantedAccess = GrantedAccess;
 			}
 
 			//
@@ -179,13 +225,23 @@ CEopCheck::IsFileWritableByMeduimProcess(
 		}
 
 		LocalFree(pSecurityDescriptor);
-	}else {
-		//LogMessage(L_INFO, TEXT("Can not get file \"%s\" security desc error:0x%x"), lpszFilePath, dwError);
 	}
 
-	return bAccess;
+	return bRet;
 }
 
+CString CEopCheck::GetFileDirectory(const CString& strFile)
+{
+	TCHAR szPath[MAX_PATH];
+
+	CString strPath = strFile;
+	strPath.TrimRight(TEXT('\\'));
+	StringCchCopy(szPath, MAX_PATH, strPath);
+	PathRemoveFileSpec(szPath);
+
+	return szPath;
+
+}
 
 BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 {
@@ -199,6 +255,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 	DWORD dwEventClass = pEvent->GetEventClass();
 	DWORD dwNotifyType = pEvent->GetEventOperator();
 	PVOID pPreEventEntry = pEvent->GetPreEventEntry();
+	PVOID pPostEventEntry = pEvent->GetPostEventEntry();
 	BOOL IsImpersonateOpen = pEvent->IsImpersonateOpen();
 	BOOL IsImpersonate = pEvent->IsImpersonate();
 
@@ -207,6 +264,10 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 	}
 
 	if (pEvent->GetIntegrity() < SECURITY_MANDATORY_HIGH_RID){
+		return FALSE;
+	}
+
+	if (pEvent->GetResult() < 0) {
 		return FALSE;
 	}
 
@@ -226,37 +287,22 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 		case IRP_MJ_CREATE:
 			{
 				PLOG_FILE_CREATE pCreateInfo = reinterpret_cast<PLOG_FILE_CREATE>(pFileOpt->Name + pFileOpt->NameLength);
-			
-				//
-				// Get file create user sid
-				//
-			
-				if (IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess)){
-					
-					//
-					// Check current sid is process sid
-					//
-					
-// 					if (pCreateInfo->UserTokenLength){
-// 						PSID pProcSid = pEvent->GetUserSid();
-// 						PSID pFileOptSid = (PSID)(pCreateInfo + 1);
-// 
-// 						if (EqualSid(pProcSid, pFileOptSid)) {
-// 
-// 							//
-// 							// Is file writable by medium process
-// 							//
-// 
-// 							if (IsFileWritableByMeduimProcess(strPath)) {
-// 								bIsEopBug = TRUE;
-// 							}
-// 						}else{
-// 							LogMessage(L_INFO, TEXT("impersonate"));
-// 						}
-// 					}
+				ULONG_PTR* pInformation = TO_EVENT_DATA(ULONG_PTR*, pPostEventEntry);
 
-					if (IsImpersonateOpen && !IsImpersonate){
-						if (IsFileWritableByMeduimProcess(strPath)) {
+				if (IsImpersonateOpen && IsImpersonate) {
+					return FALSE;
+				}
+
+				if (*pInformation == FILE_CREATED ||
+					IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess)) {
+
+					if (PathFileExists(strPath)) {
+						if (IsFileWritableByMeduimProcess(strPath) &&
+							IsFileDirWritableByMeduimProcess(strPath)) {
+							bIsEopBug = TRUE;
+						}
+					}else{
+						if(IsFileDirWritableByMeduimProcess(strPath)){
 							bIsEopBug = TRUE;
 						}
 					}
@@ -266,10 +312,13 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 		//case IRP_MJ_SET_INFORMATION:
 		case IRP_MJ_SET_SECURITY:
 		{
-			if (IsImpersonateOpen && !IsImpersonate) {
-				if (IsFileWritableByMeduimProcess(strPath)) {
-					bIsEopBug = TRUE;
-				}
+			if (IsImpersonateOpen && IsImpersonate) {
+				return FALSE;
+			}
+
+			if (IsFileWritableByMeduimProcess(strPath) &&
+				IsFileDirWritableByMeduimProcess(strPath)) {
+				bIsEopBug = TRUE;
 			}
 
 			break;

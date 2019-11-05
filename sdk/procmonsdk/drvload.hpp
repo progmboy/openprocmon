@@ -13,7 +13,6 @@ public:
 		IN const CString& strDriverName,
 		IN const CString& strDriverPath);
 
-	BOOL EnablePrivilege();
 	BOOL Load();
 	BOOL UnLoad();
 	BOOL IsReady();

@@ -99,6 +99,16 @@ PLOG_ENTRY CEventView::GetPreEventEntry()
 	
 }
 
+PLOG_ENTRY CEventView::GetPostEventEntry()
+{
+	if (!m_EventView.GetEvent().IsNull()) {
+		if (m_EventView.GetEvent()->getPostLog().GetBufferLen()) {
+			return reinterpret_cast<PLOG_ENTRY>(m_EventView.GetEvent()->getPostLog().GetBuffer());
+		}
+	}
+	return NULL;
+}
+
 DWORD CEventView::GetProcessId()
 {
 	return m_ProcView.GetProcessId();
@@ -229,7 +239,7 @@ LARGE_INTEGER CEventView::GetProcessExitTime()
 
 BOOL CEventView::IsProcessFromInit()
 {
-	return m_ProcView.GetEventClass() == NOTIFY_PROCESS_INIT;
+	return m_ProcView.GetOperator() == NOTIFY_PROCESS_INIT;
 }
 
 

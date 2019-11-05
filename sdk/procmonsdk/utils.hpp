@@ -36,3 +36,9 @@ UtilExtractIcon(
 	CBuffer& bufSmallIcon,
 	CBuffer& bufLargeIcon
 );
+
+BOOL 
+UtilSetPriviledge(
+	IN LPCTSTR lpszPriviledgeName, 
+	IN BOOL bEnable
+);

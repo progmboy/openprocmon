@@ -93,8 +93,7 @@ BOOL CProcessInfo::LookupSymbolByAddress(
 		if (Displacement) {
 			strStmbolW.Format(L"%s!%s+%.8llx", lpModuleName,
 				SymbolInfo.si.Name, Displacement);
-		}
-		else {
+		}else{
 			strStmbolW.Format(L"%s!%s", lpModuleName,
 				SymbolInfo.si.Name);
 		}
@@ -196,12 +195,20 @@ CProcessInfo::ListModule(
 	DWORD cbNeeded = 0;
 	BOOL bOpened = FALSE;
 
+	m_ModuleList.clear();
+
+	//
+	// List Kernel module first
+	//
+	
+	ListKernelModule();
+
 	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, dwProcessId);
 	if (!hProcess) {
 		return FALSE;
 	}
 
-	m_ModuleList.clear();
+	//m_ModuleList.clear();
 
 	do
 	{
@@ -224,7 +231,7 @@ CProcessInfo::ListModule(
 		// get need size of buffer
 		//
 
-		bRet = EnumProcessModules(hProcess, phModules, dwSize, &cbNeeded);
+		bRet = EnumProcessModulesEx(hProcess, phModules, dwSize, &cbNeeded, LIST_MODULES_ALL);
 		if (!bRet) {
 			break;
 		}
@@ -291,6 +298,14 @@ CProcessInfo::ListModuleFromLog(
 	std::vector<CModule>& modList
 )
 {
+	m_ModuleList.clear();
+
+	//
+	// List Kernel module first
+	//
+
+	ListKernelModule();
+
 	for (auto it = modList.begin(); it != modList.end(); it++)
 	{
 		CRefPtr<CModuleInfo> pModule = new CModuleInfo;
@@ -314,6 +329,8 @@ void CResolveSymbolThread::Run()
 
 			LPCTSTR lpszDup = _tcsdup(strSymbol.GetBuffer());
 			pDlg->PostMessage(WM_SYMBOL_PARSE, (WPARAM)i, (LPARAM)lpszDup);
+		}else{
+			pDlg->PostMessage(WM_SYMBOL_PARSE, (WPARAM)i, NULL);
 		}
 	}
 }
@@ -430,8 +447,6 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 	pView->GetCallStack(pStackFrame);
 
 	m_ProcInfo = new CProcessInfo;
-	
-	m_ProcInfo->ListKernelModule();
 
 	//
 	// 首先判断进程是否在监控前已存在.
@@ -472,6 +487,12 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 		if (!pModuleInfo.IsNull()) {
 			m_ListCtrl.SetItemText(nIndex, 1, PathFindFileName(pModuleInfo->getPath()));
 			m_ListCtrl.SetItemText(nIndex, 4, pModuleInfo->getPath());
+
+			ULONG_PTR pOffset = (ULONG_PTR)(*it) - (ULONG_PTR)pModuleInfo->getBaseAddress();
+			strTmp.Format(TEXT("%s+0x%p"), PathFindFileName(pModuleInfo->getPath()), pOffset);
+			m_ListCtrl.SetItemText(nIndex, 2, strTmp);
+		}else{
+			m_ListCtrl.SetItemText(nIndex, 1, TEXT("<Unknown>"));
 		}
 
 		nIndex++;
@@ -519,8 +540,10 @@ LRESULT CPropStackDlg::OnSymbolParse(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam
 {
 	int nIndex = (int)wParam;
 	LPCTSTR lpszSymbol = (LPCTSTR)lParam;
-	m_ListCtrl.SetItemText(nIndex, 2, lpszSymbol);
-	free((PVOID)lpszSymbol);
+	if (lpszSymbol){
+		m_ListCtrl.SetItemText(nIndex, 2, lpszSymbol);
+		free((PVOID)lpszSymbol);
+	}
 
 	if (nIndex < m_ListCtrl.GetItemCount()-1){
 		CString strAddress;

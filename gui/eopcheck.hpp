@@ -21,7 +21,10 @@ private:
 		OUT PDWORD GrantedAccess);
 	HANDLE OpenDesktopProcessToken(VOID);
 	HANDLE RefDesktopProcessToken(VOID);
-	BOOL IsFileWritableByMeduimProcess(IN const CString& lpszFilePath, OUT PDWORD pGrantedAccess = NULL);
+	BOOL IsFileWritableByMeduimProcess(IN const CString& lpszFilePath);
+	BOOL IsFileDirWritableByMeduimProcess(IN const CString& lpszFilePath);
+	BOOL GetFileGrantedAccessByMeduimProcess(IN const CString& lpszFilePath, OUT PDWORD pGrantedAccess);
+	CString GetFileDirectory(const CString& strFile);
 	BOOL IsFilter(IN const CString& strPath);
 	
 private:

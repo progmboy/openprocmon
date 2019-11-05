@@ -157,6 +157,7 @@
     <ClInclude Include="drvload.hpp" />
     <ClInclude Include="eventfactory.hpp" />
     <ClInclude Include="fileopt.hpp" />
+    <ClInclude Include="fltuser.hpp" />
     <ClInclude Include="logger.hpp" />
     <ClInclude Include="module.hpp" />
     <ClInclude Include="monctl.hpp" />
