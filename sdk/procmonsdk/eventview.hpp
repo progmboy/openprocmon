@@ -100,6 +100,7 @@ public:
 	BOOL IsProcessFromInit();
 	CString GetOperationStrResult(_In_ MAP_SOURCE_TYPE SrcType);
 
+
 private:
 
 	CProcInfoView m_ProcView;

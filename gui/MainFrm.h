@@ -6,7 +6,6 @@
 
 #include <vector>
 #include <atltypes.h>
-#include "status.h"
 #include "filtermgr.h"
 #include "dataview.h"
 
@@ -154,9 +153,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_PROCESS);
 
 		if (bShow){
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_PROCESS));
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS));
 		}else{
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_PROCESS));
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS));
 		}
 
 		CFltProcessDlg Dlg;
@@ -172,9 +171,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_FILE);
 
 		if (bShow) {
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_FILE));
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE));
 		}else {
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_FILE));
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE));
 		}
 
 		CFltProcessDlg Dlg;
@@ -190,9 +189,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_REGISTRY);
 
 		if (bShow) {
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_REG));
+			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG));
 		}else{
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, GetClassStringMap(MONITOR_TYPE_REG));
+			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG));
 		}
 
 		CFltProcessDlg Dlg;
@@ -365,7 +364,7 @@ public:
 					DWORD dwOperator = pEventView->GetEventOperator();
 
 					CString strOperator;
-					LPCTSTR lpOPt = GetOperatorStringMap(pEventView->GetPreEventEntry());
+					LPCTSTR lpOPt = StrMapOperation(pEventView->GetPreEventEntry());
 					if (!lpOPt){
 						strOperator.Format(TEXT("%d:%d"), dwClass, dwOperator);
 					}else{
@@ -401,7 +400,7 @@ public:
 				case 6:
 				{
 					CString strResult;
-					LPCTSTR lpDesc = StatusGetDesc(pEventView->GetResult());
+					LPCTSTR lpDesc = StrMapNtStatus(pEventView->GetResult());
 
 					if (lpDesc){
 						strResult = lpDesc;

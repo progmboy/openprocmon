@@ -1,7 +1,5 @@
 #pragma once
 
-#include "status.h"
-
 typedef enum _FILTER_CMP_TYPE
 {
 	emCMPIs,
