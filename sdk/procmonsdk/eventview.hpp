@@ -4,6 +4,37 @@
 #include "process.hpp"
 #include "procmgr.hpp"
 
+typedef enum _MAP_SOURCE_TYPE
+{
+	emArchiteture,
+	emAuthId,
+	emCategory,
+	emCommandLine,
+	emCompany,
+	emCompletionTime,
+	emDataTime,
+	emDescription,
+	emDetail,
+	emDuration,
+	emEventClass,
+	emImagePath,
+	emIntegrity,
+	emOperation,
+	emParentPid,
+	emPath,
+	emPID,
+	emProcessName,
+	emRelativeTime,
+	emResult,
+	emSequence,
+	emSession,
+	emTID,
+	emTimeOfDay,
+	emUser,
+	emVersion,
+	emVirtualize,
+}MAP_SOURCE_TYPE;
+
 class CEventView : public CRefBase
 {
 
@@ -67,7 +98,7 @@ public:
 	BOOL IsProcessExit();
 	LARGE_INTEGER GetProcessExitTime();
 	BOOL IsProcessFromInit();
-
+	CString GetOperationStrResult(_In_ MAP_SOURCE_TYPE SrcType);
 
 private:
 

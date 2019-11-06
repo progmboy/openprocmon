@@ -2436,12 +2436,20 @@ Return Value:
 					pLogEntry->MinorFunction = MinjorFunction;
 					pLogEntry->IopbFlag = Data->Iopb->IrpFlags | (Data->Iopb->OperationFlags << 20);
 					pLogEntry->Flags = Data->Flags;
+#if 0
 					pLogEntry->Argument1 = Data->Iopb->Parameters.Others.Argument1;
 					pLogEntry->Argument2 = Data->Iopb->Parameters.Others.Argument2;
 					pLogEntry->Argument3 = Data->Iopb->Parameters.Others.Argument3;
 					pLogEntry->Argument4 = Data->Iopb->Parameters.Others.Argument4;
 					pLogEntry->Argument5 = Data->Iopb->Parameters.Others.Argument5;
 					pLogEntry->Argument6 = Data->Iopb->Parameters.Others.Argument6;
+#endif
+					pLogEntry->FltParameter.Others.Argument1 = Data->Iopb->Parameters.Others.Argument1;
+					pLogEntry->FltParameter.Others.Argument2 = Data->Iopb->Parameters.Others.Argument2;
+					pLogEntry->FltParameter.Others.Argument3 = Data->Iopb->Parameters.Others.Argument3;
+					pLogEntry->FltParameter.Others.Argument4 = Data->Iopb->Parameters.Others.Argument4;
+					pLogEntry->FltParameter.Others.Argument5 = Data->Iopb->Parameters.Others.Argument5;
+					pLogEntry->FltParameter.Others.Argument6 = Data->Iopb->Parameters.Others.Argument6;
 					pLogEntry->NameLength = pStrFileName->Length >> 1;
 					RtlCopyMemory(pLogEntry->Name, pStrFileName->Buffer, pStrFileName->Length);
 					if (FileInfoSize) {

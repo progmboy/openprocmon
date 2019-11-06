@@ -29,6 +29,7 @@ typedef enum _KEY_VALUE_INFORMATION_CLASS {
 	MaxKeyValueInfoClass  // MaxKeyValueInfoClass should always be the last enum
 } KEY_VALUE_INFORMATION_CLASS;
 
+#include "fltuser.hpp"
 #include "../../kernel/logsdk.h"
 
 

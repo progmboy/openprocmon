@@ -84,6 +84,9 @@
     <ClInclude Include="fltuser.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="strmaps.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cxx">
@@ -135,6 +138,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="utils.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="strmaps.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
