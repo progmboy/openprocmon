@@ -20,6 +20,7 @@
 #include "thread.hpp"
 #include "logger.hpp"
 #include "utils.hpp"
+#include "strmaps.hpp"
 
 #include "monctl.hpp"
 #include "eventmgr.hpp"

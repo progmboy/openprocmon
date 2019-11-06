@@ -2,7 +2,6 @@
 
 #include "stdafx.h"
 #include "filter.hpp"
-#include "status.h"
 
 CFilter::CFilter(
 	MAP_SOURCE_TYPE Src, 
@@ -109,7 +108,7 @@ CFilter::Filter(
 {
 	BOOL bFilter = FALSE;
 	CString strSrc;
-	strSrc = MapMonitorResult(m_SrcType, pOptView);
+	strSrc = pOptView->GetOperationStrResult(m_SrcType);
 	
 	//
 	// Do not filter if is empty

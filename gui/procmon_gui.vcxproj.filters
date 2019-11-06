@@ -18,9 +18,6 @@
     <ClCompile Include="stdafx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="status.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="dataview.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -57,9 +54,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="status.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="propproc.h">

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "status.h"
 #include "dataview.h"
 
 extern
@@ -61,31 +60,31 @@ public:
 
 		ImgCtl.SetIcon(hIcon);
 
-		this->GetDlgItem(IDC_PROCESS_DESC).SetWindowText(MapMonitorResult(emDescription, pView));
-		this->GetDlgItem(IDC_PROCESS_COMPANY).SetWindowText(MapMonitorResult(emCompany, pView));
-		this->GetDlgItem(IDC_PROCESS_NAME).SetWindowText(MapMonitorResult(emProcessName, pView));
-		this->GetDlgItem(IDC_PROCESS_VERSION).SetWindowText(MapMonitorResult(emVersion, pView));
+		this->GetDlgItem(IDC_PROCESS_DESC).SetWindowText( pView->GetOperationStrResult(emDescription));
+		this->GetDlgItem(IDC_PROCESS_COMPANY).SetWindowText(pView->GetOperationStrResult(emCompany));
+		this->GetDlgItem(IDC_PROCESS_NAME).SetWindowText(pView->GetOperationStrResult(emProcessName));
+		this->GetDlgItem(IDC_PROCESS_VERSION).SetWindowText(pView->GetOperationStrResult(emVersion));
 
-		this->GetDlgItem(IDC_PROCESS_PATH).SetWindowText(MapMonitorResult(emImagePath, pView));
-		this->GetDlgItem(IDC_PROCESS_CMDLINE).SetWindowText(MapMonitorResult(emCommandLine, pView));
+		this->GetDlgItem(IDC_PROCESS_PATH).SetWindowText(pView->GetOperationStrResult(emImagePath));
+		this->GetDlgItem(IDC_PROCESS_CMDLINE).SetWindowText(pView->GetOperationStrResult(emCommandLine));
 
 
-		this->GetDlgItem(IDC_PROCESS_PID).SetWindowText(MapMonitorResult(emPID, pView));
-		this->GetDlgItem(IDC_PROCESS_PPID).SetWindowText(MapMonitorResult(emParentPid, pView));
-		this->GetDlgItem(IDC_PROCESS_SESSION).SetWindowText(MapMonitorResult(emSession, pView));
+		this->GetDlgItem(IDC_PROCESS_PID).SetWindowText(pView->GetOperationStrResult(emPID));
+		this->GetDlgItem(IDC_PROCESS_PPID).SetWindowText(pView->GetOperationStrResult(emParentPid));
+		this->GetDlgItem(IDC_PROCESS_SESSION).SetWindowText(pView->GetOperationStrResult(emSession));
 
 		
 		//
 		// User
 		//
 		
-		this->GetDlgItem(IDC_PROCESS_USER).SetWindowText(MapMonitorResult(emUser, pView));
+		this->GetDlgItem(IDC_PROCESS_USER).SetWindowText(pView->GetOperationStrResult(emUser));
 
 		//
 		// StartTime
 		//
 		
-		this->GetDlgItem(IDC_PROCESS_STARTTIME).SetWindowText(MapMonitorResult(emDataTime, pView));
+		this->GetDlgItem(IDC_PROCESS_STARTTIME).SetWindowText(pView->GetOperationStrResult(emDataTime));
 
 		//
 		// Ended
@@ -94,16 +93,16 @@ public:
 		strTmp = pView->IsProcessExit() ? UtilConvertDay(pView->GetProcessExitTime()) : TEXT("Runing");
 		this->GetDlgItem(IDC_PROCESS_ENDED).SetWindowText(strTmp);
 
-		this->GetDlgItem(IDC_PROCESS_ARCH).SetWindowText(MapMonitorResult(emArchiteture, pView));
-		this->GetDlgItem(IDC_PROCESS_AUTHID).SetWindowText(MapMonitorResult(emAuthId, pView));
-		this->GetDlgItem(IDC_PROCESS_VIRTUALIZED).SetWindowText(MapMonitorResult(emVirtualize, pView));
+		this->GetDlgItem(IDC_PROCESS_ARCH).SetWindowText(pView->GetOperationStrResult(emArchiteture));
+		this->GetDlgItem(IDC_PROCESS_AUTHID).SetWindowText(pView->GetOperationStrResult(emAuthId));
+		this->GetDlgItem(IDC_PROCESS_VIRTUALIZED).SetWindowText(pView->GetOperationStrResult(emVirtualize));
 
 		
 		//
 		// Integrity
 		//
 		
-		this->GetDlgItem(IDC_PROCESS_INTERGRITY).SetWindowText(MapMonitorResult(emIntegrity, pView));
+		this->GetDlgItem(IDC_PROCESS_INTERGRITY).SetWindowText(pView->GetOperationStrResult(emIntegrity));
 
 		
 		//
