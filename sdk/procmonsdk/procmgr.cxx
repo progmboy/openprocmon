@@ -71,6 +71,27 @@ VOID CProcMgr::InsertModule(
 	}
 }
 
+VOID
+CProcMgr::Replace(
+	_In_ ULONG Seq,
+	_In_ CRefPtr<CProcess> Process
+)
+{
+	std::unique_lock<std::shared_mutex> lock(m_lock);
+
+	//
+	// remove from list
+	//
+
+	m_ProcessList.erase(Seq);
+
+	//
+	// Replace it with new one
+	//
+
+	m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
+}
+
 VOID 
 CProcMgr::Insert(
 	_In_ CRefPtr<CProcess> Process
@@ -94,27 +115,15 @@ CProcMgr::Insert(
 		m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
 		m_lock.unlock();
 	}else{
+		
+		//
+		// Replace it anyway
+		//
+		
+		Replace(Seq, Process);
 
-		if (ProcessFind->IsMarkExit()) {
+		if (!ProcessFind->IsMarkExit()) {
 
-			m_lock.lock();
-
-			//
-			// remove from list
-			//
-
-			m_ProcessList.erase(Seq);
-
-			//
-			// Replace it with new one
-			//
-
-			m_ProcessList.insert(PROCESSLISTMAPPAIR(Seq, Process));
-
-			m_lock.unlock();
-
-		}else{
-			
 			//
 			// Here must be something wrong
 			//
@@ -125,7 +134,7 @@ CProcMgr::Insert(
 
 			LogMessage(L_WARN, TEXT("Process id 0x%x Exist SKIP!!"), Process->GetProcessId());
 
-			__debugbreak();
+			//__debugbreak();
 		}
 	}
 }

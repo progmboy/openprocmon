@@ -35,6 +35,11 @@ public:
 		_In_ PLOG_LOADIMAGE_INFO pInfo
 	);
 
+	VOID Replace(
+		_In_ ULONG Seq, 
+		_In_ CRefPtr<CProcess> Process
+	);
+
 	VOID Remove(
 		_In_ const CRefPtr<CLogEvent> pEvent
 	);

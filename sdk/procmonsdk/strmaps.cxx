@@ -304,11 +304,268 @@ StrMapNtStatus(
 {
 	for (int i = 0; i < _countof(gStatus); i++)
 	{
-		if (gStatus[i].Status == Status){
+		if (gStatus[i].Status == Status) {
 			return gStatus[i].lpszStatus;
 		}
 	}
 	return NULL;
+}
+
+
+typedef struct _DWORD_DEF
+{
+	DWORD dwValue;
+	LPCTSTR lpszDword;
+}DWORD_DEF, * PDWORD_DEF;
+#define DWORD_DEF(_x) {(DWORD)_x, TEXT(#_x)}
+
+DWORD_DEF gSecurityInformation[] = {
+	DWORD_DEF(OWNER_SECURITY_INFORMATION),
+	DWORD_DEF(GROUP_SECURITY_INFORMATION),
+	DWORD_DEF(DACL_SECURITY_INFORMATION),
+	DWORD_DEF(SACL_SECURITY_INFORMATION),
+	DWORD_DEF(LABEL_SECURITY_INFORMATION),
+	DWORD_DEF(ATTRIBUTE_SECURITY_INFORMATION),
+	DWORD_DEF(SCOPE_SECURITY_INFORMATION),
+	DWORD_DEF(PROCESS_TRUST_LABEL_SECURITY_INFORMATION),
+	DWORD_DEF(ACCESS_FILTER_SECURITY_INFORMATION),
+	DWORD_DEF(BACKUP_SECURITY_INFORMATION),
+	DWORD_DEF(PROTECTED_DACL_SECURITY_INFORMATION),
+	DWORD_DEF(PROTECTED_SACL_SECURITY_INFORMATION),
+	DWORD_DEF(UNPROTECTED_DACL_SECURITY_INFORMATION),
+	DWORD_DEF(UNPROTECTED_SACL_SECURITY_INFORMATION)
+};
+
+CString
+StrMapSecurityInformation(
+	_In_ DWORD dwSecurityInformation
+)
+{
+	CString strRet;
+	for (int i = 0; i < _countof(gSecurityInformation); i++)
+	{
+		if (dwSecurityInformation & gSecurityInformation[i].dwValue) {
+			strRet += gSecurityInformation[i].lpszDword;
+			strRet += TEXT("|");
+		}
+	}
+
+	strRet.TrimRight(TEXT("|"));
+	return strRet;
+}
+
+DWORD_DEF gFileAccessMask[] = {
+// 	DWORD_DEF(GENERIC_READ),
+// 	DWORD_DEF(GENERIC_WRITE),
+// 	DWORD_DEF(GENERIC_EXECUTE),
+	DWORD_DEF(FILE_ALL_ACCESS),
+	DWORD_DEF(FILE_GENERIC_READ),
+	DWORD_DEF(FILE_GENERIC_WRITE),
+	DWORD_DEF(FILE_GENERIC_EXECUTE),
+	DWORD_DEF(FILE_READ_DATA),
+	DWORD_DEF(FILE_WRITE_DATA),
+	DWORD_DEF(FILE_APPEND_DATA),
+	DWORD_DEF(FILE_READ_EA),
+	DWORD_DEF(FILE_WRITE_EA),
+	DWORD_DEF(FILE_EXECUTE),
+	DWORD_DEF(FILE_DELETE_CHILD),
+	DWORD_DEF(FILE_READ_ATTRIBUTES),
+	DWORD_DEF(FILE_WRITE_ATTRIBUTES),
+	DWORD_DEF(SYNCHRONIZE),
+	DWORD_DEF(WRITE_DAC),
+	DWORD_DEF(WRITE_OWNER),
+	DWORD_DEF(DELETE),
+	DWORD_DEF(READ_CONTROL),
+	DWORD_DEF(ACCESS_SYSTEM_SECURITY),
+};
+
+
+CString
+StrMapFileAccessMask(
+	_In_ DWORD AccessMask
+)
+{
+	CString strAccessMask;
+
+	for (int i = 0; i < _countof(gFileAccessMask); i++)
+	{
+		DWORD dwValue = gFileAccessMask[i].dwValue;
+
+		if (i < 4) {
+			if (dwValue == AccessMask) {
+				strAccessMask = gFileAccessMask[i].lpszDword;
+				break;
+			}
+		}else{
+			if (dwValue & AccessMask) {
+				strAccessMask += gFileAccessMask[i].lpszDword;
+				strAccessMask += TEXT('|');
+			}
+		}
+	}
+	strAccessMask.TrimRight(TEXT("|"));
+	return strAccessMask;
+}
+
+DWORD_DEF gFileShareAccess[] = {
+	DWORD_DEF(FILE_SHARE_READ),
+	DWORD_DEF(FILE_SHARE_WRITE),
+	DWORD_DEF(FILE_SHARE_DELETE),
+};
+
+
+CString
+StrMapFileShareAccess(
+	_In_ DWORD ShareAccess
+)
+{
+	CString strAccessMask;
+
+	for (int i = 0; i < _countof(gFileShareAccess); i++)
+	{
+		if (gFileShareAccess[i].dwValue & ShareAccess) {
+			strAccessMask += gFileShareAccess[i].lpszDword;
+			strAccessMask += TEXT('|');
+
+			ShareAccess = (~gFileShareAccess[i].dwValue) & ShareAccess;
+		}
+	}
+	strAccessMask.TrimRight(TEXT("|"));
+	return strAccessMask;
+}
+
+DWORD_DEF gFileCreateDisposition[] = {
+	DWORD_DEF(FILE_SUPERSEDE),
+	DWORD_DEF(FILE_OPEN),
+	DWORD_DEF(FILE_CREATE),
+	DWORD_DEF(FILE_OPEN_IF),
+	DWORD_DEF(FILE_OVERWRITE),
+	DWORD_DEF(FILE_OVERWRITE_IF),
+};
+
+LPCTSTR
+StrMapFileCreateDisposition(
+	_In_ DWORD CreateDisposition
+)
+{
+	for (int i = 0; i < _countof(gFileCreateDisposition); i++)
+	{
+		if (gFileCreateDisposition[i].dwValue == CreateDisposition) {
+			return gFileCreateDisposition[i].lpszDword;
+		}
+	}
+	return NULL;
+}
+
+DWORD_DEF gFileRetDisposition[] = {
+	DWORD_DEF(FILE_SUPERSEDE),
+	DWORD_DEF(FILE_OPENED),
+	DWORD_DEF(FILE_CREATED),
+	DWORD_DEF(FILE_OVERWRITTEN),
+	DWORD_DEF(FILE_EXISTS),
+	DWORD_DEF(FILE_DOES_NOT_EXIST),
+};
+
+LPCTSTR
+StrMapFileRetDisposition(
+	_In_ DWORD CreateDisposition
+)
+{
+	for (int i = 0; i < _countof(gFileRetDisposition); i++)
+	{
+		if (gFileRetDisposition[i].dwValue == CreateDisposition) {
+			return gFileRetDisposition[i].lpszDword;
+		}
+	}
+	return NULL;
+}
+
+#define FILE_DISALLOW_EXCLUSIVE                 0x00020000
+#define FILE_SESSION_AWARE                      0x00040000
+
+DWORD_DEF gFileCreateOptions[] = {
+	DWORD_DEF(FILE_DIRECTORY_FILE),
+	DWORD_DEF(FILE_WRITE_THROUGH),
+	DWORD_DEF(FILE_SEQUENTIAL_ONLY),
+	DWORD_DEF(FILE_NO_INTERMEDIATE_BUFFERING),
+	DWORD_DEF(FILE_SYNCHRONOUS_IO_ALERT),
+	DWORD_DEF(FILE_SYNCHRONOUS_IO_NONALERT),
+	DWORD_DEF(FILE_NON_DIRECTORY_FILE),
+	DWORD_DEF(FILE_CREATE_TREE_CONNECTION),
+	DWORD_DEF(FILE_COMPLETE_IF_OPLOCKED),
+	DWORD_DEF(FILE_NO_EA_KNOWLEDGE),
+	DWORD_DEF(FILE_OPEN_REMOTE_INSTANCE),
+	DWORD_DEF(FILE_RANDOM_ACCESS),
+	DWORD_DEF(FILE_DELETE_ON_CLOSE),
+	DWORD_DEF(FILE_OPEN_BY_FILE_ID),
+	DWORD_DEF(FILE_OPEN_FOR_BACKUP_INTENT),
+	DWORD_DEF(FILE_NO_COMPRESSION),
+	DWORD_DEF(FILE_OPEN_REQUIRING_OPLOCK),
+	DWORD_DEF(FILE_DISALLOW_EXCLUSIVE),
+	DWORD_DEF(FILE_SESSION_AWARE),
+	DWORD_DEF(FILE_RESERVE_OPFILTER),
+	DWORD_DEF(FILE_OPEN_REPARSE_POINT),
+	DWORD_DEF(FILE_OPEN_NO_RECALL),
+	DWORD_DEF(FILE_OPEN_FOR_FREE_SPACE_QUERY)
+};
+
+CString
+StrMapFileCreateOptions(
+	_In_ DWORD CreateOptions
+)
+{
+	CString strRet;
+
+	for (int i = 0; i < _countof(gFileCreateOptions); i++)
+	{
+		if (gFileCreateOptions[i].dwValue & CreateOptions) {
+			strRet += gFileCreateOptions[i].lpszDword;
+			strRet += TEXT('|');
+
+			CreateOptions = (~gFileCreateOptions[i].dwValue) & CreateOptions;
+		}
+	}
+	strRet.TrimRight(TEXT("|"));
+	return strRet;
+}
+
+DWORD_DEF gFileAttributes[] = {
+	DWORD_DEF(FILE_ATTRIBUTE_READONLY),
+	DWORD_DEF(FILE_ATTRIBUTE_HIDDEN),
+	DWORD_DEF(FILE_ATTRIBUTE_SYSTEM),
+	DWORD_DEF(FILE_ATTRIBUTE_DIRECTORY),
+	DWORD_DEF(FILE_ATTRIBUTE_ARCHIVE),
+	DWORD_DEF(FILE_ATTRIBUTE_DEVICE),
+	DWORD_DEF(FILE_ATTRIBUTE_NORMAL),
+	DWORD_DEF(FILE_ATTRIBUTE_TEMPORARY),
+	DWORD_DEF(FILE_ATTRIBUTE_SPARSE_FILE),
+	DWORD_DEF(FILE_ATTRIBUTE_REPARSE_POINT),
+	DWORD_DEF(FILE_ATTRIBUTE_COMPRESSED),
+	DWORD_DEF(FILE_ATTRIBUTE_OFFLINE),
+	DWORD_DEF(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED),
+	DWORD_DEF(FILE_ATTRIBUTE_ENCRYPTED),
+	DWORD_DEF(FILE_ATTRIBUTE_INTEGRITY_STREAM)
+};
+
+
+CString
+StrMapFileAttributes(
+	_In_ DWORD FileAttributes
+)
+{
+	CString strRet;
+
+	for (int i = 0; i < _countof(gFileAttributes); i++)
+	{
+		if (gFileAttributes[i].dwValue & FileAttributes) {
+			strRet += gFileAttributes[i].lpszDword;
+			strRet += TEXT('|');
+
+			FileAttributes = (~gFileAttributes[i].dwValue) & FileAttributes;
+		}
+	}
+	strRet.TrimRight(TEXT("|"));
+	return strRet;
 }
 
 typedef struct _OPT_CLASS_MAP

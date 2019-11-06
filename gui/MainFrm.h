@@ -133,6 +133,7 @@ public:
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_GETDISPINFO, NotifyVDisplayHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_ITEMCHANGED, NotifyItemChangedHandler)
+		NOTIFY_HANDLER(IDC_LISTCTRL, NM_CUSTOMDRAW, NotifyCustomDrawHandler)
 		CHAIN_MSG_MAP(CUpdateUI<CMainFrame>)
 		CHAIN_MSG_MAP(CFrameWindowImpl<CMainFrame>)
 	END_MSG_MAP()
@@ -428,6 +429,27 @@ public:
 			DATAVIEW().SetSelectIndex(pnmv->iItem);
 		}
 		return 0;
+	}
+
+	LRESULT NotifyCustomDrawHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)
+	{
+		LPNMLVCUSTOMDRAW pLVNMCD = reinterpret_cast<LPNMLVCUSTOMDRAW>(pnmh);
+		int nResult = CDRF_DODEFAULT;
+		if (CDDS_PREPAINT == pLVNMCD->nmcd.dwDrawStage)
+		{
+			nResult = CDRF_NOTIFYITEMDRAW;
+		}
+		else if (CDDS_ITEMPREPAINT == pLVNMCD->nmcd.dwDrawStage)
+		{
+			nResult = CDRF_NOTIFYSUBITEMDRAW;
+			size_t dwItem = (size_t)pLVNMCD->nmcd.dwItemSpec;
+			BOOL b = DATAVIEW().IsHighlight(dwItem);
+			if (b) {
+				pLVNMCD->clrTextBk = RGB(255, 0, 0);
+			}
+
+		}
+		return nResult;
 	}
 
 	LRESULT NotifyRClickHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)

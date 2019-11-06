@@ -18,6 +18,9 @@
 				(_accessmask & WRITE_DAC))
 
 
+#define IS_FILE_CRATE_OPTIONS_HAS_DELETE(_Options) ((_Options & 0x00FFFFFF) & FILE_DELETE_ON_CLOSE)
+
+
 CEopCheck::CEopCheck()
 {
 
@@ -242,7 +245,7 @@ CString CEopCheck::GetFileDirectory(const CString& strFile)
 
 }
 
-BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
+BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 {
 	
 	//
@@ -287,13 +290,17 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 			{
 				PLOG_FILE_CREATE pCreateInfo = reinterpret_cast<PLOG_FILE_CREATE>(pFileOpt->Name + pFileOpt->NameLength);
 				ULONG_PTR* pInformation = TO_EVENT_DATA(ULONG_PTR*, pPostEventEntry);
+				PUSHORT pSetSecInfo = (PUSHORT)((PUCHAR)(pCreateInfo + 1) + pCreateInfo->UserTokenLength);
 
 				if (IsImpersonateOpen && IsImpersonate) {
 					return FALSE;
 				}
 
+				BOOL bDeleteFile = IS_FILE_CRATE_OPTIONS_HAS_DELETE(pFileOpt->FltParameter.Create.Options);
+
 				if (*pInformation == FILE_CREATED ||
-					IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess)) {
+					IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess) ||
+					bDeleteFile) {
 
 					if (PathFileExists(strPath)) {
 						if (IsFileWritableByMeduimProcess(strPath) &&
@@ -304,6 +311,16 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 						if(IsFileDirWritableByMeduimProcess(strPath)){
 							bIsEopBug = TRUE;
 						}
+					}
+
+					if (bIsEopBug) {
+						if (*pSetSecInfo) {
+							bHighlight = TRUE;
+						}
+					}
+
+					if (bDeleteFile) {
+						bHighlight = TRUE;
 					}
 				}
 			}
@@ -318,6 +335,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent)
 			if (IsFileWritableByMeduimProcess(strPath) &&
 				IsFileDirWritableByMeduimProcess(strPath)) {
 				bIsEopBug = TRUE;
+				bHighlight = TRUE;
 			}
 
 			break;

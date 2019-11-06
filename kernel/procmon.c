@@ -2023,16 +2023,22 @@ Return Value:
 			}
 			ZwClose(hToken);
 		}
-		TotalLength = TokenSize + sizeof(LOG_FILE_CREATE);
+		TotalLength = TokenSize + sizeof(LOG_FILE_CREATE) + sizeof(USHORT);
 		*pSize = TotalLength;
 		pFileOptInfo = ProcmonAllocatePoolWithTag(NonPagedPool, TotalLength, 'H');
 		if (pFileOptInfo){
+
+			PUCHAR pBufferEnd = NULL;
 			PLOG_FILE_CREATE pCreateFileOpt = (PLOG_FILE_CREATE)pFileOptInfo;
 			pCreateFileOpt->DesiredAccess = Iopb->Parameters.Create.SecurityContext->DesiredAccess;
 			pCreateFileOpt->UserTokenLength = TokenSize;
+			pBufferEnd = (PUCHAR)(pCreateFileOpt + 1);
 			if (TokenSize){
 				RtlCopyMemory(pCreateFileOpt + 1, pTokenUser->User.Sid, TokenSize);
+				pBufferEnd += TokenSize;
 			}
+
+			*((PUSHORT)pBufferEnd) = Iopb->Parameters.Create.SecurityContext->AccessState->SecurityDescriptor != NULL;
 		}
 
 		if (pTokenUser){

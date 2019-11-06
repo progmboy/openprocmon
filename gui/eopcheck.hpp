@@ -12,7 +12,7 @@ public:
 	CEopCheck();
 	~CEopCheck();
 
-	BOOL Check(CRefPtr<CEventView> pEvent);
+	BOOL Check(CRefPtr<CEventView> pEvent, BOOL &bHighlight);
 
 private:
 
