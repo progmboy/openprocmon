@@ -2,7 +2,6 @@
 #include "stdafx.h"
 #include <assert.h>
 #include "eopcheck.hpp"
-#include "status.h"
 #include <sddl.h>
 
 #define FILE_WRITE_ACESS_MASK      (FILE_WRITE_DATA          |\
