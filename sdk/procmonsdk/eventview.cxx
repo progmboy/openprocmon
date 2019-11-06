@@ -3,7 +3,7 @@
 #include "eventview.hpp"
 #include "process.hpp"
 #include "utils.hpp"
-
+#include "strmaps.hpp"
 
 CEventView::CEventView()
 {
@@ -87,6 +87,16 @@ PLOG_ENTRY CEventView::GetPreEventEntry()
 	}
 	return NULL;
 	
+}
+
+PLOG_ENTRY CEventView::GetPostEventEntry()
+{
+	if (!m_EventView.GetEvent().IsNull()) {
+		if (m_EventView.GetEvent()->getPostLog().GetBufferLen()) {
+			return reinterpret_cast<PLOG_ENTRY>(m_EventView.GetEvent()->getPostLog().GetBuffer());
+		}
+	}
+	return NULL;
 }
 
 DWORD CEventView::GetProcessId()
@@ -219,7 +229,109 @@ LARGE_INTEGER CEventView::GetProcessExitTime()
 
 BOOL CEventView::IsProcessFromInit()
 {
-	return m_ProcView.GetEventClass() == NOTIFY_PROCESS_INIT;
+	return m_ProcView.GetOperator() == NOTIFY_PROCESS_INIT;
 }
 
+CString
+CEventView::GetOperationStrResult(
+	_In_ MAP_SOURCE_TYPE SrcType
+)
+{
+	CString strSrc;
+	switch (SrcType)
+	{
+	case emArchiteture:
+		strSrc = IsWow64() ? TEXT("32-bit") : TEXT("64-bit");
+		break;
+	case emAuthId:
+		LUID AuthId = GetAuthId();
+		strSrc.Format(TEXT("%08x:%08x"), AuthId.HighPart, AuthId.LowPart);
+		break;
+	case emCategory:
+		break;
+	case emCommandLine:
+		strSrc = GetCommandLine();
+		break;
+	case emCompany:
+		strSrc = GetCompanyName();
+		break;
+	case emCompletionTime:
+		strSrc = UtilConvertTimeOfDay(GetCompleteTime());
+		break;
+	case emDataTime:
+		strSrc = UtilConvertDay(GetStartTime());
+		break;
+	case emDescription:
+		strSrc = GetDisplayName();
+		break;
+	case emDetail:
+		strSrc = GetDetail();
+		break;
+	case emDuration:
+
+		//
+		// TODO
+		//
+
+		break;
+	case emEventClass:
+		strSrc = StrMapClassEvent(GetEventClass());
+		break;
+	case emImagePath:
+		strSrc = GetImagePath();
+		break;
+	case emIntegrity:
+		strSrc = StrMapIntegrityLevel(GetIntegrity());
+		break;
+	case emOperation:
+		strSrc = StrMapOperation(GetPreEventEntry());
+		break;
+	case emParentPid:
+		strSrc.Format(TEXT("%d"), GetParentProcessId());
+		break;
+	case emPath:
+		strSrc = GetPath();
+		break;
+	case emPID:
+		strSrc.Format(TEXT("%d"), GetProcessId());
+		break;
+	case emProcessName:
+		strSrc = GetProcessName();
+		break;
+	case emRelativeTime:
+
+		//
+		// TODO
+		//
+
+		break;
+	case emResult:
+		strSrc = StrMapNtStatus(GetResult());
+		break;
+	case emSequence:
+		strSrc.Format(TEXT("%lu"), GetSeqNumber());
+		break;
+	case emSession:
+		strSrc.Format(TEXT("%u"), GetSessionId());
+		break;
+	case emTID:
+		strSrc.Format(TEXT("%d"), GetThreadId());
+		break;
+	case emTimeOfDay:
+		strSrc = UtilConvertTimeOfDay(GetStartTime());
+		break;
+	case emUser:
+		strSrc = StrMapUserNameFromSid(GetUserSid());
+		break;
+	case emVersion:
+		strSrc = GetVersion();
+		break;
+	case emVirtualize:
+		strSrc = IsVirtualize() ? TEXT("True") : TEXT("False");
+	default:
+		break;
+	}
+
+	return strSrc;
+}
 

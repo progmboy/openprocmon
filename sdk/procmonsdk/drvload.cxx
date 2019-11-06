@@ -3,6 +3,7 @@
 
 #include "drvload.hpp"
 #include "logger.hpp"
+#include "utils.hpp"
 #include <winternl.h>
 
 #pragma comment(lib, "ntdll.lib")
@@ -63,7 +64,7 @@ CDrvLoader::Init(
 		// Try enable driver load privilege
 		//
 
-		if (EnablePrivilege()){
+		if (UtilSetPriviledge(SE_LOAD_DRIVER_NAME, TRUE)){
 			m_strDriverPath = (LPCTSTR)DriverPath;
 			m_strDriverName = strDriverName;
 
@@ -71,36 +72,6 @@ CDrvLoader::Init(
 		}
 	}
 	return FALSE;
-}
-
-BOOL 
-CDrvLoader::EnablePrivilege()
-{
-	TOKEN_PRIVILEGES Privilege;
-	HANDLE hToken;
-
-	Privilege.PrivilegeCount = 1;
-	Privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-	if (!LookupPrivilegeValue(NULL, TEXT("SeLoadDriverPrivilege"),
-		&Privilege.Privileges[0].Luid)){
-		LogMessage(L_ERROR, TEXT("LookupPrivilegeValue Failed code 0x%x"), GetLastError());
-		return FALSE;
-	}
-
-	if (!OpenProcessToken(GetCurrentProcess(),
-		TOKEN_ADJUST_PRIVILEGES, &hToken))
-		return FALSE;
-
-	if (!AdjustTokenPrivileges(hToken, FALSE, &Privilege, sizeof(Privilege),
-		NULL, NULL)) {
-
-		LogMessage(L_ERROR, TEXT("AdjustTokenPrivileges Failed code 0x%x"), GetLastError());
-		CloseHandle(hToken);
-		return FALSE;
-	}
-
-	CloseHandle(hToken);
-	return TRUE;
 }
 
 #define STATUS_IMAGE_ALREADY_LOADED ((NTSTATUS)0xC000010EL)

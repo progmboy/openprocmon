@@ -157,6 +157,7 @@
     <ClInclude Include="drvload.hpp" />
     <ClInclude Include="eventfactory.hpp" />
     <ClInclude Include="fileopt.hpp" />
+    <ClInclude Include="fltuser.hpp" />
     <ClInclude Include="logger.hpp" />
     <ClInclude Include="module.hpp" />
     <ClInclude Include="monctl.hpp" />
@@ -171,6 +172,7 @@
     <ClInclude Include="kernelsdk.hpp" />
     <ClInclude Include="sdk.hpp" />
     <ClInclude Include="singleton.hpp" />
+    <ClInclude Include="strmaps.hpp" />
     <ClInclude Include="thread.hpp" />
     <ClInclude Include="utils.hpp" />
     <ClInclude Include="eventview.hpp" />
@@ -191,6 +193,7 @@
     <ClCompile Include="process.cxx" />
     <ClCompile Include="procmgr.cxx" />
     <ClCompile Include="procopt.cxx" />
+    <ClCompile Include="strmaps.cxx" />
     <ClCompile Include="thread.cxx" />
     <ClCompile Include="utils.cxx" />
     <ClCompile Include="viewer.cxx" />

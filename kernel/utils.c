@@ -326,6 +326,34 @@ Return Value:
 	return hToken;
 }
 
+EXTERN_C
+BOOLEAN
+NTAPI
+PsIsThreadImpersonating(
+	__in PETHREAD Thread
+);
+
+BOOLEAN
+ProcmonIsThreadImpersonation()
+/*++
+
+Routine Description:
+
+	.
+
+Arguments:
+
+	 -
+
+Return Value:
+
+	Routine can return non success error codes.
+
+--*/
+{
+	return PsIsThreadImpersonating(KeGetCurrentThread());
+}
+
 
 PTOKEN_USER
 ProcmonQueryTokenInformation(

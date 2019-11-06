@@ -237,12 +237,15 @@ typedef struct _LOG_FILE_OPT
 	UCHAR Fill1[7];
 	ULONG IopbFlag;
 	ULONG Flags;
+#if 0
 	PVOID Argument1;
 	PVOID Argument2;
 	PVOID Argument3;
 	PVOID Argument4;
 	PVOID Argument5;
 	LARGE_INTEGER Argument6;
+#endif
+	FLT_PARAMETERS FltParameter;
 	USHORT NameLength;
 	UCHAR Fill42[2];
 	WCHAR Name[1];

@@ -626,4 +626,38 @@ UtilExtractIcon(
 	return FALSE;
 }
 
+BOOL
+UtilAdjustPrivilegesByName(
+	IN HANDLE TokenHandle,
+	IN LPCTSTR lpName,
+	IN BOOL bEnable
+)
+{
+	LUID Luid;
+	TOKEN_PRIVILEGES NewState;
 
+	if (LookupPrivilegeValue(NULL, lpName, &Luid)) {
+		NewState.Privileges[0].Luid = Luid;
+		NewState.PrivilegeCount = 1;
+		NewState.Privileges[0].Attributes = bEnable != 0 ? 2 : 0;
+		if (AdjustTokenPrivileges(TokenHandle, 0, &NewState, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+BOOL UtilSetPriviledge(LPCTSTR lpszPriviledgeName, BOOL bEnable)
+{
+	HANDLE hToken;
+	if (!OpenProcessToken(GetCurrentProcess(), 0xF01FFu, &hToken)) {
+		return FALSE;
+	}
+	if (!UtilAdjustPrivilegesByName(hToken, lpszPriviledgeName, bEnable)) {
+		CloseHandle(hToken);
+		return FALSE;
+	}
+
+	return TRUE;
+
+}

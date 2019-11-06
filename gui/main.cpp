@@ -51,6 +51,8 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 	SetProcessDpiAwareness(PROCESS_SYSTEM_DPI_AWARE);
 	AtlInitCommonControls(ICC_COOL_CLASSES | ICC_BAR_CLASSES);	// add flags to support other controls
 
+	UtilSetPriviledge(SE_DEBUG_NAME, TRUE);
+
 	hRes = _Module.Init(NULL, hInstance);
 	ATLASSERT(SUCCEEDED(hRes));
 
