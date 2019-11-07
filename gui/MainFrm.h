@@ -9,11 +9,11 @@
 #include "filtermgr.h"
 #include "dataview.h"
 
-#ifdef _DEBUG
-#pragma comment(lib, "../x64/Debug/procmonsdk.lib")
-#else
-#pragma comment(lib, "../x64/Release/procmonsdk.lib")
-#endif
+// #ifdef _DEBUG
+// #pragma comment(lib, "../x64/Debug/procmonsdk.lib")
+// #else
+// #pragma comment(lib, "../x64/Release/procmonsdk.lib")
+// #endif
 
 #define WM_NEW_OPERATOR (WM_USER+1)
 

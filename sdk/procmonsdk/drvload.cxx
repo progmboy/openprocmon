@@ -135,8 +135,8 @@ BOOL CDrvLoader::CreateServiceInstanceKey(HKEY hKey)
 	CString strTemp;
 	DWORD Data = 3;
 
-	RegSetValueExW(hKey, TEXT("SupportedFeatures"), 0, REG_DWORD, (const BYTE*)&Data, sizeof(DWORD));
-	RegCreateKey(hKey, L"Instances", &hKeyInstance);
+	RegSetValueEx(hKey, TEXT("SupportedFeatures"), 0, REG_DWORD, (const BYTE*)&Data, sizeof(DWORD));
+	RegCreateKey(hKey, TEXT("Instances"), &hKeyInstance);
 
 	strTemp = TEXT("Process Monitor 24 Instance");
 	RegSetValueEx(hKeyInstance, TEXT("DefaultInstance"), 0, REG_SZ, (const BYTE*)strTemp.GetBuffer(),
@@ -222,7 +222,7 @@ BOOL CDrvLoader::CreateServiceKey()
 	//
 
 	DWORD dwServiceType = 1;
-	dwErrorCode = RegSetValueExW(hKey,
+	dwErrorCode = RegSetValueEx(hKey,
 		TEXT("Type"),
 		0,
 		REG_DWORD,
