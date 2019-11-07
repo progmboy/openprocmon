@@ -589,7 +589,7 @@ public:
 			size_t dwItem = (size_t)pLVNMCD->nmcd.dwItemSpec;
 			BOOL b = DATAVIEW().IsHighlight(dwItem);
 			if (b) {
-				pLVNMCD->clrTextBk = RGB(255, 0, 0);
+				pLVNMCD->clrTextBk = m_HighlightColor;
 			}
 
 		}
@@ -902,6 +902,11 @@ public:
 		return TRUE;
 	}
 
+	void SetHighLightColor(DWORD dwColor)
+	{
+		m_HighlightColor = dwColor;
+	}
+
 private:
 	CImageList m_clsImageList;
 	std::map<DWORD, int> m_ImageMap;
@@ -916,4 +921,6 @@ private:
 
 	int m_nListClickItem = -1;
 	int m_nListClickSubItem = -1;
+
+	DWORD m_HighlightColor = RGB(51, 247, 255);
 };
