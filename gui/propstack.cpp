@@ -517,13 +517,13 @@ LRESULT CPropStackDlg::OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lPar
 CString CPropStackDlg::CopyAll()
 {
 	CString strCopy;
-	CString strItem;
-	CString strTemp;
-
+	
 	for (int i = 0; i < m_ListCtrl.GetItemCount(); i++)
 	{
+		CString strTemp;
 		for (int j = 0; j < m_ListCtrl.GetHeader().GetItemCount(); j++)
 		{
+			CString strItem;
 			m_ListCtrl.GetItemText(i, j, strItem);
 			strTemp += TEXT(" ");
 			strTemp += strItem;

@@ -17,6 +17,11 @@ BOOL CFilterMgr::Filter(CRefPtr<CEventView> pView)
 	return bFiler;
 }
 
+size_t CFilterMgr::GetCounts()
+{
+	return m_FilterList.size();
+}
+
 void CFilterMgr::AddFilter(
 	MAP_SOURCE_TYPE SrcType, 
 	FILTER_CMP_TYPE CmpType, 
@@ -33,7 +38,7 @@ void CFilterMgr::AddFilter(CRefPtr<CFilter> pFilter)
 	m_FilterList.insert(m_FilterList.begin(), pFilter);
 }
 
-void CFilterMgr::AddFilterEnd(CRefPtr<CFilter> pFilter)
+void CFilterMgr::AddFilterAtEnd(CRefPtr<CFilter> pFilter)
 {
 	std::unique_lock<std::shared_mutex> lock(m_lock);
 	m_FilterList.insert(m_FilterList.end(), pFilter);
@@ -57,4 +62,10 @@ void CFilterMgr::RemovFilter(
 			it++;
 		}
 	}
+}
+
+void CFilterMgr::RemovFilter(CRefPtr<CFilter> pFilter)
+{
+	RemovFilter(pFilter->GetSourceType(), pFilter->GetCmpType(),
+		pFilter->GetRetType(), pFilter->GetFilter());
 }

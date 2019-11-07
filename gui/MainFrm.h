@@ -23,8 +23,8 @@
 #define ID_MEMU_JUMPTO		(WM_USER+103)
 
 #define ID_MEMU_INCLUDE		(WM_USER+105)
-#define ID_MEMU_HIGHLIGHT	(WM_USER+105)
-#define ID_MEMU_EXCLUDE		(WM_USER+105)
+#define ID_MEMU_HIGHLIGHT	(WM_USER+106)
+#define ID_MEMU_EXCLUDE		(WM_USER+107)
 
 typedef struct _ICONS
 {
@@ -131,6 +131,11 @@ public:
 
 		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnMenuProperties)
 		COMMAND_ID_HANDLER(ID_MEMU_STACK, OnMenuStack)
+		COMMAND_ID_HANDLER(ID_MEMU_JUMPTO, OnMenuJumpTo)
+		COMMAND_ID_HANDLER(ID_MEMU_INCLUDE, OnMenuInclude)
+		COMMAND_ID_HANDLER(ID_MEMU_EXCLUDE, OnMenuExclude)
+		COMMAND_ID_HANDLER(ID_MEMU_HIGHLIGHT, OnMenuHighLight)
+		
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_GETDISPINFO, NotifyVDisplayHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_ITEMCHANGED, NotifyItemChangedHandler)
@@ -155,9 +160,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_PROCESS);
 
 		if (bShow){
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS));
+			DATAVIEW().RemoveFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS)));
 		}else{
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS));
+			DATAVIEW().AddFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_PROCESS)));
 		}
 
 		CFltProcessDlg Dlg;
@@ -173,9 +178,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_FILE);
 
 		if (bShow) {
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE));
+			DATAVIEW().RemoveFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE)));
 		}else {
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE));
+			DATAVIEW().AddFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_FILE)));
 		}
 
 		CFltProcessDlg Dlg;
@@ -191,9 +196,9 @@ public:
 		BOOL bShow = m_wndToolBar.IsButtonChecked(ID_BUTTON_ICONS8_REGISTRY);
 
 		if (bShow) {
-			FILETERMGR().RemovFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG));
+			DATAVIEW().RemoveFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG)));
 		}else{
-			FILETERMGR().AddFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG));
+			DATAVIEW().AddFilter(new CFilter(emEventClass, emCMPIs, emRETExclude, StrMapClassEvent(MONITOR_TYPE_REG)));
 		}
 
 		CFltProcessDlg Dlg;
@@ -212,7 +217,6 @@ public:
 
 	LRESULT OnFilterClick(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
-		//MessageBox(TEXT("TODO"));
 		CFilterDlg Dlg;
 		Dlg.DoModal();
 		return 0;
@@ -276,7 +280,136 @@ public:
 		return 0;
 	}
 
+	LRESULT OnMenuJumpTo(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		if (m_nListClickItem != -1){
+
+			CString strPath;
+			m_view.GetItemText(m_nListClickItem, 5, strPath);
+
+			if (!strPath.IsEmpty()){
+
+				CString strSelect;
+				strSelect.Format(TEXT("/select,%s"), strPath.GetBuffer());
+				ShellExecute(NULL, TEXT("open"), TEXT("explorer.exe"), strSelect, NULL, SW_SHOWNORMAL);
+			}
+			
+		}
+		return 0;
+	}
 	
+	MAP_SOURCE_TYPE MapSubItemToSrcType(int nSubItem)
+	{
+		MAP_SOURCE_TYPE SrcType;
+		switch (m_nListClickSubItem)
+		{
+		case 1:
+			SrcType = emTimeOfDay;
+			break;
+		case 2:
+			SrcType = emProcessName;
+			break;
+		case 3:
+			SrcType = emPID;
+			break;
+		case 4:
+			SrcType = emOperation;
+			break;
+		case 5:
+			SrcType = emPath;
+			break;
+		case 6:
+			SrcType = emResult;
+			break;
+		case 7:
+			SrcType = emDetail;
+			break;
+		default:
+			SrcType = emInvalid;
+			break;
+		}
+
+		return SrcType;
+	}
+
+	LRESULT OnMenuInclude(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		if (m_nListClickItem != -1 && m_nListClickSubItem != -1){
+
+			MAP_SOURCE_TYPE SrcType = MapSubItemToSrcType(m_nListClickSubItem);
+
+			if (SrcType != emInvalid){
+
+				CString strDst;
+				m_view.GetItemText(m_nListClickItem, m_nListClickSubItem, strDst);
+
+				if (!strDst.IsEmpty()){
+					DATAVIEW().AddFilter(new CFilter(SrcType, emCMPIs, emRETInclude, strDst));
+
+					CFltProcessDlg Dlg;
+					Dlg.DoModal();
+					
+					//
+					// Redraw
+					//
+					
+					m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+				}
+			}
+		}
+		
+		return 0;
+	}
+		
+	LRESULT OnMenuExclude(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		if (m_nListClickItem != -1 && m_nListClickSubItem != -1) {
+
+			MAP_SOURCE_TYPE SrcType = MapSubItemToSrcType(m_nListClickSubItem);
+			if (SrcType != emInvalid) {
+
+				CString strDst;
+				m_view.GetItemText(m_nListClickItem, m_nListClickSubItem, strDst);
+
+				if (!strDst.IsEmpty()) {
+					DATAVIEW().AddFilter(new CFilter(SrcType, emCMPIs, emRETExclude, strDst));
+					CFltProcessDlg Dlg;
+					Dlg.DoModal();
+					
+					//
+					// Redraw
+					//
+					
+					m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+				}
+			}
+		}
+		return 0;
+	}
+
+	LRESULT OnMenuHighLight(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		if (m_nListClickItem != -1 && m_nListClickSubItem != -1) {
+
+			MAP_SOURCE_TYPE SrcType = MapSubItemToSrcType(m_nListClickSubItem);
+			if (SrcType != emInvalid) {
+
+				CString strDst;
+				m_view.GetItemText(m_nListClickItem, m_nListClickSubItem, strDst);
+
+				if (!strDst.IsEmpty()) {
+					DATAVIEW().AddHighLightFilter(new CFilter(SrcType, emCMPIs, emRETInclude, strDst));
+					
+					//
+					// Redraw
+					//
+					
+					m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
+				}
+			}
+		}
+		return 0;
+	}
 
 	int GetProcessIconIndex(CRefPtr<CEventView> pEventView)
 	{
@@ -463,11 +596,19 @@ public:
 		return nResult;
 	}
 
+	void SetItemClickInfo(int nItem, int nSubItem)
+	{
+		m_nListClickItem = nItem;
+		m_nListClickSubItem = nSubItem;
+	}
+
 	LRESULT NotifyRClickHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)
 	{
 		LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pnmh);
 
 		if (pNMItemActivate->iItem != -1){
+
+			SetItemClickInfo(pNMItemActivate->iItem, pNMItemActivate->iSubItem);
 
 			//
 			// Create Popup menu
@@ -483,7 +624,7 @@ public:
 			clsMenu.SetMenuDefaultItem(ID_MEMU_PROPERTIES);
 			clsMenu.AppendMenu(MF_STRING, ID_MEMU_STACK, TEXT("Stack..."));
 			clsMenu.AppendMenu(MF_STRING, ID_MEMU_BOOKMARK, TEXT("Toggle Bookmark"));
-			clsMenu.AppendMenu(MF_STRING, ID_MEMU_BOOKMARK, TEXT("Jump to..."));
+			clsMenu.AppendMenu(MF_STRING, ID_MEMU_JUMPTO, TEXT("Jump to..."));
 
 			clsMenu.AppendMenu(MF_SEPARATOR);
 			
@@ -772,4 +913,7 @@ private:
 	int m_IconReg = 0;
 
 	BOOL m_bScrollDown = FALSE;
+
+	int m_nListClickItem = -1;
+	int m_nListClickSubItem = -1;
 };
