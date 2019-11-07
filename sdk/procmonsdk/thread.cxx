@@ -17,7 +17,7 @@ CThread::CThread()
 CThread::~CThread()
 {
     //Kill();
-	SetTimeout(3000);
+	SetTimeout(5);
 	Stop();
 }
 

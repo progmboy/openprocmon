@@ -501,7 +501,7 @@ LRESULT CPropStackDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*l
 	m_ResoveSymbolThread.setParam((PVOID)this);
 	m_ResoveSymbolThread.SetProcInf(m_ProcInfo);
 	m_ResoveSymbolThread.SetFrameStack(pStackFrame);
-	m_ResoveSymbolThread.SetTimeout(1000);
+	m_ResoveSymbolThread.SetTimeout(3);
 	m_ResoveSymbolThread.Start();
 
 	return TRUE;
