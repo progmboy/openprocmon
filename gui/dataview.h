@@ -6,6 +6,49 @@
 #define DATAVIEW()  Singleton<CDataView>::getInstance()
 
 typedef VOID (*FLTPROCGRESSCB)(size_t Total, size_t Current, PVOID pParameter);
+
+class CEventViewExt : public CRefBase
+{
+public:
+	CEventViewExt(CRefPtr<CEventView> pOpt):
+		m_EventView(pOpt),
+		m_bHighLight(FALSE)
+	{
+	
+	}
+
+	CEventViewExt(CRefPtr<CEventView> pOpt, BOOL bH) :
+		m_EventView(pOpt),
+		m_bHighLight(bH)
+	{
+
+	}
+
+	~CEventViewExt()
+	{
+	
+	}
+
+	VOID SetHighLight(BOOL bHighLigt)
+	{
+		m_bHighLight = bHighLigt;
+	}
+
+	BOOL IsHighLight()
+	{
+		return m_bHighLight;
+	}
+
+	CRefPtr<CEventView> GetView()
+	{
+		return m_EventView;
+	}
+
+private:
+	CRefPtr<CEventView> m_EventView;
+	BOOL m_bHighLight;
+};
+
 class CDataView
 {
 public:
@@ -16,8 +59,10 @@ public:
 
 	void SetSelectIndex(size_t Index);
 	size_t GetSelectIndex();
+	BOOL IsHighlight(size_t Index);
 	CRefPtr<CEventView> GetSelectView();
 	CRefPtr<CEventView> GetView(size_t Index);
+	CRefPtr<CEventViewExt> _Get(size_t Index);
 	size_t GetShowViewCounts();
 	void ClearShowViews();
 	void Push(CRefPtr<CEventView> pOpt);
@@ -31,13 +76,13 @@ private:
 	// 这里保存了所有的消息
 	//
 
-	std::vector<CRefPtr<CEventView>> m_OptViews;
+	std::vector<CRefPtr<CEventViewExt>> m_OptViews;
 
 	//
 	// 这里只保存需要显示的消息
 	//
 
-	std::vector<CRefPtr<CEventView>> m_ShowViews;
+	std::vector<CRefPtr<CEventViewExt>> m_ShowViews;
 	std::shared_mutex m_Viewlock;
 	std::shared_mutex m_OptViewlock;
 };

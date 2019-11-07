@@ -45,6 +45,15 @@ size_t CDataView::GetSelectIndex()
 	return m_SelectIndex;
 }
 
+BOOL CDataView::IsHighlight(size_t Index)
+{
+	CRefPtr<CEventViewExt> pExt = _Get(Index);
+	if (!pExt.IsNull())
+		return pExt->IsHighLight();
+	else
+		return FALSE;
+}
+
 CRefPtr<CEventView> CDataView::GetSelectView()
 {
 	return GetView(m_SelectIndex);
@@ -52,11 +61,20 @@ CRefPtr<CEventView> CDataView::GetSelectView()
 
 CRefPtr<CEventView> CDataView::GetView(size_t Index)
 {
+	CRefPtr<CEventViewExt> pExt = _Get(Index);
+	if (!pExt.IsNull())
+		return pExt->GetView();
+	else
+		return NULL;
+}
+
+CRefPtr<CEventViewExt> CDataView::_Get(size_t Index)
+{
+	std::shared_lock<std::shared_mutex> lock(m_Viewlock);
 	if (Index >= m_ShowViews.size()) {
 		return NULL;
 	}
 
-	std::shared_lock<std::shared_mutex> lock(m_Viewlock);
 	return m_ShowViews.at(Index);
 }
 
@@ -82,9 +100,11 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 		pOpt->GetEventOperator() == NOTIFY_PROCESS_INIT){
 		return;
 	}
+	BOOL bHighLight = FALSE;
+	CRefPtr<CEventViewExt> pOptEx = new CEventViewExt(pOpt, bHighLight);
 	
 	m_OptViewlock.lock();
-	m_OptViews.push_back(pOpt);
+	m_OptViews.push_back(pOptEx);
 	m_OptViewlock.unlock();
 
 	//
@@ -92,8 +112,13 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 	//
 	
 	if (!FILETERMGR().Filter(pOpt)){
+		
+		//
+		// TODO Highlight filter
+		//
+
 		m_Viewlock.lock();
-		m_ShowViews.push_back(pOpt);
+		m_ShowViews.push_back(pOptEx);
 		m_Viewlock.unlock();
 	}
 }
@@ -113,7 +138,7 @@ void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
 
 	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++, Now++)
 	{
-		if (!FILETERMGR().Filter(*it)){
+		if (!FILETERMGR().Filter((*it)->GetView())){
 			m_Viewlock.lock();
 			m_ShowViews.push_back(*it);
 			m_Viewlock.unlock();

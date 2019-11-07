@@ -9,11 +9,11 @@
 #include "filtermgr.h"
 #include "dataview.h"
 
-#ifdef _DEBUG
-#pragma comment(lib, "../x64/Debug/procmonsdk.lib")
-#else
-#pragma comment(lib, "../x64/Release/procmonsdk.lib")
-#endif
+// #ifdef _DEBUG
+// #pragma comment(lib, "../x64/Debug/procmonsdk.lib")
+// #else
+// #pragma comment(lib, "../x64/Release/procmonsdk.lib")
+// #endif
 
 #define WM_NEW_OPERATOR (WM_USER+1)
 
@@ -129,10 +129,12 @@ public:
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILE, OnFilterFileClick)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_REGISTRY, OnFilterRegClick)
 
-		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnEventProperties)
+		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnMenuProperties)
+		COMMAND_ID_HANDLER(ID_MEMU_STACK, OnMenuStack)
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_GETDISPINFO, NotifyVDisplayHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_ITEMCHANGED, NotifyItemChangedHandler)
+		NOTIFY_HANDLER(IDC_LISTCTRL, NM_CUSTOMDRAW, NotifyCustomDrawHandler)
 		CHAIN_MSG_MAP(CUpdateUI<CMainFrame>)
 		CHAIN_MSG_MAP(CFrameWindowImpl<CMainFrame>)
 	END_MSG_MAP()
@@ -259,12 +261,22 @@ public:
 		return 0;
 	}
 
-	LRESULT OnEventProperties(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	LRESULT OnMenuProperties(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
 		CPropertiesDlg ProperiesDlg;
 		ProperiesDlg.DoModal();
 		return 0;
 	}
+
+	LRESULT OnMenuStack(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		CPropertiesDlg ProperiesDlg;
+		ProperiesDlg.PreSetCurTab(2);
+		ProperiesDlg.DoModal();
+		return 0;
+	}
+
+	
 
 	int GetProcessIconIndex(CRefPtr<CEventView> pEventView)
 	{
@@ -428,6 +440,27 @@ public:
 			DATAVIEW().SetSelectIndex(pnmv->iItem);
 		}
 		return 0;
+	}
+
+	LRESULT NotifyCustomDrawHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)
+	{
+		LPNMLVCUSTOMDRAW pLVNMCD = reinterpret_cast<LPNMLVCUSTOMDRAW>(pnmh);
+		int nResult = CDRF_DODEFAULT;
+		if (CDDS_PREPAINT == pLVNMCD->nmcd.dwDrawStage)
+		{
+			nResult = CDRF_NOTIFYITEMDRAW;
+		}
+		else if (CDDS_ITEMPREPAINT == pLVNMCD->nmcd.dwDrawStage)
+		{
+			nResult = CDRF_NOTIFYSUBITEMDRAW;
+			size_t dwItem = (size_t)pLVNMCD->nmcd.dwItemSpec;
+			BOOL b = DATAVIEW().IsHighlight(dwItem);
+			if (b) {
+				pLVNMCD->clrTextBk = RGB(255, 0, 0);
+			}
+
+		}
+		return nResult;
 	}
 
 	LRESULT NotifyRClickHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)

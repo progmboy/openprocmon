@@ -52,16 +52,21 @@ public:
 			return;
 		}
 
-		
 		for (int i = 0; i < _countof(m_DiaLogArray); i++)
 		{
 			if (i == index){
 				m_DiaLogArray[i]->ShowWindow(SW_SHOW);
 				m_DiaLogArray[i]->EnableWindow(TRUE);
+				m_preCurSel = i;
 			}else{
 				m_DiaLogArray[i]->ShowWindow(SW_HIDE);
 			}
 		}
+	}
+
+	void PreSetCurTab(int index)
+	{
+		m_preCurSel = index;
 	}
 
 	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
@@ -83,7 +88,8 @@ public:
 		m_DiaLogArray[1] = &m_ProcDlg;
 		m_DiaLogArray[2] = &m_StackDlg;
 
-		SetCurTab(0);
+		SetCurTab(m_preCurSel);
+		m_TabCtrl.SetCurSel(m_preCurSel);
 
 		Resize();
 
