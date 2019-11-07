@@ -129,7 +129,8 @@ public:
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_FILE, OnFilterFileClick)
 		COMMAND_ID_HANDLER(ID_BUTTON_ICONS8_REGISTRY, OnFilterRegClick)
 
-		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnEventProperties)
+		COMMAND_ID_HANDLER(ID_MEMU_PROPERTIES, OnMenuProperties)
+		COMMAND_ID_HANDLER(ID_MEMU_STACK, OnMenuStack)
 		NOTIFY_HANDLER(IDC_LISTCTRL, NM_RCLICK, NotifyRClickHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_GETDISPINFO, NotifyVDisplayHandler)
 		NOTIFY_HANDLER(IDC_LISTCTRL, LVN_ITEMCHANGED, NotifyItemChangedHandler)
@@ -260,12 +261,22 @@ public:
 		return 0;
 	}
 
-	LRESULT OnEventProperties(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	LRESULT OnMenuProperties(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
 		CPropertiesDlg ProperiesDlg;
 		ProperiesDlg.DoModal();
 		return 0;
 	}
+
+	LRESULT OnMenuStack(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+	{
+		CPropertiesDlg ProperiesDlg;
+		ProperiesDlg.PreSetCurTab(2);
+		ProperiesDlg.DoModal();
+		return 0;
+	}
+
+	
 
 	int GetProcessIconIndex(CRefPtr<CEventView> pEventView)
 	{
