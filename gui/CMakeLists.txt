@@ -27,4 +27,5 @@ add_executable(openprocmingui
     ${GUI_RC_SOURCES}
 )
 
+set_target_properties(openprocmingui PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
 target_link_libraries(openprocmingui libprocmon)

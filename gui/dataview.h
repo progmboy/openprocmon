@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <shared_mutex>
+#include "eopcheck.hpp"
+#include "filtermgr.h"
 
 #define DATAVIEW()  Singleton<CDataView>::getInstance()
 
@@ -66,6 +68,10 @@ public:
 	size_t GetShowViewCounts();
 	void ClearShowViews();
 	void Push(CRefPtr<CEventView> pOpt);
+	void AddFilter(CRefPtr<CFilter> pFilter);
+	void AddHighLightFilter(CRefPtr<CFilter> pFilter);
+	void RemoveFilter(CRefPtr<CFilter> pFilter);
+	void RemoveHighLightFilter(CRefPtr<CFilter> pFilter);
 	void ApplyNewFilter(FLTPROCGRESSCB Callback=NULL, LPVOID pParameter = NULL);
 
 private:
@@ -85,4 +91,6 @@ private:
 	std::vector<CRefPtr<CEventViewExt>> m_ShowViews;
 	std::shared_mutex m_Viewlock;
 	std::shared_mutex m_OptViewlock;
+	CFilterMgr m_Filter;
+	CFilterMgr m_HighLightFilter;
 };

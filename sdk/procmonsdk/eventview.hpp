@@ -33,6 +33,7 @@ typedef enum _MAP_SOURCE_TYPE
 	emUser,
 	emVersion,
 	emVirtualize,
+	emInvalid,
 }MAP_SOURCE_TYPE;
 
 class CEventView : public CRefBase

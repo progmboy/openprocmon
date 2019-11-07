@@ -5,29 +5,29 @@
 
 CDataView::CDataView()
 {
-	FILETERMGR().AddFilter(emPath, emCMPContains, emRETExclude, TEXT("$Extend"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$UpCase"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Secure"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$BadClus"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Boot"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Bitmap"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Root"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$AttrDef"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Volume"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$LogFile"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$MftMirr"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Mft"));
-	FILETERMGR().AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("pagefile.sys"));
-	FILETERMGR().AddFilter(emResult, emCMPEndWith, emRETExclude, TEXT("FAST_IO"));
-	FILETERMGR().AddFilter(emOperation, emCMPBeginWith, emRETExclude, TEXT("FASTIO_"));
-	FILETERMGR().AddFilter(emOperation, emCMPBeginWith, emRETExclude, TEXT("IRP_MJ_"));
-	FILETERMGR().AddFilter(emProcessName, emCMPIs, emRETExclude, TEXT("system"));
+	m_Filter.AddFilter(emPath, emCMPContains, emRETExclude, TEXT("$Extend"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$UpCase"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Secure"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$BadClus"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Boot"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Bitmap"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Root"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$AttrDef"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Volume"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$LogFile"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$MftMirr"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("$Mft"));
+	m_Filter.AddFilter(emPath, emCMPEndWith, emRETExclude, TEXT("pagefile.sys"));
+	m_Filter.AddFilter(emResult, emCMPEndWith, emRETExclude, TEXT("FAST_IO"));
+	m_Filter.AddFilter(emOperation, emCMPBeginWith, emRETExclude, TEXT("FASTIO_"));
+	m_Filter.AddFilter(emOperation, emCMPBeginWith, emRETExclude, TEXT("IRP_MJ_"));
+	m_Filter.AddFilter(emProcessName, emCMPIs, emRETExclude, TEXT("system"));
 
 	TCHAR szPath[MAX_PATH];
 	GetModuleFileName(NULL, szPath, MAX_PATH);
 	LPCTSTR lpAppName = PathFindFileName(szPath);
 
-	FILETERMGR().AddFilter(emProcessName, emCMPIs, emRETExclude, lpAppName);
+	m_Filter.AddFilter(emProcessName, emCMPIs, emRETExclude, lpAppName);
 }
 
 CDataView::~CDataView()
@@ -47,11 +47,32 @@ size_t CDataView::GetSelectIndex()
 
 BOOL CDataView::IsHighlight(size_t Index)
 {
+#if 0
 	CRefPtr<CEventViewExt> pExt = _Get(Index);
 	if (!pExt.IsNull())
 		return pExt->IsHighLight();
 	else
 		return FALSE;
+#endif
+
+	CRefPtr<CEventViewExt> pExt = _Get(Index);
+	if (!pExt.IsNull()) {
+		if (pExt->IsHighLight()){
+			return TRUE;
+		}else{
+			
+			//
+			// check highlight filter
+			//
+
+			if(m_HighLightFilter.GetCounts()){
+				if (!m_HighLightFilter.Filter(pExt->GetView())) {
+					return TRUE;
+				}
+			}
+		}
+	}	
+	return FALSE;
 }
 
 CRefPtr<CEventView> CDataView::GetSelectView()
@@ -100,6 +121,8 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 		pOpt->GetEventOperator() == NOTIFY_PROCESS_INIT){
 		return;
 	}
+
+
 	BOOL bHighLight = FALSE;
 	CRefPtr<CEventViewExt> pOptEx = new CEventViewExt(pOpt, bHighLight);
 	
@@ -111,16 +134,32 @@ void CDataView::Push(CRefPtr<CEventView> pOpt)
 	// Is filtered?
 	//
 	
-	if (!FILETERMGR().Filter(pOpt)){
-		
-		//
-		// TODO Highlight filter
-		//
+	if (!m_Filter.Filter(pOpt)){
 
 		m_Viewlock.lock();
 		m_ShowViews.push_back(pOptEx);
 		m_Viewlock.unlock();
 	}
+}
+
+void CDataView::AddFilter(CRefPtr<CFilter> pFilter)
+{
+	m_Filter.AddFilter(pFilter);
+}
+
+void CDataView::AddHighLightFilter(CRefPtr<CFilter> pFilter)
+{
+	m_HighLightFilter.AddFilter(pFilter);
+}
+
+void CDataView::RemoveFilter(CRefPtr<CFilter> pFilter)
+{
+	m_Filter.RemovFilter(pFilter);
+}
+
+void CDataView::RemoveHighLightFilter(CRefPtr<CFilter> pFilter)
+{
+	m_HighLightFilter.RemovFilter(pFilter);
 }
 
 void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
@@ -138,7 +177,7 @@ void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
 
 	for (auto it = m_OptViews.begin(); it != m_OptViews.end(); it++, Now++)
 	{
-		if (!FILETERMGR().Filter((*it)->GetView())){
+		if (!m_Filter.Filter((*it)->GetView())){
 			m_Viewlock.lock();
 			m_ShowViews.push_back(*it);
 			m_Viewlock.unlock();
