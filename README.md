@@ -10,6 +10,7 @@ open source process monitor
     - [CMake](#cmake)
 - [SDK example](#sdk-example)
 - [GUI Snapshot](#gui-snapshot)
+- [How to show stackframe with symbol](#how-to-show-stackframe-with-symbol)
 - [TODO](#todo)
     - [GUI](#gui)
     
@@ -149,6 +150,19 @@ properties windows
 ![prop_event](https://github.com/progmboy/openprocmon/blob/master/images/prop_event.png)
 ![prop_proc](https://github.com/progmboy/openprocmon/blob/master/images/prop_proc.png)
 ![prop_stack](https://github.com/progmboy/openprocmon/blob/master/images/prop_stack.png)
+
+## How to show stackframe with symbol
+
+1. Go to windbg.exe directory copy the following files to the same directory with "procmon_gui.exe".
+```
+dbghelp.dll
+symsrv.dll
+symsrv.yes
+```
+2. Set the _NT_SYMBOL_PATH environment variable. for example:
+```
+srv*D:\reverse\symbols*https://msdl.microsoft.com/download/symbols
+```
 
 ## TODO
 ### GUI
