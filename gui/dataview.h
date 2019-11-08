@@ -2,7 +2,6 @@
 
 #include <vector>
 #include <shared_mutex>
-#include "eopcheck.hpp"
 #include "filtermgr.h"
 
 #define DATAVIEW()  Singleton<CDataView>::getInstance()
