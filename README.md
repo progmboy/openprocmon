@@ -153,15 +153,14 @@ properties windows
 ## TODO
 ### GUI
 
-- [x] Filter dialog.
-- [x] Filter apply processing dialog.
+- [x] ~~Filter dialog.~~
+- [x] ~~Filter apply processing dialog.~~
 - [ ] Save the capture log to file.
 - [ ] Load capture log.
-- [x] Load Driver.
-- [x] Sybmol support for call stack view.
-- [x] Integrity level parse.
-- [ ] Registery event capture.
+- [x] ~~Load Driver.~~
+- [x] ~~Sybmol support for call stack view.~~
+- [x] ~~Integrity level parse.~~
+- [ ] Open registery event capture.
 - [ ] Parse detail for File/Registery Event.
 - [ ] Filter plugin support.
 - [ ] main menu.
-- [ ] filter dialog.
