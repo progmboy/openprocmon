@@ -163,4 +163,6 @@ properties windows
 - [ ] Open registery event capture.
 - [ ] Parse detail for File/Registery Event.
 - [ ] Filter plugin support.
-- [ ] main menu.
+- [ ] Main menu message.
+- [x] ~~Highlight support.~~
+- [x] ~~filter mechanism~~
