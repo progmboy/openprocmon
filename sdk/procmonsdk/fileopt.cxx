@@ -97,6 +97,7 @@ CString CFileEvent::GetDetail()
 		strDetail += strTemp;
 		strDetail += TEXT("\r\n");
 	}
+	break;
 	default:
 		strDetail = TEXT("TODO");
 		break;

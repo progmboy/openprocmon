@@ -245,6 +245,8 @@ CString CEopCheck::GetFileDirectory(const CString& strFile)
 
 }
 
+#define STATUS_ACCESS_DENIED             ((NTSTATUS)0xC0000022L)
+
 BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 {
 	
@@ -265,11 +267,15 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 		return FALSE;
 	}
 
-	if (pEvent->GetIntegrity() < SECURITY_MANDATORY_HIGH_RID){
+	if (pEvent->GetIntegrity() < SECURITY_MANDATORY_SYSTEM_RID){
 		return FALSE;
 	}
 
-	if (pEvent->GetResult() < 0) {
+	if (pEvent->GetResult() < 0 && pEvent->GetResult() == STATUS_ACCESS_DENIED) {
+		return FALSE;
+	}
+
+	if (IsImpersonateOpen && IsImpersonate) {
 		return FALSE;
 	}
 
@@ -291,10 +297,6 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 				PLOG_FILE_CREATE pCreateInfo = reinterpret_cast<PLOG_FILE_CREATE>(pFileOpt->Name + pFileOpt->NameLength);
 				ULONG_PTR* pInformation = TO_EVENT_DATA(ULONG_PTR*, pPostEventEntry);
 				PUSHORT pSetSecInfo = (PUSHORT)((PUCHAR)(pCreateInfo + 1) + pCreateInfo->UserTokenLength);
-
-				if (IsImpersonateOpen && IsImpersonate) {
-					return FALSE;
-				}
 
 				BOOL bDeleteFile = IS_FILE_CRATE_OPTIONS_HAS_DELETE(pFileOpt->FltParameter.Create.Options);
 
@@ -328,14 +330,20 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 		//case IRP_MJ_SET_INFORMATION:
 		case IRP_MJ_SET_SECURITY:
 		{
-			if (IsImpersonateOpen && IsImpersonate) {
-				return FALSE;
-			}
 
 			if (IsFileWritableByMeduimProcess(strPath) &&
 				IsFileDirWritableByMeduimProcess(strPath)) {
+				
+				//
+				// Is DACL or group or owner
+				//
+				
+				if (pFileOpt->FltParameter.SetSecurity.SecurityInformation & (OWNER_SECURITY_INFORMATION | \
+					GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION)){
+					bHighlight = TRUE;
+				}
+
 				bIsEopBug = TRUE;
-				bHighlight = TRUE;
 			}
 
 			break;
