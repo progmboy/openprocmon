@@ -247,6 +247,31 @@ CString CEopCheck::GetFileDirectory(const CString& strFile)
 
 #define STATUS_ACCESS_DENIED             ((NTSTATUS)0xC0000022L)
 
+BOOL IsLocateInLoadLibrary(std::vector<PVOID>& calls)
+{
+	static PVOID pLdrLoadDll = NULL;
+	static PVOID pLdrResolveDelayLoadedAPI = NULL;
+	if (!pLdrLoadDll){
+		pLdrLoadDll = GetProcAddress(LoadLibrary(TEXT("ntdll.dll")), "LdrLoadDll");
+		pLdrResolveDelayLoadedAPI = GetProcAddress(LoadLibrary(TEXT("ntdll.dll")), "LdrResolveDelayLoadedAPI");
+	}
+
+	for (auto it = calls.begin(); it != calls.end(); it++)
+	{
+		if ((ULONG_PTR)(*it) > (ULONG_PTR)pLdrLoadDll &&
+			(ULONG_PTR)(*it) < (ULONG_PTR)pLdrLoadDll + 0x100) {
+			return TRUE;
+		}
+
+		if ((ULONG_PTR)(*it) > (ULONG_PTR)pLdrResolveDelayLoadedAPI &&
+			(ULONG_PTR)(*it) < (ULONG_PTR)pLdrResolveDelayLoadedAPI + 0x100) {
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
 BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 {
 	
@@ -255,7 +280,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 	// we only care about the process which is system or high level 
 	//
 	
-	BOOL bIsEopBug = FALSE;
+	BOOL bIsShow = FALSE;
 	DWORD dwEventClass = pEvent->GetEventClass();
 	DWORD dwNotifyType = pEvent->GetEventOperator();
 	PVOID pPreEventEntry = pEvent->GetPreEventEntry();
@@ -271,15 +296,15 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 		return FALSE;
 	}
 
-	if (pEvent->GetResult() < 0 && pEvent->GetResult() == STATUS_ACCESS_DENIED) {
-		return FALSE;
-	}
-
-	if (IsImpersonateOpen && IsImpersonate) {
-		return FALSE;
-	}
-
 	if (dwEventClass == MONITOR_TYPE_FILE){
+
+		if (pEvent->GetResult() < 0 && pEvent->GetResult() == STATUS_ACCESS_DENIED) {
+			return FALSE;
+		}
+
+		if (IsImpersonateOpen && IsImpersonate) {
+			return FALSE;
+		}
 
 		CString strPath = pEvent->GetPath();
 		dwNotifyType = (UCHAR)dwNotifyType - 20;
@@ -294,35 +319,58 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 		{
 		case IRP_MJ_CREATE:
 			{
-				PLOG_FILE_CREATE pCreateInfo = reinterpret_cast<PLOG_FILE_CREATE>(pFileOpt->Name + pFileOpt->NameLength);
-				ULONG_PTR* pInformation = TO_EVENT_DATA(ULONG_PTR*, pPostEventEntry);
-				PUSHORT pSetSecInfo = (PUSHORT)((PUCHAR)(pCreateInfo + 1) + pCreateInfo->UserTokenLength);
+#define STATUS_OBJECT_NAME_NOT_FOUND ((NTSTATUS)0xC0000034L)
+#define STATUS_OBJECT_PATH_NOT_FOUND ((NTSTATUS)0xC000003AL)
+				if (pEvent->GetResult() == STATUS_OBJECT_NAME_NOT_FOUND||
+					pEvent->GetResult() == STATUS_OBJECT_PATH_NOT_FOUND){
 
-				BOOL bDeleteFile = IS_FILE_CRATE_OPTIONS_HAS_DELETE(pFileOpt->FltParameter.Create.Options);
+					//
+					// Check callback
+					//
+					
+					std::vector<PVOID> stackCalls;
+					pEvent->GetCallStack(stackCalls);
 
-				if (*pInformation == FILE_CREATED ||
-					IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess) ||
-					bDeleteFile) {
-
-					if (PathFileExists(strPath)) {
-						if (IsFileWritableByMeduimProcess(strPath) &&
-							IsFileDirWritableByMeduimProcess(strPath)) {
-							bIsEopBug = TRUE;
-						}
-					}else{
-						if(IsFileDirWritableByMeduimProcess(strPath)){
-							bIsEopBug = TRUE;
-						}
-					}
-
-					if (bIsEopBug) {
-						if (*pSetSecInfo) {
+					if (IsLocateInLoadLibrary(stackCalls)){
+						bIsShow = TRUE;
+						if (IsFileDirWritableByMeduimProcess(strPath)){
 							bHighlight = TRUE;
 						}
 					}
+					
+				}else{
 
-					if (bDeleteFile) {
-						bHighlight = TRUE;
+					PLOG_FILE_CREATE pCreateInfo = reinterpret_cast<PLOG_FILE_CREATE>(pFileOpt->Name + pFileOpt->NameLength);
+					ULONG_PTR* pInformation = TO_EVENT_DATA(ULONG_PTR*, pPostEventEntry);
+					PUSHORT pSetSecInfo = (PUSHORT)((PUCHAR)(pCreateInfo + 1) + pCreateInfo->UserTokenLength);
+
+					BOOL bDeleteFile = IS_FILE_CRATE_OPTIONS_HAS_DELETE(pFileOpt->FltParameter.Create.Options);
+
+					if (*pInformation == FILE_CREATED ||
+						IS_FILE_ACCESSMASK_HAS_WRITE(pCreateInfo->DesiredAccess) ||
+						bDeleteFile) {
+
+						if (PathFileExists(strPath)) {
+							if (IsFileWritableByMeduimProcess(strPath) &&
+								IsFileDirWritableByMeduimProcess(strPath)) {
+								bIsShow = TRUE;
+							}
+						}
+						else {
+							if (IsFileDirWritableByMeduimProcess(strPath)) {
+								bIsShow = TRUE;
+							}
+						}
+
+						if (bIsShow) {
+							if (*pSetSecInfo) {
+								bHighlight = TRUE;
+							}
+						}
+
+						if (bDeleteFile) {
+							bHighlight = TRUE;
+						}
 					}
 				}
 			}
@@ -343,7 +391,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 					bHighlight = TRUE;
 				}
 
-				bIsEopBug = TRUE;
+				bIsShow = TRUE;
 			}
 
 			break;
@@ -353,7 +401,29 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 		}
 	}
 
-	return bIsEopBug;
+	if (dwEventClass == MONITOR_TYPE_PROCESS) {
+		switch (dwNotifyType)
+		{
+		case NOTIFY_IMAGE_LOAD:
+		{
+			CString strPath = pEvent->GetPath();
+			TCHAR szSysDir[MAX_PATH];
+			GetSystemDirectory(szSysDir, MAX_PATH);
+
+			
+			if (!PathIsPrefix(szSysDir, strPath)){
+				if (IsFileWritableByMeduimProcess(strPath) &&
+					IsFileDirWritableByMeduimProcess(strPath)) {
+					bIsShow = TRUE;
+				}
+			}
+		}
+			break;
+		}
+
+	}
+
+	return bIsShow;
 
 }
 
