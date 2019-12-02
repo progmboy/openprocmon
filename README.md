@@ -11,7 +11,7 @@ open source process monitor
 - [SDK example](#sdk-example)
 - [GUI Snapshot](#gui-snapshot)
 - [How to show stackframe with symbol](#how-to-show-stackframe-with-symbol)
-- [About another branch](#how-to-show-stackframe-with-symbol)
+- [About another branch](#about-another-branch)
 - [TODO](#todo)
     - [GUI](#gui)
     
@@ -168,7 +168,7 @@ srv*D:\reverse\symbols*https://msdl.microsoft.com/download/symbols
 ```
 
 ## About another branch
-discover it yourself!!!
+Discover it yourself!!!
 
 ## TODO
 ### GUI
