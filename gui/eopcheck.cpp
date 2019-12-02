@@ -390,7 +390,7 @@ BOOL CEopCheck::Check(CRefPtr<CEventView> pEvent, BOOL& bHighlight)
 					GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION)){
 					bHighlight = TRUE;
 				}
-
+				
 				bIsShow = TRUE;
 			}
 
