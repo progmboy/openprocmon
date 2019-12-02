@@ -11,6 +11,7 @@ open source process monitor
 - [SDK example](#sdk-example)
 - [GUI Snapshot](#gui-snapshot)
 - [How to show stackframe with symbol](#how-to-show-stackframe-with-symbol)
+- [About another branch](#how-to-show-stackframe-with-symbol)
 - [TODO](#todo)
     - [GUI](#gui)
     
@@ -141,6 +142,8 @@ It is pertty esay right?
 
 ## GUI Snapshot
 
+**The GUI is still in Pre-Alpha state, and many features have yet to be improved. Wellcome PR.**
+
 main window:
 
 ![main_window](https://github.com/progmboy/openprocmon/blob/master/images/mian_gui.png)
@@ -163,6 +166,9 @@ symsrv.yes
 ```
 srv*D:\reverse\symbols*https://msdl.microsoft.com/download/symbols
 ```
+
+## About another branch
+discover it yourself!!!
 
 ## TODO
 ### GUI
