@@ -180,3 +180,4 @@ srv*D:\reverse\symbols*https://msdl.microsoft.com/download/symbols
 - [ ] Main menu message.
 - [x] ~~Highlight support.~~
 - [x] ~~filter mechanism~~
+- [ ] Service signature mitigation check.
