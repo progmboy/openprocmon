@@ -23,6 +23,7 @@ open source process monitor
 3. Hack the driver to implement your own EDR or something.
 
 You don't have a digital signature yourself? It doesn't matter. You can use the original procmon driver, this sdk is 100% compatible with the original procmon driver.
+And of course, The original procmon driver can be replaced with this driver to learn how procmon works.
 
 ## How to build
 
