@@ -20,6 +20,7 @@ open source process monitor
 
 1. Use the procmon gui. (build and run procmon_gui.exe)
 2. Use the sdk in you project(build and link sdk)
+3. Hack the driver to implement your own EDR or something.
 
 You don't have a digital signature yourself? It doesn't matter. You can use the original procmon driver, this sdk is 100% compatible with the original procmon driver.
 
