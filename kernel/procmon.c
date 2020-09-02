@@ -2179,7 +2179,7 @@ Return Value:
 	if (!pFileOptInfo){
 		*pSize = 0;
 	}else{
-		*pSize = TotalLength;
+		*pSize = min(TotalLength, 0xFFFF);//TotalLength > 0xFFFF ? 0xFFFF : TotalLength;
 	}
 
 	return pFileOptInfo;
