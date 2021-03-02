@@ -2179,6 +2179,13 @@ Return Value:
 	if (!pFileOptInfo){
 		*pSize = 0;
 	}else{
+
+		//
+		// jonasLyk find this oob bug of procmon
+		// see:
+		// https://twitter.com/jonasLyk/status/1301167318450532353
+		//
+
 		*pSize = min(TotalLength, 0xFFFF);//TotalLength > 0xFFFF ? 0xFFFF : TotalLength;
 	}
 
