@@ -1091,7 +1091,7 @@ Return Value:
 
 	PsCreateSystemThread(
 		&hThread,
-		0x1F03FF,
+		THREAD_ALL_ACCESS,
 		&ObjectAttributes,
 		NULL,
 		NULL,
