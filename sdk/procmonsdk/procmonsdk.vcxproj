@@ -193,6 +193,7 @@
     <ClCompile Include="process.cxx" />
     <ClCompile Include="procmgr.cxx" />
     <ClCompile Include="procopt.cxx" />
+    <ClCompile Include="regopt.cxx" />
     <ClCompile Include="strmaps.cxx" />
     <ClCompile Include="thread.cxx" />
     <ClCompile Include="utils.cxx" />

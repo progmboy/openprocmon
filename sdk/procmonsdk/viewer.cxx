@@ -226,11 +226,7 @@ LARGE_INTEGER CBaseView::GetCompleteTime()
 
 CString CBaseView::GetPath()
 {
-	CString strDosPath;
-	if (!m_Event->GetPath().IsEmpty()){
-		UtilConvertNtInternalPathToDosPath(m_Event->GetPath(), strDosPath);
-	}
-	return strDosPath;
+	return m_Event->GetPath();
 }
 
 CString CBaseView::GetDetail()

@@ -50,6 +50,7 @@ public:
 	
 private:
 	BOOL Control(IN DWORD Flags);
+	BOOL Control();
 
 private:
 

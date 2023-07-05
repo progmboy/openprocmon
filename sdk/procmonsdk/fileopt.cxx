@@ -12,7 +12,13 @@ CString CFileEvent::GetPath()
 	PLOG_FILE_OPT pFileOpt = TO_EVENT_DATA(PLOG_FILE_OPT, pEntry);
 
 	CString strFileName;
-	strFileName.Append(pFileOpt->Name, pFileOpt->NameLength);
+
+	if (pFileOpt->NameLength){
+		CString strFileNameTmp;
+		strFileNameTmp.Append(pFileOpt->Name, pFileOpt->NameLength);
+		UtilConvertNtInternalPathToDosPath(strFileNameTmp, strFileName);
+	}
+	
 
 	return strFileName;
 }

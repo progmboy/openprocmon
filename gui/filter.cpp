@@ -102,11 +102,10 @@ CMPFUNCTION gFunctionTable[] =
 };
 
 BOOL 
-CFilter::Filter(
+CFilter::Match(
 	const CRefPtr<CEventView> pOptView
 )
 {
-	BOOL bFilter = FALSE;
 	CString strSrc;
 	strSrc = pOptView->GetOperationStrResult(m_SrcType);
 	
@@ -123,23 +122,7 @@ CFilter::Filter(
 		bCompare = (this->*gFunctionTable[m_CmpType])(strSrc, m_strFilter);
 	}
 
-	bFilter = m_ResultType == emRETInclude ? !bCompare : bCompare;
-
-	return bFilter;
+	return bCompare;
 }
 
-BOOL
-CFilter::FilterTest(
-	const CString& strSrc
-)
-{
-	BOOL bFilter;
-	BOOL bCompare = FALSE;
-	if (m_CmpType <= emCMPExcludes && m_CmpType >= emCMPIs) {
-		bCompare = (this->*gFunctionTable[m_CmpType])(strSrc, m_strFilter);
-	}
 
-	bFilter = m_ResultType == emRETInclude ? !bCompare : bCompare;
-
-	return bFilter;
-}
