@@ -23,6 +23,9 @@ CDataView::CDataView()
 	m_Filter.AddFilter(emOperation, emCMPBeginWith, emRETExclude, TEXT("IRP_MJ_"));
 	m_Filter.AddFilter(emProcessName, emCMPIs, emRETExclude, TEXT("system"));
 
+	//m_Filter.AddFilter(emProcessName, emCMPIs, emRETInclude, TEXT("notepad.exe"));
+	//m_Filter.AddFilter(emProcessName, emCMPIs, emRETInclude, TEXT("pdbex.exe"));
+
 	TCHAR szPath[MAX_PATH];
 	GetModuleFileName(NULL, szPath, MAX_PATH);
 	LPCTSTR lpAppName = PathFindFileName(szPath);

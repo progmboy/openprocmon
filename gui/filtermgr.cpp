@@ -40,7 +40,11 @@ BOOL CFilterMgr::Filter(CRefPtr<CEventView> pView)
 		}
 	}
 
-	return FALSE;
+	if (!bIncludeStart){
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 size_t CFilterMgr::GetCounts()
