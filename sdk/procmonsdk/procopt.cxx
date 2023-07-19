@@ -71,5 +71,25 @@ CString CProcEvent::GetPath()
 
 CString CProcEvent::GetDetail()
 {
-	return TEXT("TODO");
+	PLOG_ENTRY pEntry = reinterpret_cast<PLOG_ENTRY>(getPreLog().GetBuffer());
+	CString strDetail;
+
+	switch (pEntry->NotifyType)
+	{
+	case NOTIFY_PROCESS_CREATE:
+	{
+		CProcInfoView clsView(this);
+
+		strDetail.Format(TEXT("PID: %d\r\nCommand Line:%s"), 
+				clsView.GetProcessId(), 
+				clsView.GetCommandLine().GetBuffer());
+		
+	}
+	break;
+	default:
+		strDetail = TEXT("TODO");
+		break;
+	}
+	
+	return strDetail;
 }
