@@ -2,6 +2,7 @@
 #include "utils.h"
 #include <fltKernel.h>
 
+#pragma warning(disable:4996)
 
 // #ifdef ALLOC_PRAGMA
 // #pragma alloc_text(PAGE, ProcmonAllocatePoolWithTag)
