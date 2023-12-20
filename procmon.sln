@@ -7,7 +7,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "procmon", "kernel\procmon.v
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "procmonsdk", "sdk\procmonsdk\procmonsdk.vcxproj", "{C21EB4AB-5F89-4993-A408-873C6A5B60CB}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sdktest", "sdk\sdktest\sdktest.vcxproj", "{582D2DBF-0CA2-4408-B86E-663A687411AE}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sdktest", "sdk\example\example.vcxproj", "{582D2DBF-0CA2-4408-B86E-663A687411AE}"
 	ProjectSection(ProjectDependencies) = postProject
 		{C21EB4AB-5F89-4993-A408-873C6A5B60CB} = {C21EB4AB-5F89-4993-A408-873C6A5B60CB}
 	EndProjectSection

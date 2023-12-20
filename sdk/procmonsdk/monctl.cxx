@@ -145,6 +145,12 @@ BOOL CMonitorContoller::Destory()
 	return TRUE;
 }
 
+BOOL
+CMonitorContoller::Control()
+{
+	return Control(m_dwControl);
+}
+
 BOOL 
 CMonitorContoller::Control(
 	IN DWORD Flags

@@ -81,7 +81,7 @@ UtilConvertNtInternalPathToDosPath(
 
 Routine Description:
 
-    .
+	.
 
 Arguments:
 
@@ -89,7 +89,7 @@ Arguments:
 
 Return Value:
 
-    Routine can return non success error codes.
+	Routine can return non success error codes.
 
 --*/
 {
@@ -327,6 +327,11 @@ UtilConvertRegInternalToNormal(
 			strInternalPathTemp = strInternalPathTemp.Right(strInternalPathTemp.GetLength() - strStart.GetLength());
 			
 			//
+			// Skip the '\\'
+			//
+			strInternalPathTemp.TrimLeft(TEXT('\\'));
+
+			//
 			// Start with SID ?
 			//
 			
@@ -334,12 +339,30 @@ UtilConvertRegInternalToNormal(
 
 				strInternalPathTemp = strInternalPathTemp.Right(strInternalPathTemp.GetLength() - strUser.GetLength());
 
-				strNormalPath += TEXT("HKCU");
-				strNormalPath += strInternalPathTemp;
+				if (!strInternalPathTemp.IsEmpty() && strInternalPathTemp[0] != TEXT('\\')) {
+					CString strClassRoot = TEXT("_Classes");
+					if (0 == strClassRoot.CompareNoCase(strInternalPathTemp.Left(strClassRoot.GetLength()))) {
+						strNormalPath += TEXT("HKCR");
+						strInternalPathTemp = strInternalPathTemp.Right(strInternalPathTemp.GetLength() - strClassRoot.GetLength());
+						strNormalPath += strInternalPathTemp;
+					}else{
+						bRet = TRUE;
+						break;
+					}
+				}else{
+					strNormalPath += TEXT("HKCU");
+					if(!strInternalPathTemp.IsEmpty()){
+						strNormalPath += strInternalPathTemp;
+					}
+				}
+
 			}else{
 
 				strNormalPath += TEXT("HKU");
-				strNormalPath += strInternalPathTemp;
+				if (!strInternalPathTemp.IsEmpty()) {
+					strNormalPath += "\\";
+					strNormalPath += strInternalPathTemp;
+				}
 			}
 
 			bRet = TRUE;
@@ -349,7 +372,7 @@ UtilConvertRegInternalToNormal(
 
 
 	if (!bRet) {
-		strNormalPath.Empty();
+		strNormalPath = strInternalPath;
 	}
 
 	return bRet;

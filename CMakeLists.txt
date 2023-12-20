@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.1)
 project(openprocmon)
 
+option(BUILD_EXAMPLE "build sdk example" ON)
+
 ##
 ## set the cmake moudle path
 ## to find wdk and wtl
@@ -14,3 +16,7 @@ set(EXECUTABLE_OUTPUT_PATH "${PROJECT_BINARY_DIR}/bin")
 add_subdirectory(kernel)
 add_subdirectory(gui)
 add_subdirectory(sdk/procmonsdk)
+
+if(BUILD_EXAMPLE)
+    add_subdirectory(sdk/example)
+endif()

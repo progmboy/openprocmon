@@ -32,9 +32,9 @@ public:
 	BOOL Morethan(const CString& strSrc, const CString& strDst);
 	BOOL Contains(const CString& strSrc, const CString& strDst);
 	BOOL NotContains(const CString& strSrc, const CString& strDst);
-	BOOL Filter(const CRefPtr<CEventView> pOptView);
+	BOOL Match(const CRefPtr<CEventView> pOptView);
 
-	BOOL FilterTest(const CString& strSrc);
+	//BOOL FilterTest(const CString& strSrc);
 
 
 	MAP_SOURCE_TYPE GetSourceType()

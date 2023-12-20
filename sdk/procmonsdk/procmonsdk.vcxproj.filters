@@ -143,5 +143,8 @@
     <ClCompile Include="strmaps.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="regopt.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

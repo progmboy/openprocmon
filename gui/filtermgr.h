@@ -18,9 +18,12 @@ public:
 	size_t GetCounts();
 	void AddFilter(CRefPtr<CFilter> pFilter);
 	void AddFilter(MAP_SOURCE_TYPE SrcType, FILTER_CMP_TYPE CmpType, FILTER_RESULT_TYPE RetType, const CString& strDst);
-	void AddFilterAtEnd(CRefPtr<CFilter> pFilter);
 	void RemovFilter(MAP_SOURCE_TYPE SrcType, FILTER_CMP_TYPE CmpType, FILTER_RESULT_TYPE RetType, const CString& strDst);
 	void RemovFilter(CRefPtr<CFilter> pFilter);
+
+private:
+    void Sort();
+
 private:
 
 	std::shared_mutex m_lock;

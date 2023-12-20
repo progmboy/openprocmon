@@ -27,7 +27,7 @@ public:
 
 int main()
 {
-#if 0
+
 	CEventMgr& Optmgr = Singleton<CEventMgr>::getInstance();
 	CMonitorContoller& Monitormgr = Singleton<CMonitorContoller>::getInstance();
 	CDrvLoader& Drvload = Singleton<CDrvLoader>::getInstance();
@@ -73,14 +73,5 @@ int main()
 
 	Monitormgr.Stop();
 	Monitormgr.Destory();
-
-#endif
-
-	LogMessage(L_INFO, TEXT("(0x%x) %s"), 0x10080, (LPCTSTR)StrMapFileAccessMask(0x10080));
-	LogMessage(L_INFO, TEXT("(0x%x) %s"), FILE_ALL_ACCESS, (LPCTSTR)StrMapFileAccessMask(FILE_ALL_ACCESS));
-	LogMessage(L_INFO, TEXT("(0x%x) %s"), FILE_GENERIC_WRITE, (LPCTSTR)StrMapFileAccessMask(FILE_GENERIC_WRITE));
-	LogMessage(L_INFO, TEXT("(0x%x) %s"), FILE_READ_DATA | FILE_READ_EA, (LPCTSTR)StrMapFileAccessMask(FILE_READ_DATA | FILE_READ_EA));
-	LogMessage(L_INFO, TEXT("(0x%x) %s"), FILE_GENERIC_READ, (LPCTSTR)StrMapFileAccessMask(FILE_GENERIC_READ));
-
 	return 0;
 }

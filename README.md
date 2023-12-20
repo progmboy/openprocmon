@@ -11,6 +11,7 @@ open source process monitor
 - [SDK example](#sdk-example)
 - [GUI Snapshot](#gui-snapshot)
 - [How to show stackframe with symbol](#how-to-show-stackframe-with-symbol)
+- [About another branch](#about-another-branch)
 - [TODO](#todo)
     - [GUI](#gui)
     
@@ -19,8 +20,10 @@ open source process monitor
 
 1. Use the procmon gui. (build and run procmon_gui.exe)
 2. Use the sdk in you project(build and link sdk)
+3. Hack the driver to implement your own EDR or something.
 
 You don't have a digital signature yourself? It doesn't matter. You can use the original procmon driver, this sdk is 100% compatible with the original procmon driver.
+And of course, The original procmon driver can be replaced with this driver to learn how procmon works.
 
 ## How to build
 
@@ -141,6 +144,8 @@ It is pertty esay right?
 
 ## GUI Snapshot
 
+**The GUI is still in Pre-Alpha state, and many features have yet to be improved. Wellcome PR.**
+
 main window:
 
 ![main_window](https://github.com/progmboy/openprocmon/blob/master/images/mian_gui.png)
@@ -163,6 +168,9 @@ symsrv.yes
 ```
 srv*D:\reverse\symbols*https://msdl.microsoft.com/download/symbols
 ```
+
+## About another branch
+Discover it yourself!!!
 
 ## TODO
 ### GUI
