@@ -7,9 +7,10 @@ CFilter::CFilter(
 	MAP_SOURCE_TYPE Src, 
 	FILTER_CMP_TYPE Cmp, 
 	FILTER_RESULT_TYPE Ret, 
-	const CString& strFilter
+	const CString& strFilter,
+	BOOL Enable
 ):m_SrcType(Src), m_CmpType(Cmp), m_ResultType(Ret),
-m_strFilter(strFilter)
+m_strFilter(strFilter), m_Enable(Enable)
 {
 	
 }
@@ -123,6 +124,28 @@ CFilter::Match(
 	}
 
 	return bCompare;
+}
+
+BOOL
+CFilter::Filter(
+	const CRefPtr<CEventView> pOptView
+)
+{
+	if (!m_Enable) {
+		return FALSE;
+	}
+	BOOL bMatch = Match(pOptView);
+	return m_ResultType == emRETInclude ? !bMatch : bMatch;
+}
+
+VOID CFilter::SetEnable(BOOL bEnable)
+{
+	m_Enable = bEnable;
+}
+
+BOOL CFilter::IsEnable()
+{
+	return m_Enable;
 }
 
 

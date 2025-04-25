@@ -16,6 +16,7 @@
 // #endif
 
 #define WM_NEW_OPERATOR (WM_USER+1)
+#define WM_CUSTOM_FILTER	(WM_USER+2)
 
 #define ID_MEMU_PROPERTIES	(WM_USER+100)
 #define ID_MEMU_STACK		(WM_USER+101)
@@ -112,6 +113,7 @@ public:
 		MESSAGE_HANDLER(WM_CREATE, OnCreate)
 		MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
 		MESSAGE_HANDLER(WM_NEW_OPERATOR, OnNewOperator)
+		MESSAGE_HANDLER(WM_CUSTOM_FILTER, OnCustomFilter)
 		COMMAND_ID_HANDLER(ID_APP_EXIT, OnFileExit)
 		COMMAND_ID_HANDLER(ID_FILE_NEW, OnFileNew)
 		COMMAND_ID_HANDLER(ID_VIEW_TOOLBAR, OnViewToolBar)
@@ -684,6 +686,15 @@ public:
 	{
 		//m_view.SetItemCountEx((int)m_ShowViews.size(), LVSICF_NOINVALIDATEALL| LVSICF_NOSCROLL);
 		bHandled = TRUE;
+		return 0;
+	}
+	LRESULT OnCustomFilter(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled)
+	{
+		//m_view.SetItemCountEx((int)m_ShowViews.size(), LVSICF_NOINVALIDATEALL| LVSICF_NOSCROLL);
+		CFltProcessDlg Dlg;
+		Dlg.DoModal();
+
+		m_view.SetItemCountEx((int)DATAVIEW().GetShowViewCounts(), 0);
 		return 0;
 	}
 

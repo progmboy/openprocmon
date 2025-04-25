@@ -72,6 +72,7 @@ public:
 	void RemoveFilter(CRefPtr<CFilter> pFilter);
 	void RemoveHighLightFilter(CRefPtr<CFilter> pFilter);
 	void ApplyNewFilter(FLTPROCGRESSCB Callback=NULL, LPVOID pParameter = NULL);
+	CFilterMgr& GetFilterMgr();
 
 private:
 

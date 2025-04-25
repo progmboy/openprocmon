@@ -6,7 +6,7 @@
 
 typedef enum _MAP_SOURCE_TYPE
 {
-	emArchiteture,
+	emArchiteture = 0,
 	emAuthId,
 	emCategory,
 	emCommandLine,

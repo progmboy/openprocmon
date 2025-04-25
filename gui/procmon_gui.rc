@@ -13,7 +13,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// Chinese (Simplified, PRC) resources
+// 中文(简体，中国) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
@@ -43,12 +43,19 @@ IDI_ICON_PROCESS        ICON                    "res\\process.ico"
 
 IDI_ICON_REGISTERY      ICON                    "res\\registry.ico"
 
-#endif    // Chinese (Simplified, PRC) resources
+IDI_ICON_ENABLE         ICON                    "res\\check.ico"
+
+IDI_ICON_DISABLE        ICON                    "res\\remove.ico"
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+#endif    // 中文(简体，中国) resources
 /////////////////////////////////////////////////////////////////////////////
 
 
 /////////////////////////////////////////////////////////////////////////////
-// English (United States) resources
+// 英语(美国) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
@@ -231,7 +238,7 @@ BEGIN
     PUSHBUTTON      "Reset",IDC_FILTER_RESET,7,55,50,14
     PUSHBUTTON      "&Add",IDC_FILTER_ADD,225,55,50,14
     PUSHBUTTON      "&Remove",IDC_FILTER_REMOVE,280,55,50,14
-    CONTROL         "",IDC_FILTER_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_OWNERDATA | WS_BORDER | WS_TABSTOP,7,78,323,73
+    CONTROL         "",IDC_FILTER_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,78,323,73
 END
 
 
@@ -526,7 +533,7 @@ BEGIN
     ATL_IDS_MRU_FILE        "Open this document"
 END
 
-#endif    // English (United States) resources
+#endif    // 英语(美国) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

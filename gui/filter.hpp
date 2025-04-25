@@ -2,7 +2,7 @@
 
 typedef enum _FILTER_CMP_TYPE
 {
-	emCMPIs,
+	emCMPIs = 0,
 	emCMPIsNot,
 	emCMPLessThan,
 	emCMPMoreThan,
@@ -14,14 +14,14 @@ typedef enum _FILTER_CMP_TYPE
 
 typedef enum _FILTER_RESULT_TYPE
 {
-	emRETInclude,
+	emRETInclude = 0,
 	emRETExclude
 }FILTER_RESULT_TYPE;
 
 class CFilter : public CRefBase
 {
 public:
-	CFilter(MAP_SOURCE_TYPE Src, FILTER_CMP_TYPE Cmp, FILTER_RESULT_TYPE Ret, const CString& strFilter);
+	CFilter(MAP_SOURCE_TYPE Src, FILTER_CMP_TYPE Cmp, FILTER_RESULT_TYPE Ret, const CString& strFilter, BOOL Enable = TRUE);
 	~CFilter();
 
 	BOOL BeginWith(const CString& strSrc, const CString& strDst);
@@ -33,6 +33,9 @@ public:
 	BOOL Contains(const CString& strSrc, const CString& strDst);
 	BOOL NotContains(const CString& strSrc, const CString& strDst);
 	BOOL Match(const CRefPtr<CEventView> pOptView);
+	BOOL Filter(const CRefPtr<CEventView> pOptView);
+	void SetEnable(BOOL bEnable = TRUE);
+	BOOL IsEnable();
 
 	//BOOL FilterTest(const CString& strSrc);
 
@@ -62,4 +65,5 @@ private:
 	FILTER_CMP_TYPE m_CmpType;
 	FILTER_RESULT_TYPE m_ResultType;
 	CString m_strFilter;
+	BOOL m_Enable;
 };

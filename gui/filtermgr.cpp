@@ -6,45 +6,15 @@ BOOL CFilterMgr::Filter(CRefPtr<CEventView> pView)
 {
 	std::shared_lock<std::shared_mutex> lock(m_lock);
 	
-	BOOL bIncludeStart = FALSE;
-
-	//
-	// Before filter the list of contain all of filters must be sort.
-	// Filter list like:
-	//
-	// exclude filter 1
-	// exclude filter 2
-	// ....
-	// include filter 1
-	// include filter 2
-	// ...
-	//
-	// we match exclude filter first
-
+	BOOL bFilter = FALSE;
 	for (auto filter : m_FilterList) {
-
-		if (!bIncludeStart && filter->GetRetType() == FILTER_RESULT_TYPE::emRETInclude) {
-			bIncludeStart = TRUE;
-		}
-
-		if(!bIncludeStart) {
-			if (filter->Match(pView)) {
-				// Here must be in exclude.
-				// If filter match we need drop this event.
-				return TRUE;
-			}
-		}else{
-			if(filter->Match(pView)) {
-				return FALSE;
-			}
+		if (filter->Filter(pView)) {
+			bFilter = TRUE;
+			break;
 		}
 	}
 
-	if (!bIncludeStart){
-		return FALSE;
-	}
-
-	return TRUE;
+	return bFilter;
 }
 
 size_t CFilterMgr::GetCounts()
@@ -56,17 +26,18 @@ void CFilterMgr::AddFilter(
 	MAP_SOURCE_TYPE SrcType, 
 	FILTER_CMP_TYPE CmpType, 
 	FILTER_RESULT_TYPE RetType, 
-	const CString& strDst
+	const CString& strDst,
+	BOOL Enable
 )
 {
-	AddFilter(new CFilter(SrcType, CmpType, RetType, strDst));
+	AddFilter(new CFilter(SrcType, CmpType, RetType, strDst, Enable));
 }
 
 void CFilterMgr::AddFilter(CRefPtr<CFilter> pFilter)
 {
 	std::unique_lock<std::shared_mutex> lock(m_lock);
 	m_FilterList.insert(m_FilterList.begin(), pFilter);
-	Sort();
+	//Sort();
 }
 
 void CFilterMgr::RemovFilter(
@@ -76,6 +47,7 @@ void CFilterMgr::RemovFilter(
 	const CString& strDst
 )
 {
+	std::unique_lock<std::shared_mutex> lock(m_lock);
 	for (auto it = m_FilterList.begin(); it != m_FilterList.end();)
 	{
 		if ((*it)->GetSourceType() == SrcType &&
@@ -106,6 +78,34 @@ public:
 
 void CFilterMgr::Sort()
 {
+	std::unique_lock<std::shared_mutex> lock(m_lock);
 	std::sort(m_FilterList.begin(), m_FilterList.end(), CFilterCompare());
+}
+
+const std::vector<CRefPtr<CFilter>>& CFilterMgr::GetFilterList()
+{
+	return m_FilterList;
+}
+
+void CFilterMgr::SetEnable(ULONG Index, BOOL Enable)
+{
+	if (Index < m_FilterList.size()) {
+		m_FilterList[Index]->SetEnable(Enable);
+	}
+}
+
+BOOL CFilterMgr::IsEnable(ULONG Index)
+{
+	if (Index < m_FilterList.size()) {
+		return m_FilterList[Index]->IsEnable();
+	}
+
+	return FALSE;
+}
+
+void CFilterMgr::RemoveAll()
+{
+	std::unique_lock<std::shared_mutex> lock(m_lock);
+	m_FilterList.clear();
 }
 

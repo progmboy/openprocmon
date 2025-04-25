@@ -10,6 +10,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <algorithm>
 
 #include "kernelsdk.hpp"
 #include "singleton.hpp"

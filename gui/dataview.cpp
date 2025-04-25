@@ -190,5 +190,9 @@ void CDataView::ApplyNewFilter(FLTPROCGRESSCB Callback, LPVOID pParameter)
 			}
 		}
 	}
+}
 
+CFilterMgr& CDataView::GetFilterMgr()
+{
+	return m_Filter;
 }

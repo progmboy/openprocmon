@@ -13,7 +13,11 @@ public:
 		COMMAND_ID_HANDLER(IDC_FILTER_REMOVE, OnBtnRemove)
 		COMMAND_ID_HANDLER(IDOK, OnCloseCmd)
 		COMMAND_ID_HANDLER(IDCANCEL, OnCloseCmd)
-		COMMAND_ID_HANDLER(IDC_FILTER_APPLY, OnCloseCmd)
+		COMMAND_ID_HANDLER(IDC_FILTER_APPLY, OnApplyCmd)
+
+		NOTIFY_HANDLER(IDC_FILTER_LIST, NM_DBLCLK, NotifyDClickHandler)
+		//NOTIFY_HANDLER(IDC_FILTER_LIST, LVN_ITEMCHANGED, NotifyItemChangedHandler)
+
 		CHAIN_MSG_MAP(CDialogResize<CFilterDlg>)
 	END_MSG_MAP()
 
@@ -30,61 +34,10 @@ public:
 	END_DLGRESIZE_MAP()
 
 
-	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
-	{
-		DlgResize_Init(false);
-		
-		m_ComboBoxSrc = GetDlgItem(IDC_FILTER_SRC);
-		m_ComboBoxOpt = GetDlgItem(IDC_FILTER_OPT);
-		m_ComboBoxDst = GetDlgItem(IDC_FILTER_DEST);
-		m_ComboBoxRet = GetDlgItem(IDC_FILTER_RET);
+	LRESULT OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 
-		m_ComboBoxSrc.AddString(TEXT("Architeture"));
-		m_ComboBoxSrc.AddString(TEXT("AuthId"));
-		m_ComboBoxSrc.AddString(TEXT("Category"));
-		m_ComboBoxSrc.AddString(TEXT("CommandLine"));
-		m_ComboBoxSrc.AddString(TEXT("Company"));
-		m_ComboBoxSrc.AddString(TEXT("CompletionTime"));
-		m_ComboBoxSrc.AddString(TEXT("DataTime"));
-		m_ComboBoxSrc.AddString(TEXT("Description"));
-		m_ComboBoxSrc.AddString(TEXT("Detail"));
-		m_ComboBoxSrc.AddString(TEXT("Duration"));
-		m_ComboBoxSrc.AddString(TEXT("EventClass"));
-		m_ComboBoxSrc.AddString(TEXT("ImagePath"));
-		m_ComboBoxSrc.AddString(TEXT("Integrity"));
-		m_ComboBoxSrc.AddString(TEXT("Operation"));
-		m_ComboBoxSrc.AddString(TEXT("ParentPid"));
-		m_ComboBoxSrc.AddString(TEXT("Path"));
-		m_ComboBoxSrc.AddString(TEXT("PID"));
-		m_ComboBoxSrc.AddString(TEXT("ProcessName"));
-		m_ComboBoxSrc.AddString(TEXT("RelativeTime"));
-		m_ComboBoxSrc.AddString(TEXT("Result"));
-		m_ComboBoxSrc.AddString(TEXT("Sequence"));
-		m_ComboBoxSrc.AddString(TEXT("Session"));
-		m_ComboBoxSrc.AddString(TEXT("TID"));
-		m_ComboBoxSrc.AddString(TEXT("TimeOfDay"));
-		m_ComboBoxSrc.AddString(TEXT("User"));
-		m_ComboBoxSrc.AddString(TEXT("Version"));
-		m_ComboBoxSrc.AddString(TEXT("Virtualize"));
-
-		m_ComboBoxOpt.AddString(TEXT("Is"));
-		m_ComboBoxOpt.AddString(TEXT("Is Not"));
-		m_ComboBoxOpt.AddString(TEXT("Less Than"));
-		m_ComboBoxOpt.AddString(TEXT("More Than"));
-		m_ComboBoxOpt.AddString(TEXT("Begin With"));
-		m_ComboBoxOpt.AddString(TEXT("End With"));
-		m_ComboBoxOpt.AddString(TEXT("Contains"));
-		m_ComboBoxOpt.AddString(TEXT("Excludes"));
-
-		m_ComboBoxRet.AddString(TEXT("Include"));
-		m_ComboBoxRet.AddString(TEXT("Exclude"));
-
-		m_ComboBoxSrc.SetCurSel(0);
-		m_ComboBoxOpt.SetCurSel(0);
-		m_ComboBoxRet.SetCurSel(0);
-
-		return 0;
-	}
+	LRESULT OnApplyCmd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
+	//LRESULT OnOkCmd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 
 	LRESULT OnCloseCmd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
@@ -92,14 +45,54 @@ public:
 		return 0;
 	}
 
-	LRESULT OnBtnAdd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
-	{
-		return 0;
-	}
+	LRESULT OnBtnAdd(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 
 	LRESULT OnBtnRemove(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 	{
+
+		int iItem = m_FilterListView.GetSelectedIndex();
+		RemoveItemAddShowInCombox(iItem);
 		return 0;
+	}
+
+	LRESULT NotifyDClickHandler(int /*idCtrl*/, LPNMHDR pnmh, BOOL& bHandled)
+	{
+		LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pnmh);
+		if (pNMItemActivate->iItem != -1) {
+			RemoveItemAddShowInCombox(pNMItemActivate->iItem);
+		}
+
+		return TRUE;
+	}
+
+private:
+
+	int SourceTypeStringToIndex(const CString& strValue);
+	int CmpTypeStringToIndex(const CString& strValue);
+	int RetTypeStringToIndex(const CString& strValue);
+
+	void RemoveItemAddShowInCombox(int nItem)
+	{
+		CString strTemp;
+		m_FilterListView.GetItemText(nItem, 0, strTemp);
+		m_ComboBoxSrc.SetCurSel(SourceTypeStringToIndex(strTemp));
+
+		m_FilterListView.GetItemText(nItem, 1, strTemp);
+		m_ComboBoxOpt.SetCurSel(CmpTypeStringToIndex(strTemp));
+
+		CString strFilter;
+		m_FilterListView.GetItemText(nItem, 2, strFilter);
+		m_ComboBoxDst.AddString(strFilter);
+		m_ComboBoxDst.SetCurSel(0);
+
+		m_FilterListView.GetItemText(nItem, 3, strTemp);
+		m_ComboBoxRet.SetCurSel(RetTypeStringToIndex(strTemp));
+
+		//auto retType = static_cast<FILTER_RESULT_TYPE>(CmpTypeStringToIndex(strTemp));
+
+		m_FilterListView.DeleteItem(nItem);
+		m_ApplyBtn.EnableWindow(TRUE);
+
 	}
 
 public:
@@ -107,4 +100,8 @@ public:
 	CComboBox m_ComboBoxOpt;
 	CComboBox m_ComboBoxDst;
 	CComboBox m_ComboBoxRet;
+	CButton m_ApplyBtn;
+	CListViewCtrl m_FilterListView;
+	CImageList m_clsImageList;
+	int m_IcoRet[2] = { 0 };
 };

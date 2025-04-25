@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ generated include file.
-// Used by procmon_gui.rc
+// Microsoft Visual C++ 生成的包含文件。
+// 供 procmon_gui.rc 使用
 //
 #define IDD_ABOUTBOX                    100
 #define IDC_FILTER_CANCEL               106
@@ -16,6 +16,10 @@
 #define IDI_ICON_REGISTERY              221
 #define IDD_PROGRESS                    222
 #define FILTER_INIT                     223
+#define IDB_PNG1                        226
+#define IDI_ICON_ENABLE                 227
+#define IDI_ICON_ENABLE1                228
+#define IDI_ICON_DISABLE                228
 #define ID_PROPERITIES_CLOSE            300
 #define IDC_STATIC20                    1000
 #define IDC_EVENT_DETAIL                1017
@@ -83,7 +87,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        226
+#define _APS_NEXT_RESOURCE_VALUE        229
 #define _APS_NEXT_COMMAND_VALUE         32788
 #define _APS_NEXT_CONTROL_VALUE         1001
 #define _APS_NEXT_SYMED_VALUE           101
