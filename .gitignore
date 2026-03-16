@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+/.vs
+/x64
+/gui/.vs
+/gui/x64
+/kernel/x64
+/sdk/example/x64
+/sdk/procmonsdk/x64
+/gui/*.aps
