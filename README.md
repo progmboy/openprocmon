@@ -40,7 +40,7 @@ Download the last [WTL library](https://sourceforge.net/projects/wtl/) and put i
 ### Visual Studio
 
 1. Open procmon.sln use visual studio
-2. change the addtion include directoy of procmon_gui from "D:\source\WTL10_9163\Include" to yours
+2. change the "C/C++ > Additional Include Directories" and "Resources > Additional Include Directories" of procmon_gui from "D:\source\WTL10_9163\Include" to yours
 3. build.
 4. sign the driver or disable driver signature enforcement.
 5. run.
