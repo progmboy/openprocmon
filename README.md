@@ -7,7 +7,7 @@
 
 An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/downloads/procmon) implementation for Windows: a kernel miniFilter driver captures process, file, registry and network activity in real time, a Rust SDK talks to the driver and parses the event stream, and a Rust/GPUI desktop GUI presents it.
 
-> **This branch (`rust`) is a ground-up Rust rewrite** of the SDK and GUI. The kernel driver is unchanged, and the original C++ implementation is kept under [`cpp-backup/`](cpp-backup/) for reference. The Rust SDK is wire-compatible with the original Process Monitor driver and can read/write Procmon `.PML` logs.
+> **This is a ground-up Rust rewrite** of the SDK and GUI. The kernel driver is unchanged, and the original C++ implementation is kept under [`cpp-backup/`](cpp-backup/) for reference. The Rust SDK is wire-compatible with the original Process Monitor driver and can read/write Procmon `.PML` logs.
 
 ![Main window](docs/snapshots/main.png)
 
@@ -30,13 +30,13 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 
 ```
 ┌──────────────────────────────────────────────┐
-│  GUI            crates/gui  (Rust + GPUI)      │  event table · detail panel ·
-│                                                │  filter/highlight · process tree
+│  GUI            crates/gui  (Rust + GPUI)    │  event table · detail panel ·
+│                                              │  filter/highlight · process tree
 ├──────────────────────────────────────────────┤
-│  SDK            crates/sdk  (Rust)             │  driver port · event parsing ·
-│                                                │  process tracking · PML read/write
+│  SDK            crates/sdk  (Rust)           │  driver port · event parsing ·
+│                                              │  process tracking · PML read/write
 ├──────────────────────────────────────────────┤
-│  Kernel driver  kernel/     (C, miniFilter)    │  process/file/registry callbacks
+│  Kernel driver  kernel/     (C, miniFilter)  │  process/file/registry callbacks
 └──────────────────────────────────────────────┘
 ```
 
