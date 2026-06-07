@@ -14,7 +14,6 @@
 
 - [架构](#架构)
 - [仓库结构](#仓库结构)
-- [工作区结构](#工作区结构)
 - [功能特性](#功能特性)
 - [截图](#截图)
 - [构建](#构建)
@@ -57,16 +56,6 @@ openprocmon/
 ├── docs/         # 设计文档、logo 和截图
 └── kernel/       # miniFilter 驱动（C，使用 WDK 构建）
 ```
-
-## 工作区结构
-
-| 路径 | Crate | 说明 |
-|------|-------|------|
-| `crates/sdk` | `procmon-sdk` | 驱动通信、事件解析、进程/元数据跟踪，以及 Procmon 兼容的 `.PML` 读写器。 |
-| `crates/gui` | `procmon-gui` | 基于 [GPUI](https://github.com/zed-industries/zed) + [gpui-component](https://github.com/longbridge/gpui-component) 构建的桌面 GUI。由 SDK 驱动，支持实时捕获和离线 `.PML` 查看。 |
-| `crates/example` | `procmon-example` | SDK 的控制台演示：实时捕获、保存为 `.PML`，或回放 `.PML`。 |
-| `kernel/` | — | miniFilter 驱动（C），使用 WDK 构建。 |
-| `cpp-backup/` | — | 原始 C++ SDK 与 WTL GUI，保留供参考。 |
 
 ## 功能特性
 

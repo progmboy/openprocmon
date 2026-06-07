@@ -15,7 +15,6 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 
 - [Architecture](#architecture)
 - [Repository layout](#repository-layout)
-- [Workspace layout](#workspace-layout)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Build](#build)
@@ -58,16 +57,6 @@ openprocmon/
 ├── docs/         # Design docs, logo, and screenshots
 └── kernel/       # miniFilter driver (C, built with the WDK)
 ```
-
-## Workspace layout
-
-| Path | Crate | Description |
-|------|-------|-------------|
-| `crates/sdk` | `procmon-sdk` | Driver communication, event parsing, process/metadata tracking, and a Procmon-compatible `.PML` reader/writer. |
-| `crates/gui` | `procmon-gui` | Desktop GUI built with [GPUI](https://github.com/zed-industries/zed) + [gpui-component](https://github.com/longbridge/gpui-component). Driven by the SDK for live capture and offline `.PML` viewing. |
-| `crates/example` | `procmon-example` | Console demo of the SDK: live capture, save to `.PML`, or replay a `.PML`. |
-| `kernel/` | — | The miniFilter driver (C). Built with the WDK. |
-| `cpp-backup/` | — | The original C++ SDK and WTL GUI, kept for reference. |
 
 ## Features
 
