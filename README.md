@@ -21,7 +21,6 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 - [Run](#run)
 - [SDK example](#sdk-example)
 - [PML logs](#pml-logs)
-- [Call stack symbols](#call-stack-symbols)
 - [Driver compatibility](#driver-compatibility)
 - [Status & roadmap](#status--roadmap)
 - [License](#license)
@@ -217,23 +216,6 @@ cargo run -p procmon-example -- --pml out.pml
 
 In the GUI, use **File ▸ Open** to load a `.PML`.
 
-## Call stack symbols
-
-To show symbolized stack frames, place the WinDbg symbol helpers next to the
-executable:
-
-```
-dbghelp.dll
-symsrv.dll
-symsrv.yes
-```
-
-Then set `_NT_SYMBOL_PATH`, for example:
-
-```
-srv*D:\symbols*https://msdl.microsoft.com/download/symbols
-```
-
 ## Driver compatibility
 
 You don't need your own code-signing certificate: the SDK is 100% compatible with
@@ -250,8 +232,7 @@ The Rust rewrite is under active development.
 - [x] PML reader/writer (Procmon-compatible)
 - [x] GUI: event table, detail panel, filter/highlight, process tree, summaries
 - [x] Call stack with module resolution
-- [ ] Save the current capture from the GUI
-- [ ] Filter plugin support
+- [x] Save the current capture from the GUI
 
 ## License
 
