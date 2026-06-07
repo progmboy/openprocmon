@@ -1,6 +1,7 @@
-<p align="center">
+<div align="center">
   <img src="docs/logo.png" alt="OpenProcMon" width="140">
-</p>
+  <p><strong>English</strong> · <a href="docs/readme_zh.md">中文</a></p>
+</div>
 
 # OpenProcMon
 
@@ -22,6 +23,7 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 - [SDK example](#sdk-example)
 - [PML logs](#pml-logs)
 - [Driver compatibility](#driver-compatibility)
+- [Known issues](#known-issues)
 - [Status & roadmap](#status--roadmap)
 - [License](#license)
 
@@ -222,6 +224,16 @@ You don't need your own code-signing certificate: the SDK is 100% compatible wit
 the original Process Monitor driver, so you can drive it with the stock Procmon
 driver. Conversely, this driver can replace the original to study how Process
 Monitor works, or as a starting point for your own EDR-style tooling.
+
+## Known issues
+
+- **`.PML` files written by OpenProcMon can crash the original Process Monitor.**
+  The PML writer is not yet fully byte-compatible with the format Sysinternals
+  Process Monitor expects, so logs captured/saved with OpenProcMon may cause the
+  stock Procmon to crash when opened. Reading Procmon-produced `.PML` files in
+  OpenProcMon, and round-tripping OpenProcMon-written `.PML` files back through
+  OpenProcMon, work as expected. A fix to make the writer fully compatible is
+  planned.
 
 ## Status & roadmap
 
