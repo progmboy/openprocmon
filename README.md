@@ -234,6 +234,8 @@ The Rust rewrite is under active development.
 - [x] GUI: event table, detail panel, filter/highlight, process tree, summaries
 - [x] Call stack with module resolution
 - [x] Save the current capture from the GUI
+- [ ] AI Mcp server and skills
+- [ ] Performance optimization
 
 ## License
 
