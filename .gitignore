@@ -30,11 +30,17 @@
 *.exe
 *.out
 *.app
-/.vs
-/x64
-/gui/.vs
-/gui/x64
+/cpp-backup/.vs
+/cpp-backup/x64
+/cpp-backup/gui/.vs
+/cpp-backup/gui/x64
+/cpp-backup/sdk/example/x64
+/cpp-backup/sdk/procmonsdk/x64
+/cpp-backup/gui/*.aps
 /kernel/x64
-/sdk/example/x64
-/sdk/procmonsdk/x64
-/gui/*.aps
+/.claude
+/target
+
+# Brainstorming / planning artifacts (local only)
+/docs/superpowers/
+/ref-code

@@ -1,0 +1,287 @@
+_version: 2
+
+# Menu bar
+menu.file: { en: File, zh: 文件 }
+menu.edit: { en: Edit, zh: 编辑 }
+menu.event: { en: Event, zh: 事件 }
+menu.tools: { en: Tools, zh: 工具 }
+menu.options: { en: Options, zh: 选项 }
+menu.help: { en: Help, zh: 帮助 }
+# File menu
+menu.open: { en: "Open…", zh: "打开…" }
+menu.save: { en: "Save…", zh: "保存…" }
+menu.save_as: { en: "Save As…", zh: "另存为…" }
+menu.import: { en: "Import Settings…", zh: "导入设置…" }
+menu.export: { en: "Export Settings…", zh: "导出设置…" }
+menu.exit: { en: Exit, zh: 退出 }
+# Edit menu
+menu.copy: { en: Copy, zh: 复制 }
+menu.find: { en: "Find…", zh: "查找…" }
+menu.clear_display: { en: Clear Display, zh: 清空显示 }
+# Event menu
+menu.filter: { en: "Filter…", zh: "过滤器…" }
+menu.clear_filter: { en: Clear Filter, zh: 清除过滤器 }
+menu.advanced_display: { en: Enable Advanced Display, zh: 开启高级显示 }
+menu.highlight: { en: "Highlight…", zh: "高亮…" }
+menu.clear_highlight: { en: Clear Highlight, zh: 清除高亮 }
+menu.auto_scroll: { en: Auto Scroll, zh: 自动滚动 }
+menu.bookmark: { en: Bookmark, zh: 书签 }
+menu.web_search: { en: Web Search, zh: 网络搜索 }
+# Tools menu
+menu.tree: { en: "Process Tree…", zh: "进程树…" }
+menu.summary: { en: "System Activity Summary…", zh: "系统活动概要…" }
+menu.sum_process: { en: "Process Activity Summary…", zh: "进程活动摘要…" }
+menu.sum_file: { en: "File Summary…", zh: "文件摘要…" }
+menu.sum_registry: { en: "Registry Summary…", zh: "注册表摘要…" }
+menu.sum_network: { en: "Network Summary…", zh: "网络摘要…" }
+menu.sum_xref: { en: "Cross Reference Summary…", zh: "交叉引用摘要…" }
+# Options menu
+menu.settings: { en: "Settings…", zh: "设置…" }
+menu.always_on_top: { en: Always on Top, zh: 始终置顶 }
+menu.theme: { en: Theme, zh: 主题 }
+menu.theme_light: { en: Light, zh: 浅色 }
+menu.theme_dark: { en: Dark, zh: 深色 }
+menu.language: { en: Language, zh: 语言 }
+menu.symbols: { en: "Configure Symbols…", zh: "配置符号…" }
+menu.history: { en: "History Depth…", zh: "历史记录深度…" }
+# Help menu
+menu.help_topics: { en: Help Topics, zh: 帮助主题 }
+menu.check_updates: { en: "Check for Updates…", zh: "检查更新…" }
+menu.about: { en: About OpenProcmon, zh: 关于 OpenProcmon }
+
+# Toolbar
+tb.open: { en: Open capture, zh: 打开捕获 }
+tb.save: { en: Save, zh: 保存 }
+tb.capture: { en: Capture, zh: 捕获 }
+tb.pause: { en: Pause, zh: 暂停 }
+tb.capture_tip: { en: "Capture toggle (Ctrl+E)", zh: "捕获开关 (Ctrl+E)" }
+tb.autoscroll: { en: "Auto scroll (Ctrl+A)", zh: "自动滚动 (Ctrl+A)" }
+tb.clear: { en: "Clear display (Ctrl+X)", zh: "清空显示 (Ctrl+X)" }
+tb.filter: { en: "Filter… (Ctrl+L)", zh: "过滤器… (Ctrl+L)" }
+tb.highlight: { en: "Highlight…", zh: "高亮…" }
+tb.from_window: { en: Include process from window, zh: 包含窗口对应的进程 }
+tb.tree: { en: "Process tree…", zh: "进程树…" }
+tb.jump: { en: Jump to selected, zh: 跳到选中项 }
+tb.summary: { en: "System Activity Summary…", zh: "系统活动概要…" }
+tb.search: { en: "Search process, operation, path…", zh: "搜索进程名、操作、路径…" }
+tb.theme: { en: Toggle theme, zh: 切换主题 }
+
+# Monitor bar
+mon.label: { en: "Monitor:", zh: "监控:" }
+mon.registry: { en: Registry, zh: 注册表 }
+mon.file: { en: File System, zh: 文件系统 }
+mon.network: { en: Network, zh: 网络 }
+mon.process: { en: Process, zh: 进程 }
+mon.profiling: { en: Profiling, zh: 性能分析 }
+
+# Table columns
+col.idx: { en: "#", zh: "#" }
+col.time: { en: Time, zh: 时间 }
+col.process: { en: Process Name, zh: 进程名称 }
+col.pid: { en: PID, zh: PID }
+col.operation: { en: Operation, zh: 操作 }
+col.path: { en: Path, zh: 路径 }
+col.result: { en: Result, zh: 结果 }
+col.detail: { en: Detail, zh: 详情 }
+
+# Status bar
+st.capturing: { en: Capturing, zh: 正在捕获 }
+st.paused: { en: Paused, zh: 已暂停 }
+st.showing_label: { en: "Showing: ", zh: "显示: " }
+st.total_label: { en: "Total events: ", zh: "事件总数: " }
+st.filters: { en: "%{n} filters", zh: "%{n} 条过滤规则" }
+st.highlights: { en: "%{n} highlights", zh: "%{n} 条高亮" }
+st.bookmarks: { en: "%{n} bookmarks", zh: "%{n} 个书签" }
+st.autoscroll_on: { en: "Auto scroll: On", zh: "自动滚动: 开" }
+st.autoscroll_off: { en: "Auto scroll: Off", zh: "自动滚动: 关" }
+
+# Detail panel
+dt.title: { en: Event Detail, zh: 事件详情 }
+dt.no_event: { en: No event selected, zh: 未选中事件 }
+dt.no_stack: { en: No call stack captured, zh: 无调用栈 }
+dt.tab_event: { en: Event, zh: 事件详情 }
+dt.tab_process: { en: Process, zh: 进程详情 }
+dt.tab_stack: { en: Stack, zh: 调用栈 }
+dt.filter_modules: { en: "Filter modules…", zh: "过滤模块…" }
+dt.cs_pre: { en: "Operation ", zh: "操作 " }
+dt.cs_mid: { en: " call stack · ", zh: " 的调用堆栈 · " }
+dt.cs_suf: { en: " frames", zh: " 帧" }
+dt.close: { en: Close, zh: 关闭 }
+dt.operation: { en: Operation, zh: 操作 }
+dt.time: { en: Time, zh: 时间 }
+dt.date: { en: Date, zh: 日期 }
+dt.timestamp: { en: Timestamp, zh: 时间戳 }
+dt.duration: { en: Duration, zh: 耗时 }
+dt.process: { en: Process, zh: 进程 }
+dt.pid: { en: PID, zh: PID }
+dt.tid: { en: TID, zh: TID }
+dt.path: { en: Path, zh: 路径 }
+dt.result: { en: Result, zh: 结果 }
+dt.target_file: { en: Target File, zh: 目标文件 }
+dt.version: { en: Version, zh: 版本 }
+dt.company: { en: Company, zh: 公司 }
+dt.signed: { en: Signed, zh: 已签名 }
+dt.unsigned: { en: Unsigned, zh: 未签名 }
+dt.other_details: { en: Other Details, zh: 其他详情 }
+dt.architecture: { en: Architecture, zh: 架构 }
+dt.parent_pid: { en: Parent PID, zh: 父进程 PID }
+dt.virtualized: { en: Virtualized, zh: 虚拟化 }
+dt.session: { en: Session, zh: 会话 }
+dt.integrity: { en: Integrity, zh: 完整性 }
+dt.user: { en: User, zh: 用户 }
+dt.start_time: { en: Start Time, zh: 启动时间 }
+dt.command_line: { en: Command Line, zh: 命令行 }
+dt.modules: { en: Modules, zh: 模块 }
+dt.running: { en: Running, zh: 运行中 }
+dt.exited: { en: Exited, zh: 已退出 }
+dt.yes: { en: Yes, zh: 是 }
+dt.no: { en: No, zh: 否 }
+dt.call_stack: { en: "%{op} call stack · %{n} frames", zh: "%{op} 调用栈 · %{n} 帧" }
+dt.note: { en: "Note:", zh: "说明:" }
+dt.kernel_mode: { en: Kernel mode, zh: 内核态 }
+dt.user_mode: { en: User mode, zh: 用户态 }
+
+# Dialogs
+dlg.filter: { en: Filter, zh: 过滤器 }
+dlg.highlight: { en: Highlight, zh: 高亮 }
+dlg.tree: { en: Process Tree, zh: 进程树 }
+dlg.tree_hint: { en: "Process hierarchy seen in this capture session", zh: "当前捕获会话中出现的进程层级" }
+dlg.tree_view: { en: View in Events, zh: 在事件中查看 }
+dlg.selected: { en: "Selected", zh: 已选择 }
+dlg.close: { en: Close, zh: 关闭 }
+dlg.summary: { en: System Activity Summary, zh: 系统活动概要 }
+dlg.summary_hint: { en: "Event statistics for this capture", zh: 本次捕获的事件统计 }
+dlg.sum_rate: { en: Event Rate, zh: 事件速率 }
+dlg.sum_net: { en: Network Throughput, zh: 网络吞吐 }
+dlg.sum_by_cat: { en: By Category, zh: 按类别分布 }
+dlg.sum_top: { en: Most Active Processes, zh: 最活跃进程 }
+dlg.sum_events: { en: "%{n} events", zh: "%{n} 事件" }
+dlg.sum_pkts: { en: "%{n} pkts", zh: "%{n} 包" }
+dlg.add: { en: Add, zh: 添加 }
+dlg.apply: { en: Apply, zh: 应用 }
+dlg.reset: { en: Reset, zh: 重置 }
+dlg.cancel: { en: Cancel, zh: 取消 }
+dlg.ok: { en: OK, zh: 确定 }
+# Save To File dialog
+dlg.save: { en: Save To File, zh: 保存到文件 }
+dlg.save_events: { en: "Events to save:", zh: "要保存的事件：" }
+dlg.save_all: { en: All events, zh: 全部事件 }
+dlg.save_filtered: { en: Events displayed using current filter, zh: 使用当前过滤器显示的事件 }
+dlg.save_profiling: { en: Also include profiling events, zh: 同时包含 profiling 事件 }
+dlg.save_highlighted: { en: Highlighted events, zh: 高亮的事件 }
+dlg.save_format: { en: "Format:", zh: "格式：" }
+dlg.save_pml: { en: Native Process Monitor Format (PML), zh: 原生 Process Monitor 格式 (PML) }
+dlg.save_csv: { en: Comma-Separated Values (CSV), zh: 逗号分隔值 (CSV) }
+dlg.save_xml: { en: Extensible Markup Language (XML), zh: 可扩展标记语言 (XML) }
+dlg.save_stacks: { en: Include stack traces (will increase file size), zh: 包含堆栈跟踪（会增大文件体积） }
+dlg.save_symbols: { en: Resolve stack symbols (will be slow), zh: 解析堆栈符号（会比较慢） }
+dlg.save_path: { en: "Path:", zh: "路径：" }
+dlg.save_footer: { en: "Will save %{n} events", zh: "将保存 %{n} 个事件" }
+dlg.value: { en: Value, zh: 值 }
+dlg.col_column: { en: Column, zh: 列 }
+dlg.col_relation: { en: Relation, zh: 关系 }
+dlg.col_action: { en: Action, zh: 动作 }
+dlg.include: { en: Include, zh: 包含 }
+dlg.exclude: { en: Exclude, zh: 排除 }
+dlg.filter_hint: { en: "Events matching the rules are displayed.", zh: "显示匹配规则的事件。" }
+dlg.highlight_hint: { en: "Events matching the rules are highlighted.", zh: "符合规则的事件将被高亮显示。" }
+dlg.no_rules: { en: "No filter rules — all events shown by default.", zh: "暂无规则 —— 默认显示全部事件。" }
+dlg.hl_name: { en: Process name, zh: 进程名 }
+dlg.no_highlights: { en: "No highlight rules — nothing is highlighted.", zh: "暂无高亮规则 —— 没有事件被高亮。" }
+dlg.total: { en: "Total: %{total} events", zh: "合计:%{total} 条事件" }
+# Process Activity Summary (Tools menu)
+dlg.proc_summary: { en: Process Activity Summary, zh: 进程活动摘要 }
+dlg.sum_filter: { en: "Filter…", zh: "过滤…" }
+dlg.sum_items: { en: "%{n} items · %{m} events", zh: "%{n} 项 · 共 %{m} 事件" }
+dlg.sum_showing: { en: "Showing top %{n} items", zh: "显示前 %{n} 项" }
+dlg.sum_no_data: { en: No data, zh: 无数据 }
+sumc.process: { en: Process, zh: 进程 }
+sumc.file: { en: File, zh: 文件 }
+sumc.registry: { en: Registry, zh: 注册表 }
+sumc.network: { en: Network, zh: 网络 }
+sumc.total: { en: Total, zh: 总计 }
+# Path summaries (file / registry / network)
+dlg.file_summary: { en: File Summary, zh: 文件摘要 }
+dlg.reg_summary: { en: Registry Summary, zh: 注册表摘要 }
+dlg.net_summary: { en: Network Summary, zh: 网络摘要 }
+sumc.path: { en: Path, zh: 路径 }
+sumc.connection: { en: Connection, zh: 连接 }
+sumc.reads: { en: Reads, zh: 读 }
+sumc.writes: { en: Writes, zh: 写 }
+sumc.opens: { en: Opens, zh: 打开 }
+sumc.queries: { en: Queries, zh: 查询 }
+sumc.sets: { en: Sets, zh: 写入 }
+sumc.sends: { en: Sends, zh: 发送 }
+sumc.receives: { en: Receives, zh: 接收 }
+sumc.procs: { en: Procs, zh: 进程数 }
+sumc.total_n: { en: Total, zh: 总次数 }
+# Cross reference summary
+dlg.xref_summary: { en: Cross Reference Summary, zh: 交叉引用摘要 }
+sumc.processes: { en: Processes, zh: 进程数 }
+sumc.accesses: { en: Accesses, zh: 访问次数 }
+sumc.proclist: { en: Process List, zh: 进程列表 }
+# Options dialogs (Configure Symbols / History Depth)
+dlg.ok: { en: OK, zh: 确定 }
+dlg.symbols_title: { en: Configure Symbols, zh: 配置符号 }
+dlg.sym_path_label: { en: "Symbol path (_NT_SYMBOL_PATH)", zh: "符号路径 (_NT_SYMBOL_PATH)" }
+dlg.dbghelp_label: { en: DbgHelp.dll path, zh: DbgHelp.dll 路径 }
+dlg.sym_note: { en: "Symbols are used to resolve function names in call stacks.", zh: "符号用于解析调用堆栈中的函数名。" }
+dlg.history_title: { en: History Depth, zh: 历史记录深度 }
+dlg.ring_label: { en: "Enable Ring Buffer (overwrite oldest events)", zh: "开启 RingBuffer（循环缓冲，自动丢弃最旧事件）" }
+dlg.limit: { en: Limit, zh: 限制 }
+dlg.minutes: { en: minutes, zh: 分钟 }
+dlg.history_note: { en: "When either limit is reached, the oldest events are dropped automatically.", zh: "达到任一限制后，最旧的事件将被自动清除。" }
+# Settings dialog
+set.title: { en: Settings, zh: 设置 }
+set.appearance: { en: Appearance, zh: 外观 }
+set.symbols: { en: Symbols, zh: 符号设置 }
+set.history: { en: History Depth, zh: 历史深度 }
+set.profiling: { en: Profiling, zh: Profiling 事件 }
+set.boot: { en: Boot Logging, zh: 开机捕获 }
+set.display: { en: Display Format, zh: 显示格式 }
+set.theme: { en: Theme, zh: 主题 }
+set.theme_desc: { en: Light or dark interface, zh: 界面明暗配色 }
+set.light: { en: Light, zh: 浅色 }
+set.dark: { en: Dark, zh: 深色 }
+set.lang: { en: Language, zh: 界面语言 }
+set.lang_desc: { en: Menu and UI text language, zh: 菜单与界面文字语言 }
+set.hl_color: { en: Highlight Color, zh: 高亮颜色 }
+set.hl_color_desc: { en: Color used for highlighted event rows, zh: 事件列表中高亮行的颜色 }
+set.sym_title: { en: Symbol Configuration, zh: 符号设置 }
+set.sym_lead: { en: "Symbols resolve call-stack addresses into function names.", zh: "符号用于将调用堆栈中的地址解析为函数名。" }
+set.sym_path: { en: "Symbol path (_NT_SYMBOL_PATH)", zh: "符号路径 (_NT_SYMBOL_PATH)" }
+set.dbghelp: { en: DbgHelp.dll path, zh: DbgHelp.dll 路径 }
+set.hist_title: { en: History Depth, zh: 历史深度 }
+set.ring: { en: Enable Ring Buffer, zh: 开启 RingBuffer }
+set.ring_desc: { en: "Circular buffer — drop oldest events when a limit is hit", zh: "循环缓冲，达到限制后自动丢弃最旧事件" }
+set.limit: { en: Limit, zh: 限制 }
+set.minutes: { en: minutes, zh: 分钟 }
+set.prof_title: { en: Profiling Events, zh: Profiling 事件 }
+set.prof_lead: { en: "Process Monitor can generate thread profiling events that capture the state of all executing threads at a regular interval.", zh: "Process Monitor 可生成线程 profiling 事件，按固定间隔捕获所有正在执行线程的状态。" }
+set.prof_enable: { en: Enable thread profiling events, zh: 启用线程 Profiling 事件 }
+set.interval: { en: Sampling interval, zh: 采样间隔 }
+set.interval_desc: { en: Time between thread-state samples, zh: 两次线程状态采样之间的时间 }
+set.every_1s: { en: Every 1s, zh: 每 1 秒 }
+set.every_100ms: { en: Every 100ms, zh: 每 100 毫秒 }
+set.boot_title: { en: Boot Logging, zh: 开机捕获 }
+set.boot_lead: { en: "Begin logging events early in the boot process to diagnose start-up activity. Takes effect on next reboot.", zh: "在系统启动早期即开始记录事件，用于诊断开机阶段的活动。下次重启时生效。" }
+set.boot_enable: { en: Enable boot logging, zh: 启用开机捕获 }
+set.boot_enable_desc: { en: Capture start-up events automatically after reboot, zh: 重启后自动记录启动事件 }
+set.boot_note: { en: "Boot logging will start on the next system reboot.", zh: "开机捕获将在下次系统重启时启动。" }
+set.disp_title: { en: Display Format, zh: 显示格式 }
+set.hex_offset: { en: Show FileOffset and Length in hexadecimal, zh: 以十六进制显示 FileOffset 和 Length }
+set.hex_offset_desc: { en: Offset and length in file read/write events, zh: 文件读写事件中的偏移与长度 }
+set.hex_id: { en: Show Thread and Process ID in hexadecimal, zh: 以十六进制显示线程和进程 ID }
+set.hex_id_desc: { en: PID / TID in the event list and details, zh: 事件列表与详情中的 PID / TID }
+
+# About dialog
+dlg.about_tagline: { en: "Open-source Process Monitor · v1.0.0", zh: "开源进程监视器 · v1.0.0" }
+dlg.about_desc: { en: "Real-time monitoring of file system, registry, network and process/thread activity.", zh: "实时监控文件系统、注册表、网络与进程/线程活动。" }
+dlg.about_copyright: { en: "© 2026 OpenProcmon Project", zh: "© 2026 OpenProcmon Project" }
+
+# Context menu
+cm.include: { en: "Include '%{name}'", zh: "包含 '%{name}'" }
+cm.exclude: { en: "Exclude '%{name}'", zh: "排除 '%{name}'" }
+cm.highlight: { en: "Highlight '%{name}'", zh: "高亮 '%{name}'" }
+cm.bookmark: { en: Toggle Bookmark, zh: 切换书签 }
+cm.copy_path: { en: Copy Path, zh: 复制路径 }

@@ -1,0 +1,4 @@
+# Statically link the MSVC C runtime on Windows so the built binaries are
+# self-contained (no vcruntime140.dll / msvcp140.dll redistributable needed).
+[target.'cfg(target_os = "windows")']
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,48 @@
+[package]
+name = "procmon-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed"}
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+anyhow = "1"
+crossbeam-channel = "0.5"
+rust-embed = "8"
+rust-i18n = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.149"
+procmon-sdk = { path = "../sdk" }
+# Native file-open dialog for File ▸ Open .PML.
+rfd = "0.15"
+# CSV / XML export writers (Save dialog).
+csv = "1"
+quick-xml = "0.37"
+
+# "Always on Top" is a real OS window flag on Windows (SetWindowPos / HWND_TOPMOST);
+# the HWND comes from gpui's `raw_window_handle::HasWindowHandle` (0.6, matching gpui).
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    # Default ".exe" shell icon fallback (cf. C++ `UtilGetDefaultIcon`): the shell
+    # only yields an HICON, so its color/mask bitmaps are read back via GDI.
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+flate2 = "1"
+# Decodes the assembled ICO in the default-icon test (same format gpui renders).
+image = { version = "0.25", default-features = false, features = ["ico", "bmp", "png"] }
+
+# Embeds the app icon + UAC manifest (admin shield) into the exe (see build.rs).
+# embed-resource's manifest_required() coordinates with rustc's default manifest
+# (replacing the default asInvoker one) instead of colliding with it.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

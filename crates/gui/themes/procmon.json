@@ -1,0 +1,101 @@
+{
+  "_comment": "OpenProcMon theme. `themes` are gpui-component ThemeConfigs (sparse overrides on top of the built-in defaults, one per appearance). `palette` holds the app's semantic colors (per appearance). Colors map to docs/design/gui-design-v2/styles.css.",
+  "themes": [
+    {
+      "name": "Procmon Dark",
+      "mode": "dark",
+      "font.size": 13,
+      "mono_font.size": 12,
+      "colors": {
+        "background": "#16171a",
+        "table.background": "#16171a",
+        "secondary.background": "#1f2024",
+        "secondary.hover.background": "#25262b",
+        "table.head.background": "#1f2024",
+        "title_bar.background": "#1b1c20",
+        "title_bar.border": "#303137",
+        "border": "#303137",
+        "primary.background": "#4f8cf7",
+        "primary.hover.background": "#3b74e0",
+        "primary.active.background": "#3b74e0",
+        "primary.foreground": "#ffffff",
+        "button.primary.background": "#4f8cf7",
+        "button.primary.hover.background": "#3b74e0",
+        "button.primary.active.background": "#3b74e0",
+        "button.primary.foreground": "#ffffff",
+        "ring": "#4f8cf7",
+        "overlay": "#08090c8c"
+      }
+    },
+    {
+      "name": "Procmon Light",
+      "mode": "light",
+      "font.size": 13,
+      "mono_font.size": 12,
+      "colors": {
+        "background": "#ffffff",
+        "table.background": "#ffffff",
+        "secondary.background": "#fbfbfc",
+        "secondary.hover.background": "#f1f2f4",
+        "table.head.background": "#fbfbfc",
+        "title_bar.background": "#f6f7f9",
+        "title_bar.border": "#e6e8ec",
+        "border": "#e6e8ec",
+        "primary.background": "#2563d9",
+        "primary.hover.background": "#1e4fb0",
+        "primary.active.background": "#1e4fb0",
+        "primary.foreground": "#ffffff",
+        "button.primary.background": "#2563d9",
+        "button.primary.hover.background": "#1e4fb0",
+        "button.primary.active.background": "#1e4fb0",
+        "button.primary.foreground": "#ffffff",
+        "ring": "#2563d9",
+        "overlay": "#1e263c52"
+      }
+    }
+  ],
+  "palette": {
+    "dark": {
+      "op_registry": "#c79bf0",
+      "op_file": "#6aa8f7",
+      "op_network": "#34d3c0",
+      "op_process": "#6ee59a",
+      "op_thread": "#f0c36b",
+      "op_perf": "#9aa0ad",
+      "res_success": "#5fd28a",
+      "res_error": "#f08a7a",
+      "res_warn": "#f0c36b",
+      "res_info": "#6aa8f7",
+      "pid": "#e0a05a",
+      "path": "#93b2d6",
+      "row_sel_bar": "#4f8cf7",
+      "integrity_low": "#9aa0ad",
+      "integrity_medium": "#6aa8f7",
+      "integrity_high": "#f0c36b",
+      "integrity_system": "#f08a7a",
+      "frame_kernel": "#c79bf0",
+      "frame_user": "#34d3c0"
+    },
+    "light": {
+      "op_registry": "#8b46c9",
+      "op_file": "#2a6fd6",
+      "op_network": "#0f9b8e",
+      "op_process": "#1f9d57",
+      "op_thread": "#b97e12",
+      "op_perf": "#6b7280",
+      "res_success": "#1f9d57",
+      "res_error": "#d4604b",
+      "res_warn": "#b97e12",
+      "res_info": "#2a6fd6",
+      "pid": "#b06a1f",
+      "path": "#4f6a8f",
+      "row_sel_bar": "#2563d9",
+      "integrity_low": "#6b7280",
+      "integrity_medium": "#2a6fd6",
+      "integrity_high": "#b97e12",
+      "integrity_system": "#d4604b",
+      "frame_kernel": "#8b46c9",
+      "frame_user": "#0f9b8e"
+    }
+  }
+}
