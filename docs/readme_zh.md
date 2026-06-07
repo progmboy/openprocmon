@@ -1,11 +1,9 @@
 <div align="center">
   <img src="logo.png" alt="OpenProcMon" width="140">
-
-  <h1>OpenProcMon</h1>
-
   <p><a href="../README.md">English</a> · <strong>中文</strong></p>
 </div>
 
+# OpenProcMon
 一个开源的 Windows [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/downloads/procmon) 实现：内核 miniFilter 驱动实时捕获进程、文件、注册表和网络活动，Rust SDK 与驱动通信并解析事件流，Rust/GPUI 桌面 GUI 负责展示。
 
 > **本分支（`rust`）是 SDK 与 GUI 的全新 Rust 重写版本。** 内核驱动保持不变，原始 C++ 实现保留在 [`cpp-backup/`](../cpp-backup/) 中供参考。Rust SDK 与原版 Process Monitor 驱动二进制兼容，并可读写 Procmon 的 `.PML` 日志。
