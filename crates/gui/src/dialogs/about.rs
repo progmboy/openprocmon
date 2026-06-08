@@ -32,6 +32,15 @@ pub(crate) fn body(cx: &App) -> impl IntoElement {
                 .font_bold()
                 .child("OpenProcmon"),
         )
+        // Version — the actual crate version (`procmon-gui`), baked in at compile
+        // time; the release workflow verifies the tag matches it.
+        .child(
+            div()
+                .mt(px(3.))
+                .text_color(muted)
+                .text_size(px(12.))
+                .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+        )
         .child(
             div()
                 .mt(px(4.))

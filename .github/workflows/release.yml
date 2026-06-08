@@ -30,6 +30,23 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
+      # Fail fast if the release tag doesn't match the shipped crate's version, so a
+      # mistyped tag (e.g. v0.2.0 while procmon-gui is still 0.1.0) never produces a
+      # mislabeled release. Uses `cargo metadata` so it resolves
+      # `version.workspace = true` to the actual version.
+      - name: Verify tag matches procmon-gui version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $tagVersion = $tag -replace '^v', ''
+          $meta = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $crateVersion = ($meta.packages | Where-Object { $_.name -eq 'procmon-gui' }).version
+          if ($tagVersion -ne $crateVersion) {
+            Write-Error "Release tag '$tag' (version '$tagVersion') does not match the procmon-gui crate version '$crateVersion'. Bump crates/gui (or the workspace) version, or fix the tag."
+            exit 1
+          }
+          Write-Host "OK: tag '$tag' matches procmon-gui version '$crateVersion'."
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 

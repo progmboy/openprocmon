@@ -272,7 +272,7 @@ set.hex_id: { en: Show Thread and Process ID in hexadecimal, zh: 以十六进制
 set.hex_id_desc: { en: PID / TID in the event list and details, zh: 事件列表与详情中的 PID / TID }
 
 # About dialog
-dlg.about_tagline: { en: "Open-source Process Monitor · v1.0.0", zh: "开源进程监视器 · v1.0.0" }
+dlg.about_tagline: { en: Open-source Process Monitor, zh: 开源进程监视器 }
 dlg.about_desc: { en: "Real-time monitoring of file system, registry, network and process/thread activity.", zh: "实时监控文件系统、注册表、网络与进程/线程活动。" }
 dlg.about_copyright: { en: "© 2026 OpenProcmon Project", zh: "© 2026 OpenProcmon Project" }
 
