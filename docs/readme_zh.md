@@ -209,6 +209,11 @@ cargo run -p procmon-example -- --pml out.pml
 
 ## 已知问题
 
+- **不支持 32 位（x86）。** OpenProcMon 仅面向 64 位 Windows——驱动、SDK 的
+  packed 内核结构体、以及 GUI 都假定运行在 x64 主机上。在 32 位 Windows 上运行
+  暂不支持，也没有支持计划。
+- **不支持 32 位 `.PML` 文件。** PML 读写器只处理 64 位 PML 格式；在 32 位主机上
+  生成的 `.PML` 日志无法解析。
 - **OpenProcMon 写出的 `.PML` 文件可能导致原版 Process Monitor 崩溃。**
   PML 写入器目前尚未与 Sysinternals Process Monitor 期望的格式完全字节兼容，
   因此用 OpenProcMon 捕获/保存的日志在原版 Procmon 中打开时可能导致其崩溃。

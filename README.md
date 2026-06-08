@@ -216,6 +216,11 @@ Monitor works, or as a starting point for your own EDR-style tooling.
 
 ## Known issues
 
+- **32-bit (x86) is not supported.** OpenProcMon targets 64-bit Windows only — the
+  driver, the SDK's packed kernel structures, and the GUI all assume an x64 host.
+  Running on 32-bit Windows is not supported and not currently planned.
+- **32-bit `.PML` files are not supported.** The PML reader/writer only handles the
+  64-bit PML format; `.PML` logs produced on a 32-bit host will not parse.
 - **`.PML` files written by OpenProcMon can crash the original Process Monitor.**
   The PML writer is not yet fully byte-compatible with the format Sysinternals
   Process Monitor expects, so logs captured/saved with OpenProcMon may cause the
