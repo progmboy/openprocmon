@@ -1,10 +1,25 @@
 name: CI
 
 on:
+  # Only run when something that affects the build/lint/tests changes — skip
+  # docs-only and reference-only commits (a commit that also touches code still
+  # runs, since paths-ignore skips only when *every* changed file matches).
   push:
     branches: [main, master]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - "cpp-backup/**" # C++ reference, not built by this CI
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - "cpp-backup/**"
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
