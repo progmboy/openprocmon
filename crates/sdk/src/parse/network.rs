@@ -112,7 +112,11 @@ pub(crate) fn classify_etw(is_tcp: bool, raw_opcode: u8) -> Option<(NetOp, bool)
     let ipv6_lo = ET_SEND + IPV6_OPCODE_OFFSET;
     let ipv6_hi = ET_ACCEPT + IPV6_OPCODE_OFFSET;
     let is_ipv6 = (ipv6_lo..=ipv6_hi).contains(&raw_opcode);
-    let opcode = if is_ipv6 { raw_opcode - IPV6_OPCODE_OFFSET } else { raw_opcode };
+    let opcode = if is_ipv6 {
+        raw_opcode - IPV6_OPCODE_OFFSET
+    } else {
+        raw_opcode
+    };
     let op = match (is_tcp, opcode) {
         (true, ET_CONNECT) => NetOp::Connect,
         (true, ET_SEND) => NetOp::Send,
@@ -179,10 +183,20 @@ pub(crate) fn decode_pml(
     let local = SocketAddr::new(ip_from(&src, is_src_v4), src_port);
     let remote = SocketAddr::new(ip_from(&dst, is_dst_v4), dst_port);
     let local_name = Some(Arc::from(
-        format!("{}:{}", host(hosts, &src, is_src_v4), port(ports, src_port, is_tcp)).as_str(),
+        format!(
+            "{}:{}",
+            host(hosts, &src, is_src_v4),
+            port(ports, src_port, is_tcp)
+        )
+        .as_str(),
     ));
     let remote_name = Some(Arc::from(
-        format!("{}:{}", host(hosts, &dst, is_dst_v4), port(ports, dst_port, is_tcp)).as_str(),
+        format!(
+            "{}:{}",
+            host(hosts, &dst, is_dst_v4),
+            port(ports, dst_port, is_tcp)
+        )
+        .as_str(),
     ));
 
     Some(NetworkEvent {
@@ -304,12 +318,24 @@ mod tests {
 
     #[test]
     fn classify_picks_op_and_family_from_opcode() {
-        assert_eq!(classify_etw(true, ET_CONNECT), Some((NetOp::Connect, false)));
+        assert_eq!(
+            classify_etw(true, ET_CONNECT),
+            Some((NetOp::Connect, false))
+        );
         assert_eq!(classify_etw(false, ET_SEND), Some((NetOp::Send, false)));
         // IPv6 variants are opcode + 16, and must be flagged as IPv6.
-        assert_eq!(classify_etw(true, ET_CONNECT + IPV6_OPCODE_OFFSET), Some((NetOp::Connect, true)));
-        assert_eq!(classify_etw(true, ET_ACCEPT + IPV6_OPCODE_OFFSET), Some((NetOp::Accept, true)));
-        assert_eq!(classify_etw(false, ET_RECV + IPV6_OPCODE_OFFSET), Some((NetOp::Receive, true)));
+        assert_eq!(
+            classify_etw(true, ET_CONNECT + IPV6_OPCODE_OFFSET),
+            Some((NetOp::Connect, true))
+        );
+        assert_eq!(
+            classify_etw(true, ET_ACCEPT + IPV6_OPCODE_OFFSET),
+            Some((NetOp::Accept, true))
+        );
+        assert_eq!(
+            classify_etw(false, ET_RECV + IPV6_OPCODE_OFFSET),
+            Some((NetOp::Receive, true))
+        );
         // Unmodeled opcodes (e.g. retransmit=14 and its IPv6 form) are dropped.
         assert_eq!(classify_etw(true, 14), None);
         assert_eq!(classify_etw(true, 14 + IPV6_OPCODE_OFFSET), None);

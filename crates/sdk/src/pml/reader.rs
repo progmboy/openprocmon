@@ -11,8 +11,8 @@ use memmap2::Mmap;
 
 use crate::error::{Error, Result};
 use crate::pml::detail::{self, Tables};
-use crate::EventClass;
 use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
+use crate::EventClass;
 
 const HEADER_SIZE: usize = 0x3a8;
 
@@ -53,7 +53,8 @@ impl PmlReader {
         let file = std::fs::File::open(path).map_err(|e| Error::Parse(format!("PML open: {e}")))?;
         // SAFETY: the file is opened read-only; we never mutate the mapping and the
         // mapping is owned by `PmlReader` for as long as any borrow of it lives.
-        let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Parse(format!("PML mmap: {e}")))?;
+        let mmap =
+            unsafe { Mmap::map(&file) }.map_err(|e| Error::Parse(format!("PML mmap: {e}")))?;
         Self::from_mmap(mmap)
     }
 
@@ -64,13 +65,19 @@ impl PmlReader {
         // assume the host x64 FLT_PARAMETERS / pointer width). Reject up front
         // rather than return half-parsed events.
         if !header.is_64bit {
-            return Err(Error::Parse("PML: 32-bit captures are not supported yet".into()));
+            return Err(Error::Parse(
+                "PML: 32-bit captures are not supported yet".into(),
+            ));
         }
         let sizeof_pvoid = 8;
 
         let strings = parse_strings(data, header.strings_table_offset as usize)?;
-        let processes =
-            parse_processes(data, header.process_table_offset as usize, sizeof_pvoid, &strings)?;
+        let processes = parse_processes(
+            data,
+            header.process_table_offset as usize,
+            sizeof_pvoid,
+            &strings,
+        )?;
         let event_offsets = parse_event_offsets(
             data,
             header.events_offsets_array_offset as usize,
@@ -80,7 +87,16 @@ impl PmlReader {
         let icons = parse_icons(data, header.icon_table_offset as usize)?;
 
         let _ = &strings; // consumed by process parsing above
-        Ok(Self { _mmap: mmap, header, sizeof_pvoid, event_offsets, processes, icons, hosts, ports })
+        Ok(Self {
+            _mmap: mmap,
+            header,
+            sizeof_pvoid,
+            event_offsets,
+            processes,
+            icons,
+            hosts,
+            ports,
+        })
     }
 
     pub fn header(&self) -> &Header {
@@ -118,7 +134,9 @@ impl PmlReader {
     /// icon's `data` is a Windows `ICONIMAGE` resource for `CreateIconFromResourceEx`.
     /// Index 0 is the empty "no icon" placeholder, reported as `None`.
     pub fn icon(&self, index: u32) -> Option<&PmlIcon> {
-        self.icons.get(index as usize).filter(|i| !i.data.is_empty())
+        self.icons
+            .get(index as usize)
+            .filter(|i| !i.data.is_empty())
     }
 
     /// All captured icons, indexed by the process icon fields.
@@ -246,7 +264,8 @@ impl PmlReader {
         let off = *self
             .event_offsets
             .get(i)
-            .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))? as usize;
+            .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
+            as usize;
         let data = &self._mmap[..];
         let mut c = Cur::at(data, off)?;
 
@@ -285,13 +304,20 @@ impl PmlReader {
             None
         };
 
-        let tables = Tables { hosts: &self.hosts, ports: &self.ports };
+        let tables = Tables {
+            hosts: &self.hosts,
+            ports: &self.ports,
+        };
         let parsed = detail::parse_event(class, operation, details, extra, &tables);
 
         // Only copy the raw blobs (mmap → heap) when round-trip needs them; the
         // default read path stays zero-copy.
         let raw_detail = keep_raw.then(|| Arc::<[u8]>::from(details));
-        let raw_extra = if keep_raw { extra.map(Arc::<[u8]>::from) } else { None };
+        let raw_extra = if keep_raw {
+            extra.map(Arc::<[u8]>::from)
+        } else {
+            None
+        };
 
         Ok(PmlEvent {
             process_index,
@@ -422,7 +448,9 @@ fn parse_header(data: &[u8]) -> Result<Header> {
         || strings_table_offset == 0
         || icon_table_offset == 0
     {
-        return Err(Error::Parse("PML: not closed cleanly (corrupt offsets)".into()));
+        return Err(Error::Parse(
+            "PML: not closed cleanly (corrupt offsets)".into(),
+        ));
     }
     if header_size as usize != HEADER_SIZE || hosts_and_ports_offset == 0 {
         return Err(Error::Parse("PML: corrupt header".into()));
@@ -464,7 +492,10 @@ fn parse_strings(data: &[u8], base: usize) -> Result<Vec<Arc<str>>> {
 }
 
 fn str_at(strings: &[Arc<str>], ix: u32) -> Arc<str> {
-    strings.get(ix as usize).cloned().unwrap_or_else(|| Arc::from(""))
+    strings
+        .get(ix as usize)
+        .cloned()
+        .unwrap_or_else(|| Arc::from(""))
 }
 
 /// Process array: count + (skipped) index array + relative-offset table + Process[].
@@ -552,7 +583,15 @@ fn read_module(c: &mut Cur, sizeof_pvoid: usize, strings: &[Arc<str>]) -> Result
     let description = str_at(strings, c.u32()?);
     let timestamp = c.u32()?;
     c.skip(0x18)?;
-    Ok(PmlModule { base_address, size, image_path, version, company, description, timestamp })
+    Ok(PmlModule {
+        base_address,
+        size,
+        image_path,
+        version,
+        company,
+        description,
+        timestamp,
+    })
 }
 
 /// Icon array: count + relative-offset table + each `Icon { u32 dimension, u32
@@ -573,7 +612,10 @@ fn parse_icons(data: &[u8], base: usize) -> Result<Vec<PmlIcon>> {
         let dimension = ic.u32()?;
         let size = ic.u32()? as usize;
         let bytes = ic.take(size)?;
-        icons.push(PmlIcon { dimension, data: Arc::<[u8]>::from(bytes) });
+        icons.push(PmlIcon {
+            dimension,
+            data: Arc::<[u8]>::from(bytes),
+        });
     }
     Ok(icons)
 }
@@ -587,6 +629,31 @@ fn parse_event_offsets(data: &[u8], base: usize, count: usize) -> Result<Vec<u32
         c.skip(1)?;
     }
     Ok(offsets)
+}
+
+type HostsPorts = (HashMap<[u8; 16], Arc<str>>, HashMap<(u16, bool), Arc<str>>);
+
+fn parse_hosts_ports(data: &[u8], base: usize) -> Result<HostsPorts> {
+    let mut c = Cur::at(data, base)?;
+    let nh = c.u32()? as usize;
+    let mut hosts = HashMap::with_capacity(nh);
+    for _ in 0..nh {
+        let mut ip = [0u8; 16];
+        ip.copy_from_slice(c.take(16)?);
+        let len = c.u32()? as usize;
+        let name = c.utf16(len)?;
+        hosts.insert(ip, Arc::from(name.as_str()));
+    }
+    let np = c.u32()? as usize;
+    let mut ports = HashMap::with_capacity(np);
+    for _ in 0..np {
+        let port = c.u16()?;
+        let is_tcp = c.u16()? != 0;
+        let len = c.u32()? as usize;
+        let name = c.utf16(len)?;
+        ports.insert((port, is_tcp), Arc::from(name.as_str()));
+    }
+    Ok((hosts, ports))
 }
 
 #[cfg(test)]
@@ -614,7 +681,9 @@ mod tests {
         use std::io::Read;
         let raw = std::fs::read(resource(name)).expect("read fixture");
         let mut buf = Vec::new();
-        flate2::read::ZlibDecoder::new(&raw[..]).read_to_end(&mut buf).expect("zlib decompress");
+        flate2::read::ZlibDecoder::new(&raw[..])
+            .read_to_end(&mut buf)
+            .expect("zlib decompress");
         let tmp = unique_temp(name);
         std::fs::write(&tmp, &buf).expect("write temp pml");
         PmlReader::open(tmp).expect("open PML")
@@ -656,24 +725,37 @@ mod tests {
         for ev in reader.events() {
             pids.insert(ev.pid());
         }
-        assert!(pids.len() > 1, "expected multiple distinct pids, got {pids:?}");
+        assert!(
+            pids.len() > 1,
+            "expected multiple distinct pids, got {pids:?}"
+        );
     }
 
     #[test]
     fn event_as_event_matches_pmlevent_columns() {
         use crate::filter::{Column, FilterFields};
         let reader = std::sync::Arc::new(open_resource("CompressedLogFileUTC64FilesystemPML"));
-        assert!(reader.len() > 0);
+        assert!(!reader.is_empty());
         for i in 0..reader.len() {
             let old = reader.event(i).expect("old");
             let ev = reader.event_as_event(i).expect("new");
             assert_eq!(ev.operation_name(), old.operation_name(), "op @ {i}");
-            assert_eq!(ev.path().unwrap_or_default(), old.path.to_string(), "path @ {i}");
-            assert_eq!(ev.result().into_owned(), old.result_name().into_owned(), "result @ {i}");
+            assert_eq!(
+                ev.path().unwrap_or_default(),
+                old.path.to_string(),
+                "path @ {i}"
+            );
+            assert_eq!(
+                ev.result().into_owned(),
+                old.result_name().into_owned(),
+                "result @ {i}"
+            );
             assert_eq!(ev.thread_id(), old.tid, "tid @ {i}");
             assert_eq!(
                 ev.filter_field(Column::ProcessName),
-                reader.process(old.process_index).map(|p| p.process_name.to_string()),
+                reader
+                    .process(old.process_index)
+                    .map(|p| p.process_name.to_string()),
                 "pname @ {i}"
             );
         }
@@ -682,19 +764,31 @@ mod tests {
     fn check(name: &str, want_64bit: bool) {
         let r = open_resource(name);
         assert_eq!(r.header().is_64bit, want_64bit, "{name} bitness");
-        assert_eq!(r.len(), r.header().number_of_events as usize, "{name} event count");
-        assert!(r.len() > 0, "{name} has events");
+        assert_eq!(
+            r.len(),
+            r.header().number_of_events as usize,
+            "{name} event count"
+        );
+        assert!(!r.is_empty(), "{name} has events");
         assert!(r.processes().count() > 0, "{name} has processes");
         // First and last events parse and reference a known process.
         let first = r.event(0).expect("event 0");
-        assert!(r.process(first.process_index).is_some(), "{name} event0 process");
+        assert!(
+            r.process(first.process_index).is_some(),
+            "{name} event0 process"
+        );
         let last = r.event(r.len() - 1).expect("last event");
-        assert!(r.process(last.process_index).is_some(), "{name} last process");
+        assert!(
+            r.process(last.process_index).is_some(),
+            "{name} last process"
+        );
         // Every event must parse without error (exercises all offsets/detail sizes),
         // and most filesystem events should yield a non-empty Path (detail parsing).
         let mut with_path = 0usize;
         for i in 0..r.len() {
-            let ev = r.event(i).unwrap_or_else(|e| panic!("{name} event {i}: {e:?}"));
+            let ev = r
+                .event(i)
+                .unwrap_or_else(|e| panic!("{name} event {i}: {e:?}"));
             if !ev.path.is_empty() {
                 with_path += 1;
             }
@@ -718,13 +812,18 @@ mod tests {
         use std::io::Read;
         let raw = std::fs::read(resource("CompressedLogFileUTC32FilesystemPML")).expect("fixture");
         let mut buf = Vec::new();
-        flate2::read::ZlibDecoder::new(&raw[..]).read_to_end(&mut buf).expect("unzip");
+        flate2::read::ZlibDecoder::new(&raw[..])
+            .read_to_end(&mut buf)
+            .expect("unzip");
         let tmp = unique_temp("reject32");
         std::fs::write(&tmp, &buf).expect("write");
         let result = PmlReader::open(&tmp);
         assert!(result.is_err(), "32-bit PML must be rejected");
         let err = result.err().unwrap();
-        assert!(format!("{err:?}").contains("32-bit"), "unexpected error: {err:?}");
+        assert!(
+            format!("{err:?}").contains("32-bit"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]
@@ -743,7 +842,9 @@ mod tests {
         for p in r.processes() {
             w.add_process(p.clone());
         }
-        let originals: Vec<_> = (0..r.len()).map(|i| r.event_with_raw(i).expect("event")).collect();
+        let originals: Vec<_> = (0..r.len())
+            .map(|i| r.event_with_raw(i).expect("event"))
+            .collect();
         for e in &originals {
             w.add_event(e.clone());
         }
@@ -774,19 +875,32 @@ mod tests {
         // 64-bit PML reuses the SDK's per-operation parsing (DetailMode::Pml), so
         // the rich Detail column is populated (e.g. registry "Length/Class").
         let detail = |e: &PmlEvent| {
-            e.details.iter().find(|(k, _)| k == "Detail").map(|(_, v)| v.clone()).unwrap_or_default()
+            e.details
+                .iter()
+                .find(|(k, _)| k == "Detail")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         let count_detail = |r: &PmlReader| {
-            (0..r.len()).filter(|&i| !detail(&r.event(i).unwrap()).is_empty()).count()
+            (0..r.len())
+                .filter(|&i| !detail(&r.event(i).unwrap()).is_empty())
+                .count()
         };
         let f = open_resource("CompressedLogFileUTC64FilesystemPML");
         assert!(count_detail(&f) > 0, "no file events got a Detail column");
         let r = open_resource("CompressedLogFileUTC64RegistryPML");
-        assert!(count_detail(&r) > 0, "no registry events got a Detail column");
+        assert!(
+            count_detail(&r) > 0,
+            "no registry events got a Detail column"
+        );
         // RegQueryKey's detail is the information class, proving SDK reuse works.
         let e0 = r.event(0).unwrap();
         assert_eq!(e0.operation_name(), "RegQueryKey");
-        assert!(detail(&e0).contains("Class:"), "reg detail = {:?}", detail(&e0));
+        assert!(
+            detail(&e0).contains("Class:"),
+            "reg detail = {:?}",
+            detail(&e0)
+        );
     }
 
     #[test]
@@ -801,7 +915,11 @@ mod tests {
         for icon in &real {
             let bi_size = u32::from_le_bytes(icon.data[0..4].try_into().unwrap());
             assert_eq!(bi_size, 40, "ICONIMAGE should start with BITMAPINFOHEADER");
-            assert!(icon.dimension == 16 || icon.dimension == 32, "dim {}", icon.dimension);
+            assert!(
+                icon.dimension == 16 || icon.dimension == 32,
+                "dim {}",
+                icon.dimension
+            );
         }
         // At least one process resolves to a real icon via its index.
         let resolved = r
@@ -816,35 +934,12 @@ mod tests {
         // Process events: just verify they all parse and reference a process
         // (many process ops have no path, so don't assert on path coverage here).
         let r = open_resource("CompressedLogFileUTC64ProcessPML");
-        assert!(r.len() > 0);
+        assert!(!r.is_empty());
         for i in 0..r.len() {
-            let ev = r.event(i).unwrap_or_else(|e| panic!("process event {i}: {e:?}"));
+            let ev = r
+                .event(i)
+                .unwrap_or_else(|e| panic!("process event {i}: {e:?}"));
             assert!(r.process(ev.process_index).is_some());
         }
     }
-}
-
-type HostsPorts = (HashMap<[u8; 16], Arc<str>>, HashMap<(u16, bool), Arc<str>>);
-
-fn parse_hosts_ports(data: &[u8], base: usize) -> Result<HostsPorts> {
-    let mut c = Cur::at(data, base)?;
-    let nh = c.u32()? as usize;
-    let mut hosts = HashMap::with_capacity(nh);
-    for _ in 0..nh {
-        let mut ip = [0u8; 16];
-        ip.copy_from_slice(c.take(16)?);
-        let len = c.u32()? as usize;
-        let name = c.utf16(len)?;
-        hosts.insert(ip, Arc::from(name.as_str()));
-    }
-    let np = c.u32()? as usize;
-    let mut ports = HashMap::with_capacity(np);
-    for _ in 0..np {
-        let port = c.u16()?;
-        let is_tcp = c.u16()? != 0;
-        let len = c.u32()? as usize;
-        let name = c.utf16(len)?;
-        ports.insert((port, is_tcp), Arc::from(name.as_str()));
-    }
-    Ok((hosts, ports))
 }

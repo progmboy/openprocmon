@@ -279,13 +279,22 @@ pub fn class_event(monitor: MonitorType) -> &'static str {
     }
 }
 
-/// Operation display name for an event (cf. C++ `StrMapOperation(PLOG_ENTRY)`).
+/// `FLTFL_CALLBACK_DATA_FAST_IO_OPERATION` (`fltKernel.h`): set in
+/// `LOG_FILE_OPT.Flags` when the operation arrived via the fast-I/O path, which
+/// selects the `FASTIO_*` name in non-advanced display.
+const FAST_IO_OPERATION: u32 = 0x0000_0002;
+
+/// Operation display name for an event (cf. C++ `StrMapOperation(PLOG_ENTRY, bAdvance)`).
 ///
 /// Takes the whole event — the Rust analog of `PLOG_ENTRY` — and derives the
-/// class, notify type, and (for file records) the IRP minor function itself,
+/// class, notify type, and (for file records) the IRP minor function and `Flags`,
 /// just as the C++ function reads `pEntry->MonitorType`/`NotifyType` and
-/// `TO_EVENT_DATA(PLOG_FILE_OPT, pEntry)->MinorFunction`.
-pub fn operation(ev: &Event) -> &'static str {
+/// `TO_EVENT_DATA(PLOG_FILE_OPT, pEntry)->MinorFunction`/`->Flags`.
+///
+/// `advance` is the "Advanced Display" toggle (C++ `bAdvance`): when set, file
+/// operations use the friendly detail name; otherwise the raw `IRP_MJ_*` name, or
+/// the `FASTIO_*` name when the fast-I/O flag is set.
+pub fn operation(ev: &Event, advance: bool) -> &'static str {
     if let Some(net) = ev.network() {
         return crate::parse::network::op_label(net.is_tcp, net.op);
     }
@@ -293,10 +302,10 @@ pub fn operation(ev: &Event) -> &'static str {
         MonitorType::Process => process_operation(ev.notify_type()),
         MonitorType::Reg => reg_operation(ev.notify_type()),
         MonitorType::File => {
-            let minor = ev
-                .pre_as::<LogFileOptHead>()
-                .map_or(0, |opt| opt.minor_function);
-            file_operation(ev.notify_type(), minor)
+            let head = ev.pre_as::<LogFileOptHead>();
+            let minor = head.map_or(0, |opt| opt.minor_function);
+            let fast_io = head.is_some_and(|opt| opt.flags & FAST_IO_OPERATION != 0);
+            file_operation(ev.notify_type(), minor, fast_io, advance)
         }
         MonitorType::Profiling => "Profiling Event",
         _ => "<Unknown>",
@@ -357,86 +366,165 @@ pub fn reg_operation(notify: u16) -> &'static str {
 }
 
 /// File operation name from a file `NotifyType` (= IRP major function + base).
-pub fn file_operation(notify: u16, minor: u8) -> &'static str {
+///
+/// Faithful port of the file branch of C++ `StrMapOperation`: resolve the major to
+/// a [`gFileOptMap`](file_major) row, then
+/// - if the major has a sub-map, match the minor (`0xFF` = wildcard) and return the
+///   friendly name (`advance`), the `FASTIO_*` name (`fast_io`), or the row's raw
+///   `IRP_MJ_*` opt-name; an unmatched minor yields `"Unknown"`;
+/// - otherwise return the friendly name (`advance`) or the raw opt-name.
+pub fn file_operation(notify: u16, minor: u8, fast_io: bool, advance: bool) -> &'static str {
     // The driver stores `NotifyType = (UCHAR)(MajorFunction + FILE_NOTIFY_BASE)`
     // truncated to 8 bits, so the major is recovered with a wrapping u8 subtract
     // (cf. C++ `(UCHAR)Operator - 20`). This is what keeps the fast-I/O pseudo
     // majors (0xFF, 0xFE, …) — which would otherwise wrap below the base — intact.
     let major = (notify as u8).wrapping_sub(FILE_NOTIFY_BASE as u8);
-    // Majors whose displayed name is refined by the minor function (the
-    // information class / fast-I/O lock variant), mirroring C++ `gFileOptMap`.
-    let sub_table: Option<&[(u8, &str)]> = match major {
-        irp_mj::READ => Some(file_info_class::READ),
-        irp_mj::WRITE => Some(file_info_class::WRITE),
-        irp_mj::QUERY_INFORMATION => Some(file_info_class::QUERY),
-        irp_mj::SET_INFORMATION => Some(file_info_class::SET),
-        irp_mj::QUERY_VOLUME_INFORMATION => Some(file_info_class::VOLUME),
-        irp_mj::DIRECTORY_CONTROL => Some(file_info_class::DIRECTORY),
-        irp_mj::LOCK_CONTROL => Some(file_info_class::LOCK),
-        irp_mj::PNP => Some(file_info_class::PNP),
-        _ => None,
+    let Some((opt_name, show_name, sub)) = file_major(major) else {
+        return "Unknown";
     };
-    if let Some(table) = sub_table {
+    match sub {
         // A `0xFF` entry is a wildcard matching any minor (cf. C++ sub-map loop).
-        if let Some(&(_, name)) = table
+        Some(table) => match table
             .iter()
-            .find(|&&(m, _)| m == file_info_class::SUB_WILDCARD || m == minor)
+            .find(|&&(m, _, _)| m == file_info_class::SUB_WILDCARD || m == minor)
         {
-            return name;
+            Some(&(_, fast_io_name, sub_show)) => {
+                if advance {
+                    sub_show
+                } else if fast_io {
+                    fast_io_name
+                } else {
+                    opt_name
+                }
+            }
+            // Unknown minor with no wildcard: C++ leaves `lpszRet` NULL → "Unknown".
+            None => "Unknown",
+        },
+        None => {
+            if advance {
+                show_name
+            } else {
+                opt_name
+            }
         }
-        // Unknown minor: fall back to the major's generic name below.
     }
-    file_major_name(major)
 }
 
-/// Generic display name for an IRP major function (cf. `gFileOptMap` show names),
-/// including the fast-I/O / cache-manager pseudo majors.
-fn file_major_name(major: u8) -> &'static str {
-    match major {
-        irp_mj::CREATE => "CreateFile",
-        irp_mj::CREATE_NAMED_PIPE => "CreatePipe",
-        irp_mj::CLOSE => "IRP_MJ_CLOSE",
-        irp_mj::READ => "ReadFile",
-        irp_mj::WRITE => "WriteFile",
-        irp_mj::QUERY_INFORMATION => "QueryInformationFile",
-        irp_mj::SET_INFORMATION => "SetInformationFile",
-        irp_mj::QUERY_EA => "QueryEAFile",
-        irp_mj::SET_EA => "SetEAFile",
-        irp_mj::FLUSH_BUFFERS => "FlushBuffersFile",
-        irp_mj::QUERY_VOLUME_INFORMATION => "QueryVolumeInformation",
-        irp_mj::SET_VOLUME_INFORMATION => "SetVolumeInformation",
-        irp_mj::DIRECTORY_CONTROL => "DirectoryControl",
-        irp_mj::FILE_SYSTEM_CONTROL => "FileSystemControl",
-        irp_mj::DEVICE_CONTROL => "DeviceIoControl",
-        irp_mj::INTERNAL_DEVICE_CONTROL => "InternalDeviceIoControl",
-        irp_mj::SHUTDOWN => "Shutdown",
-        irp_mj::LOCK_CONTROL => "LockUnlockFile",
-        irp_mj::CLEANUP => "CloseFile",
-        irp_mj::CREATE_MAILSLOT => "CreateMailSlot",
-        irp_mj::QUERY_SECURITY => "QuerySecurityFile",
-        irp_mj::SET_SECURITY => "SetSecurityFile",
-        irp_mj::POWER => "Power",
-        irp_mj::SYSTEM_CONTROL => "SystemControl",
-        irp_mj::DEVICE_CHANGE => "DeviceChange",
-        irp_mj::QUERY_QUOTA => "QueryFileQuota",
-        irp_mj::SET_QUOTA => "SetFileQuota",
-        irp_mj::PNP => "PlugAndPlay",
-        irp_mj::ACQUIRE_FOR_SECTION_SYNCHRONIZATION => "CreateFileMapping",
-        irp_mj::RELEASE_FOR_SECTION_SYNCHRONIZATION => "ReleaseForSectionSync",
-        irp_mj::ACQUIRE_FOR_MOD_WRITE => "AcquireForModWrite",
-        irp_mj::RELEASE_FOR_MOD_WRITE => "ReleaseForModWrite",
-        irp_mj::ACQUIRE_FOR_CC_FLUSH => "AcquireForCcFlush",
-        irp_mj::RELEASE_FOR_CC_FLUSH => "ReleaseForCcFlush",
-        irp_mj::QUERY_OPEN | irp_mj::NETWORK_QUERY_OPEN => "QueryOpen",
-        irp_mj::FAST_IO_CHECK_IF_POSSIBLE => "FastIoCheckIfPossible",
-        irp_mj::MDL_READ => "ReadFile",
-        irp_mj::MDL_READ_COMPLETE => "MdlReadComplete",
-        irp_mj::PREPARE_MDL_WRITE => "WriteFile",
-        irp_mj::MDL_WRITE_COMPLETE => "MdlWriteComplete",
-        irp_mj::VOLUME_MOUNT => "VolumeMount",
-        irp_mj::VOLUME_DISMOUNT => "VolumeDismount",
-        _ => "<Unknown>",
-    }
+/// One `gFileOptMap` row for an IRP major: `(opt_name, show_name, sub_table)`, where
+/// `opt_name` is the raw `IRP_MJ_*` / `FASTIO_*` name (C++ `lpOptName`), `show_name`
+/// the friendly "Advanced Display" name (`lpszShowName`), and `sub_table` the
+/// per-minor refinement map. `None` for unmapped majors (→ `"Unknown"`).
+type FileSub = &'static [(u8, &'static str, &'static str)];
+fn file_major(major: u8) -> Option<(&'static str, &'static str, Option<FileSub>)> {
+    use file_info_class as fc;
+    use irp_mj as m;
+    // (raw IRP_MJ_* / FASTIO_* opt-name, friendly show-name, optional sub-map)
+    Some(match major {
+        m::CREATE => ("IRP_MJ_CREATE", "CreateFile", None),
+        m::CREATE_NAMED_PIPE => ("IRP_MJ_CREATE_NAMED_PIPE", "CreatePipe", None),
+        m::CLOSE => ("IRP_MJ_CLOSE", "IRP_MJ_CLOSE", None),
+        m::READ => ("IRP_MJ_READ", "ReadFile", Some(fc::READ)),
+        m::WRITE => ("IRP_MJ_WRITE", "WriteFile", Some(fc::WRITE)),
+        m::QUERY_INFORMATION => (
+            "IRP_MJ_QUERY_INFORMATION",
+            "QueryInformationFile",
+            Some(fc::QUERY),
+        ),
+        m::SET_INFORMATION => (
+            "IRP_MJ_SET_INFORMATION",
+            "SetInformationFile",
+            Some(fc::SET),
+        ),
+        m::QUERY_EA => ("IRP_MJ_QUERY_EA", "QueryEAFile", None),
+        m::SET_EA => ("IRP_MJ_SET_EA", "SetEAFile", None),
+        m::FLUSH_BUFFERS => ("IRP_MJ_FLUSH_BUFFERS", "FlushBuffersFile", None),
+        m::QUERY_VOLUME_INFORMATION => (
+            "IRP_MJ_QUERY_VOLUME_INFORMATION",
+            "QueryVolumeInformation",
+            Some(fc::VOLUME),
+        ),
+        m::SET_VOLUME_INFORMATION => (
+            "IRP_MJ_SET_VOLUME_INFORMATION",
+            "SetVolumeInformation",
+            None,
+        ),
+        m::DIRECTORY_CONTROL => (
+            "IRP_MJ_DIRECTORY_CONTROL",
+            "DirectoryControl",
+            Some(fc::DIRECTORY),
+        ),
+        m::FILE_SYSTEM_CONTROL => ("IRP_MJ_FILE_SYSTEM_CONTROL", "FileSystemControl", None),
+        m::DEVICE_CONTROL => ("IRP_MJ_DEVICE_CONTROL", "DeviceIoControl", None),
+        m::INTERNAL_DEVICE_CONTROL => (
+            "IRP_MJ_INTERNAL_DEVICE_CONTROL",
+            "InternalDeviceIoControl",
+            None,
+        ),
+        m::SHUTDOWN => ("IRP_MJ_SHUTDOWN", "Shutdown", None),
+        m::LOCK_CONTROL => ("IRP_MJ_LOCK_CONTROL", "LockUnlockFile", Some(fc::LOCK)),
+        m::CLEANUP => ("IRP_MJ_CLEANUP", "CloseFile", None),
+        m::CREATE_MAILSLOT => ("IRP_MJ_CREATE_MAILSLOT", "CreateMailSlot", None),
+        m::QUERY_SECURITY => ("IRP_MJ_QUERY_SECURITY", "QuerySecurityFile", None),
+        m::SET_SECURITY => ("IRP_MJ_SET_SECURITY", "SetSecurityFile", None),
+        m::POWER => ("IRP_MJ_POWER", "Power", None),
+        m::SYSTEM_CONTROL => ("IRP_MJ_SYSTEM_CONTROL", "SystemControl", None),
+        m::DEVICE_CHANGE => ("IRP_MJ_DEVICE_CHANGE", "DeviceChange", None),
+        m::QUERY_QUOTA => ("IRP_MJ_QUERY_QUOTA", "QueryFileQuota", None),
+        m::SET_QUOTA => ("IRP_MJ_SET_QUOTA", "SetFileQuota", None),
+        m::PNP => ("IRP_MJ_PNP", "PlugAndPlay", Some(fc::PNP)),
+        m::ACQUIRE_FOR_SECTION_SYNCHRONIZATION => (
+            "IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION",
+            "CreateFileMapping",
+            None,
+        ),
+        m::RELEASE_FOR_SECTION_SYNCHRONIZATION => (
+            "FASTIO_RELEASE_FOR_SECTION_SYNCHRONIZATION",
+            "FASTIO_RELEASE_FOR_SECTION_SYNCHRONIZATION",
+            None,
+        ),
+        m::ACQUIRE_FOR_MOD_WRITE => (
+            "FASTIO_ACQUIRE_FOR_MOD_WRITE",
+            "FASTIO_ACQUIRE_FOR_MOD_WRITE",
+            None,
+        ),
+        m::RELEASE_FOR_MOD_WRITE => (
+            "FASTIO_RELEASE_FOR_MOD_WRITE",
+            "FASTIO_RELEASE_FOR_MOD_WRITE",
+            None,
+        ),
+        m::ACQUIRE_FOR_CC_FLUSH => (
+            "FASTIO_ACQUIRE_FOR_CC_FLUSH",
+            "FASTIO_ACQUIRE_FOR_CC_FLUSH",
+            None,
+        ),
+        m::RELEASE_FOR_CC_FLUSH => (
+            "FASTIO_RELEASE_FOR_CC_FLUSH",
+            "FASTIO_RELEASE_FOR_CC_FLUSH",
+            None,
+        ),
+        m::QUERY_OPEN => (
+            "FASTIO_NOTIFY_STREAM_FO_CREATION",
+            "FASTIO_NOTIFY_STREAM_FO_CREATION",
+            None,
+        ),
+        m::FAST_IO_CHECK_IF_POSSIBLE => (
+            "IRP_MJ_FAST_IO_CHECK_IF_POSSIBLE",
+            "FASTIO_CHECK_IF_POSSIBLE",
+            None,
+        ),
+        m::NETWORK_QUERY_OPEN => ("IRP_MJ_NETWORK_QUERY_OPEN", "QueryOpen", None),
+        m::MDL_READ => ("IRP_MJ_MDL_READ", "ReadFile", None),
+        m::MDL_READ_COMPLETE => ("IRP_MJ_MDL_READ_COMPLETE", "FASTIO_MDL_READ_COMPLETE", None),
+        m::PREPARE_MDL_WRITE => ("IRP_MJ_PREPARE_MDL_WRITE", "WriteFile", None),
+        m::MDL_WRITE_COMPLETE => (
+            "IRP_MJ_MDL_WRITE_COMPLETE",
+            "FASTIO_MDL_WRITE_COMPLETE",
+            None,
+        ),
+        m::VOLUME_MOUNT => ("IRP_MJ_VOLUME_MOUNT", "VolumeMount", None),
+        m::VOLUME_DISMOUNT => ("IRP_MJ_VOLUME_DISMOUNT", "VolumeDismount", None),
+        _ => return None,
+    })
 }
 
 /// Registry value type name (cf. `REG_*`).
@@ -729,34 +817,61 @@ mod tests {
 
     #[test]
     fn file_operation_minor_refinement() {
+        // (notify, minor, fast_io, advance)
         let set_info = FILE_NOTIFY_BASE + irp_mj::SET_INFORMATION as u16;
-        assert_eq!(file_operation(set_info, 0x0a), "SetRenameInformationFile");
-        // Unknown minor falls back to the generic major name.
-        assert_eq!(file_operation(set_info, 0xfe), "SetInformationFile");
+        // Advanced display: friendly detail name.
+        assert_eq!(
+            file_operation(set_info, 0x0a, false, true),
+            "SetRenameInformationFile"
+        );
+        // Non-advanced: the FASTIO_* name under the fast-I/O flag, else the raw
+        // IRP_MJ_* opt-name (cf. C++ `lpszFastIoName` / `lpOptName`).
+        assert_eq!(
+            file_operation(set_info, 0x0a, true, false),
+            "FASTIO_SET_INFORMATION"
+        );
+        assert_eq!(
+            file_operation(set_info, 0x0a, false, false),
+            "IRP_MJ_SET_INFORMATION"
+        );
+        // Unknown minor on a sub-mapped major → "Unknown" (C++ NULL fallthrough).
+        assert_eq!(file_operation(set_info, 0xfe, false, true), "Unknown");
 
         let lock = FILE_NOTIFY_BASE + irp_mj::LOCK_CONTROL as u16;
-        assert_eq!(file_operation(lock, 1), "LockFile");
+        assert_eq!(file_operation(lock, 1, false, true), "LockFile");
+        // Lock-control entries carry their own FASTIO_* name.
+        assert_eq!(file_operation(lock, 1, true, false), "FASTIO_LOCK");
 
         let dir = FILE_NOTIFY_BASE + irp_mj::DIRECTORY_CONTROL as u16;
-        assert_eq!(file_operation(dir, 2), "NotifyChangeDirectory");
+        assert_eq!(file_operation(dir, 2, false, true), "NotifyChangeDirectory");
+        assert_eq!(
+            file_operation(dir, 2, true, false),
+            "FASTIO_DIRECTORY_CONTROL"
+        );
 
         // Fast-I/O majors truncate below the base on the wire (the driver does
         // `(UCHAR)(major + 20)`); recovery must wrap. ACQUIRE_FOR_SECTION_SYNC
         // (0xFF) -> wire NotifyType (UCHAR)(0xFF + 20) == 19.
-        assert_eq!(file_operation(19, 0), "CreateFileMapping");
+        assert_eq!(file_operation(19, 0, false, true), "CreateFileMapping");
+        // No sub-map: non-advanced uses the raw opt-name.
+        assert_eq!(
+            file_operation(19, 0, false, false),
+            "IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION"
+        );
         let mount = (FILE_NOTIFY_BASE + irp_mj::VOLUME_MOUNT as u16) & 0xff;
-        assert_eq!(file_operation(mount, 0), "VolumeMount");
+        assert_eq!(file_operation(mount, 0, false, true), "VolumeMount");
 
         // PnP minor refinement.
         let pnp = FILE_NOTIFY_BASE + irp_mj::PNP as u16;
-        assert_eq!(file_operation(pnp, 0), "StartDevice");
+        assert_eq!(file_operation(pnp, 0, false, true), "StartDevice");
 
         // Read/Write carry a `0xFF` wildcard entry: any minor maps to the verb.
         let read = FILE_NOTIFY_BASE + irp_mj::READ as u16;
-        assert_eq!(file_operation(read, 0), "ReadFile");
-        assert_eq!(file_operation(read, 0x7c), "ReadFile");
+        assert_eq!(file_operation(read, 0, false, true), "ReadFile");
+        assert_eq!(file_operation(read, 0x7c, false, true), "ReadFile");
+        assert_eq!(file_operation(read, 0x7c, true, false), "FASTIO_READ");
         let write = FILE_NOTIFY_BASE + irp_mj::WRITE as u16;
-        assert_eq!(file_operation(write, 0x10), "WriteFile");
+        assert_eq!(file_operation(write, 0x10, false, true), "WriteFile");
     }
 
     #[test]
@@ -771,9 +886,15 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(operation(&ev(3, FILE_NOTIFY_BASE)), "CreateFile");
-        assert_eq!(operation(&ev(2, reg_notify::SETVALUEKEY)), "RegSetValue");
-        assert_eq!(operation(&ev(1, proc_notify::CREATE)), "Process Create");
+        assert_eq!(operation(&ev(3, FILE_NOTIFY_BASE), true), "CreateFile");
+        assert_eq!(
+            operation(&ev(2, reg_notify::SETVALUEKEY), true),
+            "RegSetValue"
+        );
+        assert_eq!(
+            operation(&ev(1, proc_notify::CREATE), true),
+            "Process Create"
+        );
     }
 
     #[test]

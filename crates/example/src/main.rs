@@ -19,6 +19,7 @@
 //! capture. Press Ctrl-C to exit live capture.
 
 use clap::Parser;
+use procmon_sdk::Relation::Contains;
 use procmon_sdk::{
     Action, Column, DriverLoader, EventSource, FilterSet, MonitorFlags, PmlWriter, Relation, Rule,
 };
@@ -64,7 +65,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = match &cli.pml {
         Some(path) => EventSource::from_pml(path)?,
         None => {
-            let sys = cli.sys.clone().unwrap_or_else(|| PathBuf::from("procmon.sys"));
+            let sys = cli
+                .sys
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("procmon.sys"));
             EventSource::from_driver(
                 DriverLoader::new("OpenProcmon24", sys),
                 MonitorFlags::PROCESS | MonitorFlags::FILE | MonitorFlags::REGISTRY,
@@ -79,7 +83,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err("--save requires live capture (do not combine with --pml)".into());
         }
         let mut writer = PmlWriter::new(cfg!(target_pointer_width = "64"));
-        println!("Capturing up to {SAVE_LIMIT} events -> {} ...", out.display());
+        println!(
+            "Capturing up to {SAVE_LIMIT} events -> {} ...",
+            out.display()
+        );
         for ev in source.events().take(SAVE_LIMIT) {
             if source.is_visible(&ev) {
                 writer.push_event(&ev);
@@ -99,7 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!(
             "{:>6}  {:<22}  {:<16}  {}",
             ev.pid(),
-            ev.operation_name(),
+            ev.operation_name_advanced(cli.advanced),
             ev.result(),
             ev.path().unwrap_or_default(),
         );
@@ -118,6 +125,7 @@ fn advanced_display_rules() -> Vec<Rule> {
 
     let proc = |name: &str| Rule::new(ProcessName, Is, name, Exclude);
     let ends = |name: &str| Rule::new(Path, EndsWith, name, Exclude);
+    let contains = |name: &str| Rule::new(Path, Contains, name, Exclude);
     vec![
         proc("OpenProcmon.exe"),
         proc("Procmon.exe"),
@@ -142,6 +150,6 @@ fn advanced_display_rules() -> Vec<Rule> {
         ends("$BadClus"),
         ends("$Secure"),
         ends("$Upcase"),
-        ends("$Extend"),
+        contains("$Extend"),
     ]
 }

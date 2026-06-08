@@ -38,6 +38,9 @@ const ICON: f32 = 16.0;
 
 /// A ghost icon button matching the design `.tbtn`: dim by default, brighter (or
 /// red, for `danger`) on hover, or an accent fill when `active`.
+// Each parameter is a distinct, cohesive button trait; bundling them into a
+// struct would add ceremony without clarifying call sites.
+#[allow(clippy::too_many_arguments)]
 fn icon_btn(
     id: &'static str,
     icon: PmIcon,
@@ -124,7 +127,12 @@ pub(crate) fn render(
 ) -> impl IntoElement {
     let (capturing, autoscroll, always_on_top, is_dark) = {
         let s = state.read(cx);
-        (s.capturing, s.autoscroll, s.always_on_top, s.theme_mode.is_dark())
+        (
+            s.capturing,
+            s.autoscroll,
+            s.always_on_top,
+            s.theme_mode.is_dark(),
+        )
     };
     let has_filter = !state.read(cx).filter.rules.is_empty();
     let is_zh = rust_i18n::locale().starts_with("zh");
@@ -151,7 +159,14 @@ pub(crate) fn render(
     let eye = svg()
         .flex_none()
         .size(px(16.))
-        .path(if capturing { PmIcon::Pause } else { PmIcon::Play }.path())
+        .path(
+            if capturing {
+                PmIcon::Pause
+            } else {
+                PmIcon::Play
+            }
+            .path(),
+        )
         .text_color(cap_fg)
         .when(!capturing, |s| {
             s.group_hover(cap_group.clone(), move |s| s.text_color(c.bright))

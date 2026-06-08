@@ -270,6 +270,18 @@ impl FilterSet {
         }
     }
 
+    /// Inserts `rule` at the front unless an equivalent one already exists. Returns
+    /// `true` if it was added. Used by the context-menu quick filters so the newest
+    /// rule appears at the top of the list.
+    pub fn add_front(&mut self, rule: Rule) -> bool {
+        if self.contains(&rule) {
+            false
+        } else {
+            self.rules.insert(0, rule);
+            true
+        }
+    }
+
     /// Removes the rule at `index`, returning it (or `None` if out of range).
     pub fn remove(&mut self, index: usize) -> Option<Rule> {
         (index < self.rules.len()).then(|| self.rules.remove(index))
@@ -302,7 +314,8 @@ impl FilterSet {
             }
         }
 
-        !(has_include && !include_hit)
+        // Pass unless there are Include rules and none of them matched.
+        !has_include || include_hit
     }
 
     /// Whether `ev` should be *highlighted* under these rules (the Highlight dialog
@@ -350,7 +363,9 @@ fn column_value(ev: &Event, column: Column) -> Option<String> {
         Column::Pid => Some(ev.pid().to_string()),
         Column::Tid => Some(ev.thread_id().to_string()),
         Column::Sequence => Some(ev.sequence().to_string()),
-        Column::Date => Some(ev.date()),
+        // Full precision so Date & Time `LessThan`/`MoreThan` compares to the tick,
+        // not just the second.
+        Column::Date => Some(ev.date_precise()),
         Column::TimeOfDay => Some(ev.time_of_day()),
         Column::CompletionTime => ev.completion_time(),
         Column::Duration => ev.duration(),
@@ -512,7 +527,10 @@ mod tests {
             length: 12,
             time: 0,
         };
-        let ev = Event::from_network(std::sync::Arc::new(net), crate::event::ProcessSource::Live(None));
+        let ev = Event::from_network(
+            std::sync::Arc::new(net),
+            crate::event::ProcessSource::Live(None),
+        );
         let fs = FilterSet::new(vec![Rule::new(
             Column::Pid,
             Relation::Is,

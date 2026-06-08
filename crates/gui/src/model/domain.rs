@@ -122,13 +122,21 @@ impl EventBackend {
         }
     }
 
+    /// Operation name honoring the Advanced Display toggle (`&'static`, uncached).
+    fn operation_display(&self, advance: bool) -> SharedString {
+        SharedString::new_static(self.ev.operation_name_advanced(advance))
+    }
+
     fn detail(&self) -> SharedString {
         self.ev.detail().into()
     }
 
     /// Read live (not cached) so async SDK metadata appears on the next frame.
     fn icon(&self) -> Option<Arc<[u8]>> {
-        self.ev.icon_small().or_else(|| self.ev.icon_large()).map(Arc::<[u8]>::from)
+        self.ev
+            .icon_small()
+            .or_else(|| self.ev.icon_large())
+            .map(Arc::<[u8]>::from)
     }
 }
 
@@ -202,7 +210,9 @@ impl CapturedEvent {
 
     /// Lazily computes + caches the detail column.
     fn detail_column(&self) -> SharedString {
-        self.detail_cell.get_or_init(|| self.backend.detail()).clone()
+        self.detail_cell
+            .get_or_init(|| self.backend.detail())
+            .clone()
     }
 
     // --- scalars (zero-copy) ---
@@ -231,7 +241,10 @@ impl CapturedEvent {
         self.highlighted = on;
     }
     pub fn detail_key(&self) -> DetailKey {
-        DetailKey { pid: self.pid, seq: self.seq }
+        DetailKey {
+            pid: self.pid,
+            seq: self.seq,
+        }
     }
     /// The underlying SDK event (for the source's `detail_for`, export, filtering).
     pub fn event(&self) -> &procmon_sdk::Event {
@@ -258,6 +271,13 @@ impl CapturedEvent {
     }
     pub fn operation(&self) -> SharedString {
         self.render_cells().operation.clone()
+    }
+    /// Operation name honoring the "Advanced Display" toggle (C++ `bAdvance`): the
+    /// table column uses this so toggling switches friendly ⇄ raw `IRP_MJ_*`/`FASTIO_*`
+    /// names. Computed live (cheap `&'static`) — no cached cell to invalidate. The
+    /// plain [`operation`](Self::operation) stays canonical for search/export/detail.
+    pub fn operation_display(&self, advance: bool) -> SharedString {
+        self.backend.operation_display(advance)
     }
     pub fn path(&self) -> SharedString {
         self.render_cells().path.clone()

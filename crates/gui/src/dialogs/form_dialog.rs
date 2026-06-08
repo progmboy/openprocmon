@@ -21,10 +21,10 @@
 //! ```
 
 use gpui::{
-    AnyElement, App, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    div, px, AnyElement, App, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
-use gpui_component::{ActiveTheme, Icon, StyledExt, WindowExt, dialog::Dialog, h_flex};
+use gpui_component::{dialog::Dialog, h_flex, ActiveTheme, Icon, StyledExt, WindowExt};
 
 use crate::icons::PmIcon;
 use crate::theme::palette;
@@ -112,7 +112,13 @@ impl FormDialog {
             .border_b_1()
             .border_color(border)
             .child(Icon::new(self.icon).size(px(18.)).text_color(accent))
-            .child(div().text_color(fg).text_size(px(14.)).font_semibold().child(self.title));
+            .child(
+                div()
+                    .text_color(fg)
+                    .text_size(px(14.))
+                    .font_semibold()
+                    .child(self.title),
+            );
         if let Some(desc) = self.description {
             header = header.child(div().text_color(muted).text_sm().child(desc));
         }

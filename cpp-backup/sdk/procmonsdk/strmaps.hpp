@@ -15,12 +15,12 @@ StrMapFileAccessMask(
 	_In_ DWORD AccessMask
 );
 
-LPCTSTR 
+LPCTSTR
 StrMapFileCreateDisposition(
 	_In_ DWORD CreateDisposition
 );
 
-LPCTSTR 
+LPCTSTR
 StrMapFileRetDisposition(
 	_In_ DWORD CreateDisposition
 );
@@ -30,7 +30,7 @@ StrMapFileCreateOptions(
 	_In_ DWORD CreateOptions
 );
 
-CString 
+CString
 StrMapFileAttributes(
 	_In_ DWORD FileAttributes
 );
@@ -45,9 +45,10 @@ StrMapClassEvent(
 	_In_ int Class
 );
 
-LPCTSTR 
+LPCTSTR
 StrMapOperation(
-	_In_ PLOG_ENTRY pEntry
+	_In_ PLOG_ENTRY pEntry,
+	_In_ BOOL bAdvance = FALSE
 );
 
 CString

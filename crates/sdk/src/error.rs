@@ -23,6 +23,22 @@ pub enum Error {
     #[error("driver load failed: {0:?}")]
     DriverLoad(NTSTATUS),
 
+    /// A different build of the driver already occupies this minifilter altitude
+    /// (`STATUS_FLT_INSTANCE_ALTITUDE_COLLISION`). FltMgr won't attach a second
+    /// instance at the same altitude, so the running one can't be replaced without
+    /// a reboot.
+    #[error("a different version of the driver is already loaded; a reboot is required")]
+    OtherVersionLoaded,
+
+    /// The driver's communication port is already connected by another client —
+    /// the system is already being monitored.
+    #[error("the system is already being monitored by another instance")]
+    AlreadyMonitoring,
+
+    /// Writing the embedded driver image to `System32\\Drivers` failed.
+    #[error("failed to write the driver image: {0}")]
+    DriverExtract(std::io::Error),
+
     /// Writing the driver's service registry key failed.
     #[error("failed to configure driver service: {0:?}")]
     ServiceConfig(WinError),

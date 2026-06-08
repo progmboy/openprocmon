@@ -150,7 +150,12 @@ impl SymbolResolver {
                 inner: Mutex::new(Inner {
                     dbghelp,
                     process,
-                    procs: Procs { load_module, from_addr, unload_module, cleanup },
+                    procs: Procs {
+                        load_module,
+                        from_addr,
+                        unload_module,
+                        cleanup,
+                    },
                     modules: HashMap::new(),
                     cache: HashMap::new(),
                 }),
@@ -191,12 +196,8 @@ impl Inner {
         // calls; the handle is stored for cleanup on drop.
         unsafe {
             let path_w = U16CString::from_str(m.path).ok()?;
-            let handle = LoadLibraryExW(
-                PCWSTR(path_w.as_ptr()),
-                None,
-                DONT_RESOLVE_DLL_REFERENCES,
-            )
-            .ok()?;
+            let handle =
+                LoadLibraryExW(PCWSTR(path_w.as_ptr()), None, DONT_RESOLVE_DLL_REFERENCES).ok()?;
             let base = handle.0 as u64;
 
             let name = basename(m.path);
@@ -215,7 +216,8 @@ impl Inner {
                 0,
             );
             let sym_loaded = img == base;
-            self.modules.insert(m.path.to_string(), Loaded { handle, sym_loaded });
+            self.modules
+                .insert(m.path.to_string(), Loaded { handle, sym_loaded });
             Some(base)
         }
     }

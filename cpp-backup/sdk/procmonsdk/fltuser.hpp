@@ -15,6 +15,18 @@ extern "C" {
 #define POINTER_ALIGNMENT
 #endif
 
+#define FLTFL_CALLBACK_DATA_REISSUE_MASK        0x0000FFFF
+#define FLTFL_CALLBACK_DATA_IRP_OPERATION       0x00000001
+#define FLTFL_CALLBACK_DATA_FAST_IO_OPERATION   0x00000002
+#define FLTFL_CALLBACK_DATA_FS_FILTER_OPERATION 0x00000004
+#define FLTFL_CALLBACK_DATA_SYSTEM_BUFFER       0x00000008
+#define FLTFL_CALLBACK_DATA_GENERATED_IO        0x00010000
+#define FLTFL_CALLBACK_DATA_REISSUED_IO         0x00020000
+#define FLTFL_CALLBACK_DATA_DRAINING_IO         0x00040000
+#define FLTFL_CALLBACK_DATA_POST_OPERATION      0x00080000
+#define FLTFL_CALLBACK_DATA_NEW_SYSTEM_BUFFER   0x00100000
+#define FLTFL_CALLBACK_DATA_DIRTY               0x80000000
+
 #define IRP_MJ_CREATE                   0x00
 #define IRP_MJ_CREATE_NAMED_PIPE        0x01
 #define IRP_MJ_CLOSE                    0x02
@@ -51,7 +63,11 @@ extern "C" {
 #define IRP_MJ_ACQUIRE_FOR_CC_FLUSH                  ((UCHAR)-5)
 #define IRP_MJ_RELEASE_FOR_CC_FLUSH                  ((UCHAR)-6)
 #define IRP_MJ_QUERY_OPEN                            ((UCHAR)-7)
-
+#define IRP_MJ_8                                     ((UCHAR)-8)
+#define IRP_MJ_9                                     ((UCHAR)-9)
+#define IRP_MJ_10                                    ((UCHAR)-10)
+#define IRP_MJ_11                                    ((UCHAR)-11)
+#define IRP_MJ_12                                    ((UCHAR)-12)
 #define IRP_MJ_FAST_IO_CHECK_IF_POSSIBLE             ((UCHAR)-13)
 #define IRP_MJ_NETWORK_QUERY_OPEN                    ((UCHAR)-14)
 #define IRP_MJ_MDL_READ                              ((UCHAR)-15)

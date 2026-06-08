@@ -6,18 +6,17 @@
 //! styled like dropdowns — functional and state-free across rebuilds.
 
 use gpui::{
-    AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window, div,
-    prelude::FluentBuilder, px,
+    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
+    Window,
 };
 use gpui_component::{
-    ActiveTheme, IndexPath, Icon, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputState},
     select::{Select, SelectState},
-    v_flex,
+    v_flex, ActiveTheme, Icon, IndexPath, StyledExt, WindowExt,
 };
 
 use rust_i18n::t;
@@ -25,7 +24,7 @@ use rust_i18n::t;
 use crate::app::AppView;
 use crate::icons::PmIcon;
 use crate::model::filter::{FilterAction, FilterColumn, FilterModel, FilterRelation, FilterRule};
-use crate::theme::{ProcmonPalette, palette};
+use crate::theme::{palette, ProcmonPalette};
 
 const ACTIONS: [FilterAction; 2] = [FilterAction::Include, FilterAction::Exclude];
 
@@ -73,8 +72,10 @@ impl FilterDialog {
         let value = cx.new(|cx| InputState::new(window, cx).placeholder("Value"));
         let col_items: Vec<SharedString> =
             FilterColumn::ALL.iter().map(|c| c.label().into()).collect();
-        let rel_items: Vec<SharedString> =
-            FilterRelation::ALL.iter().map(|c| c.label().into()).collect();
+        let rel_items: Vec<SharedString> = FilterRelation::ALL
+            .iter()
+            .map(|c| c.label().into())
+            .collect();
         let act_items: Vec<SharedString> = ACTIONS.iter().map(|a| a.label().into()).collect();
         let col_select =
             cx.new(|cx| SelectState::new(col_items, Some(IndexPath::default()), window, cx));
@@ -104,8 +105,11 @@ impl FilterDialog {
     /// long list scrolls within the dialog instead of overflowing the screen.
     pub(crate) fn estimated_height(&self) -> f32 {
         const CHROME: f32 = 57.0 + 58.0 + 32.0 + 40.0 + 12.0 + 35.0; // head+foot+body+builder+gap+list head
-        let list_body =
-            if self.rules.is_empty() { 64.0 } else { self.rules.len() as f32 * 41.0 };
+        let list_body = if self.rules.is_empty() {
+            64.0
+        } else {
+            self.rules.len() as f32 * 41.0
+        };
         (CHROME + list_body).min(620.0)
     }
 
@@ -132,11 +136,12 @@ impl FilterDialog {
             )
             .child(div().flex_1())
             .child(
-                Button::new("flt-cancel").h(px(34.)).label(t!("dlg.cancel").to_string()).on_click(
-                    move |_, window, cx| {
+                Button::new("flt-cancel")
+                    .h(px(34.))
+                    .label(t!("dlg.cancel").to_string())
+                    .on_click(move |_, window, cx| {
                         d_cancel.update(cx, |this, cx| this.cancel(window, cx));
-                    },
-                ),
+                    }),
             )
             .child(
                 Button::new("flt-apply")
@@ -155,9 +160,24 @@ impl FilterDialog {
         if value.trim().is_empty() {
             return;
         }
-        let col_ix = self.col_select.read(cx).selected_index(cx).map(|p| p.row).unwrap_or(0);
-        let rel_ix = self.rel_select.read(cx).selected_index(cx).map(|p| p.row).unwrap_or(0);
-        let act_ix = self.act_select.read(cx).selected_index(cx).map(|p| p.row).unwrap_or(0);
+        let col_ix = self
+            .col_select
+            .read(cx)
+            .selected_index(cx)
+            .map(|p| p.row)
+            .unwrap_or(0);
+        let rel_ix = self
+            .rel_select
+            .read(cx)
+            .selected_index(cx)
+            .map(|p| p.row)
+            .unwrap_or(0);
+        let act_ix = self
+            .act_select
+            .read(cx)
+            .selected_index(cx)
+            .map(|p| p.row)
+            .unwrap_or(0);
         self.rules.push(FilterRule::new(
             FilterColumn::ALL[col_ix],
             FilterRelation::ALL[rel_ix],
@@ -197,7 +217,7 @@ impl gpui::Render for FilterDialog {
         let muted = cx.theme().muted_foreground;
         let border = cx.theme().border;
         let bg2 = cx.theme().title_bar; // design list-head / field color (`--bg-2`)
-        // Empty-state text differs by kind (filter vs highlight).
+                                        // Empty-state text differs by kind (filter vs highlight).
         let empty_text = match self.kind {
             RuleKind::Filter => t!("dlg.no_rules"),
             RuleKind::Highlight => t!("dlg.no_highlights"),
@@ -223,12 +243,14 @@ impl gpui::Render for FilterDialog {
                     // component size (md = 32px) is overridden via `.h()`.
                     .child(fr(FR_COL).child(Select::new(&self.col_select).w_full().h(px(34.))))
                     .child(fr(FR_REL).child(Select::new(&self.rel_select).w_full().h(px(34.))))
-                    .child(fr(FR_VAL).child(Input::new(&self.value).w_full().map(|mut i| {
-                        // `Input::h()` is multi-line-only; set the Styled height so
-                        // the single-line value field matches the 34px Selects.
-                        i.style().size.height = Some(px(34.).into());
-                        i
-                    })))
+                    .child(
+                        fr(FR_VAL).child(Input::new(&self.value).w_full().map(|mut i| {
+                            // `Input::h()` is multi-line-only; set the Styled height so
+                            // the single-line value field matches the 34px Selects.
+                            i.style().size.height = Some(px(34.).into());
+                            i
+                        })),
+                    )
                     .child(fr(FR_ACT).child(Select::new(&self.act_select).w_full().h(px(34.))))
                     .child(
                         Button::new("flt-add")
@@ -277,7 +299,10 @@ impl gpui::Render for FilterDialog {
                         )
                     })
                     .children(
-                        self.rules.iter().enumerate().map(|(i, rule)| rule_row(i, rule, cx)),
+                        self.rules
+                            .iter()
+                            .enumerate()
+                            .map(|(i, rule)| rule_row(i, rule, cx)),
                     ),
             )
     }
@@ -320,7 +345,11 @@ fn rule_row(i: usize, rule: &FilterRule, cx: &mut Context<FilterDialog>) -> impl
     let panel2 = cx.theme().secondary_hover;
     let pal = palette(cx);
     let enabled = rule.enabled;
-    let text = if enabled { cx.theme().foreground } else { muted };
+    let text = if enabled {
+        cx.theme().foreground
+    } else {
+        muted
+    };
 
     h_flex()
         .id(("flt-row", i))
@@ -329,23 +358,50 @@ fn rule_row(i: usize, rule: &FilterRule, cx: &mut Context<FilterDialog>) -> impl
         .py(px(9.))
         .gap_2()
         .items_center()
-        .when(i > 0, |this| this.border_t_1().border_color(border.opacity(0.55)))
+        .when(i > 0, |this| {
+            this.border_t_1().border_color(border.opacity(0.55))
+        })
         .hover(move |s| s.bg(row_hover))
         .child(
             div().w(px(W_CHK)).flex_shrink_0().child(
-                Checkbox::new(("flt-rule", i)).checked(enabled).on_click(cx.listener(
-                    move |this, checked: &bool, _, cx| {
+                Checkbox::new(("flt-rule", i))
+                    .checked(enabled)
+                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         if let Some(r) = this.rules.get_mut(i) {
                             r.enabled = *checked;
                             cx.notify();
                         }
-                    },
-                )),
+                    })),
             ),
         )
-        .child(fr(FR_COL).child(div().truncate().text_color(text).text_size(px(11.5)).font_family("Consolas").child(rule.column.label().to_string())))
-        .child(fr(FR_REL).child(div().text_color(muted).text_size(px(11.5)).child(rule.relation.label().to_string())))
-        .child(fr(FR_VAL).child(div().truncate().text_color(text).text_size(px(11.5)).font_family("Consolas").child(rule.value.clone())))
+        .child(
+            fr(FR_COL).child(
+                div()
+                    .truncate()
+                    .text_color(text)
+                    .text_size(px(11.5))
+                    .font_family("Consolas")
+                    .child(rule.column.label().to_string()),
+            ),
+        )
+        .child(
+            fr(FR_REL).child(
+                div()
+                    .text_color(muted)
+                    .text_size(px(11.5))
+                    .child(rule.relation.label().to_string()),
+            ),
+        )
+        .child(
+            fr(FR_VAL).child(
+                div()
+                    .truncate()
+                    .text_color(text)
+                    .text_size(px(11.5))
+                    .font_family("Consolas")
+                    .child(rule.value.clone()),
+            ),
+        )
         .child(fr(FR_ACT).child(action_pill(rule.action, &pal)))
         .child(
             div().w(px(W_DEL)).flex_shrink_0().child(

@@ -2,8 +2,8 @@
 //! vertical dividers — capture state, shown/total counts, active filter/highlight/
 //! bookmark indicators, and (right-aligned) the autoscroll state.
 
-use gpui::{App, Div, Entity, Hsla, IntoElement, ParentElement, SharedString, Styled, div, px};
-use gpui_component::{ActiveTheme, Icon, StyledExt, h_flex};
+use gpui::{div, px, App, Div, Entity, Hsla, IntoElement, ParentElement, SharedString, Styled};
+use gpui_component::{h_flex, ActiveTheme, Icon, StyledExt};
 use rust_i18n::t;
 
 use crate::app::AppState;
@@ -26,7 +26,11 @@ pub(crate) fn render(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
     let bookmarks = s.buffer.bookmark_count();
 
     // design `.status-dot`: run = success, pause = warn.
-    let dot_color = if capturing { pal.res_success } else { pal.res_warn };
+    let dot_color = if capturing {
+        pal.res_success
+    } else {
+        pal.res_warn
+    };
 
     let mut bar = h_flex()
         .w_full()
@@ -46,11 +50,26 @@ pub(crate) fn render(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
         seg(border)
             .pl(px(0.))
             .child(div().size(px(7.)).rounded_full().bg(dot_color))
-            .child(if capturing { t!("st.capturing") } else { t!("st.paused") }.to_string()),
+            .child(
+                if capturing {
+                    t!("st.capturing")
+                } else {
+                    t!("st.paused")
+                }
+                .to_string(),
+            ),
     );
     // Shown / total counts.
-    bar = bar.child(seg(border).child(t!("st.showing_label").to_string()).child(val(text2, visible)));
-    bar = bar.child(seg(border).child(t!("st.total_label").to_string()).child(val(text2, total)));
+    bar = bar.child(
+        seg(border)
+            .child(t!("st.showing_label").to_string())
+            .child(val(text2, visible)),
+    );
+    bar = bar.child(
+        seg(border)
+            .child(t!("st.total_label").to_string())
+            .child(val(text2, total)),
+    );
     // Active filter / highlight / bookmark indicators (only when present).
     if filters > 0 {
         bar = bar.child(
@@ -75,9 +94,19 @@ pub(crate) fn render(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
     }
     // Spacer + right-aligned autoscroll state (last segment — no divider).
     bar = bar.child(div().flex_1()).child(
-        h_flex().items_center().gap(px(7.)).px(px(14.)).h_full().child(
-            if autoscroll { t!("st.autoscroll_on") } else { t!("st.autoscroll_off") }.to_string(),
-        ),
+        h_flex()
+            .items_center()
+            .gap(px(7.))
+            .px(px(14.))
+            .h_full()
+            .child(
+                if autoscroll {
+                    t!("st.autoscroll_on")
+                } else {
+                    t!("st.autoscroll_off")
+                }
+                .to_string(),
+            ),
     );
     bar
 }
@@ -95,5 +124,9 @@ fn seg(border: Hsla) -> Div {
 
 /// A bold mono value (design `.statusbar b`).
 fn val(text2: Hsla, n: usize) -> impl IntoElement {
-    div().text_color(text2).font_semibold().font_family("Consolas").child(SharedString::from(n.to_string()))
+    div()
+        .text_color(text2)
+        .font_semibold()
+        .font_family("Consolas")
+        .child(SharedString::from(n.to_string()))
 }

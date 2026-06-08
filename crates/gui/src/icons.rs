@@ -41,8 +41,9 @@ impl AssetSource for Assets {
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        let mut out: Vec<SharedString> =
-            GuiAssets::iter().filter_map(|p| p.starts_with(path).then(|| p.into())).collect();
+        let mut out: Vec<SharedString> = GuiAssets::iter()
+            .filter_map(|p| p.starts_with(path).then(|| p.into()))
+            .collect();
         out.extend(gpui_component_assets::Assets.list(path)?);
         Ok(out)
     }
@@ -95,7 +96,6 @@ pub enum PmIcon {
     Refresh,
     User,
     // Menu / settings glyphs.
-    SaveAs,
     Download,
     Upload,
     Logout,
@@ -149,7 +149,6 @@ impl IconNamed for PmIcon {
             Info => "info",
             Refresh => "refresh",
             User => "user",
-            SaveAs => "save-as",
             Download => "download",
             Upload => "upload",
             Logout => "logout",

@@ -20,7 +20,7 @@ use crate::resolver::AddressResolver;
 use arc_swap::ArcSwap;
 use crossbeam_channel::Receiver;
 use std::sync::Arc;
-use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+use windows::Win32::Foundation::{ERROR_CONNECTION_COUNT_LIMIT, ERROR_FILE_NOT_FOUND};
 
 bitflags::bitflags! {
     /// Sources to monitor. PROCESS/FILE/REGISTRY flow through the minifilter;
@@ -74,22 +74,36 @@ impl MonitorController {
     /// [`connect_with_driver`](Self::connect_with_driver) to load the driver on
     /// demand when it is not yet running.
     pub fn connect() -> Result<Self> {
-        let port = FilterPort::connect()?;
+        let port = Self::try_connect()?;
         Ok(Self::with_port(port, None))
     }
 
     /// Connects to the driver port, loading the driver via `loader` if the port
-    /// is not present yet (cf. C++ `monctl.cxx` connect/retry).
+    /// is not present yet (cf. C++ `monctl.cxx` connect/retry). Connect-first
+    /// mirrors Process Monitor: an already-running driver is reused without a
+    /// reinstall; only a missing port (`ERROR_FILE_NOT_FOUND`) triggers the load.
     pub fn connect_with_driver(loader: DriverLoader) -> Result<Self> {
-        match FilterPort::connect() {
+        match Self::try_connect() {
             Ok(port) => Ok(Self::with_port(port, Some(loader))),
             Err(Error::PortConnect(e)) if e.code() == ERROR_FILE_NOT_FOUND.to_hresult() => {
                 loader.ensure_loaded()?;
-                let port = FilterPort::connect()?;
+                let port = Self::try_connect()?;
                 Ok(Self::with_port(port, Some(loader)))
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Connects to the port, mapping the single-client "port already connected"
+    /// limit (`ERROR_CONNECTION_COUNT_LIMIT`) to [`Error::AlreadyMonitoring`] so the
+    /// GUI can tell "someone else is monitoring" apart from a generic failure.
+    fn try_connect() -> Result<FilterPort> {
+        FilterPort::connect().map_err(|e| match e {
+            Error::PortConnect(w) if w.code() == ERROR_CONNECTION_COUNT_LIMIT.to_hresult() => {
+                Error::AlreadyMonitoring
+            }
+            other => other,
+        })
     }
 
     fn with_port(port: FilterPort, driver: Option<DriverLoader>) -> Self {

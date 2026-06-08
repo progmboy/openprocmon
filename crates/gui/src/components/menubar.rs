@@ -27,14 +27,19 @@ use crate::actions::{
     About, AlwaysOnTop, Bookmark, CheckUpdates, ClearDisplay, ClearFilter, ClearHighlight, Copy,
     ExportSettings, FocusSearch, HelpTopics, ImportSettings, Open, OpenFileSummary, OpenFilter,
     OpenHighlight, OpenNetSummary, OpenProcessSummary, OpenRegSummary, OpenSettings, OpenSummary,
-    OpenTree, OpenXrefSummary, Quit, Save, SaveAs, ToggleAdvancedDisplay, ToggleAutoscroll,
-    WebSearch,
+    OpenTree, OpenXrefSummary, Quit, Save, ToggleAdvancedDisplay, ToggleAutoscroll, WebSearch,
 };
 use crate::icons::PmIcon;
 
 /// The top-level menu names (i18n keys), in order.
-const MENUS: [&str; 6] =
-    ["menu.file", "menu.edit", "menu.event", "menu.tools", "menu.options", "menu.help"];
+const MENUS: [&str; 6] = [
+    "menu.file",
+    "menu.edit",
+    "menu.event",
+    "menu.tools",
+    "menu.options",
+    "menu.help",
+];
 
 /// A dropdown row body (design `.menu-row`): a leading 14px icon (muted), the
 /// 12.5px label, an optional mono shortcut, and an optional trailing tick. Used as
@@ -72,7 +77,11 @@ fn row(
         .child(div().flex_1())
         .when_some(shortcut, move |this, sc| {
             this.child(
-                div().text_size(px(11.5)).font_family("Consolas").text_color(muted).child(sc),
+                div()
+                    .text_size(px(11.5))
+                    .font_family("Consolas")
+                    .text_color(muted)
+                    .child(sc),
             )
         })
         // Trailing tick (reserved so toggling on/off doesn't shift the row).
@@ -101,7 +110,9 @@ fn it(
 ) -> PopupMenu {
     let label = t!(key).to_string();
     let sc = shortcut.map(|s| s.to_string());
-    menu.menu_element(action, move |_w, cx| row(icon, label.clone(), sc.clone(), None, cx))
+    menu.menu_element(action, move |_w, cx| {
+        row(icon, label.clone(), sc.clone(), None, cx)
+    })
 }
 
 /// Adds a localized (i18n key) element row with a leading icon + a trailing check.
@@ -115,7 +126,9 @@ fn itc(
 ) -> PopupMenu {
     let label = t!(key).to_string();
     let sc = shortcut.map(|s| s.to_string());
-    menu.menu_element(action, move |_w, cx| row(icon, label.clone(), sc.clone(), Some(checked), cx))
+    menu.menu_element(action, move |_w, cx| {
+        row(icon, label.clone(), sc.clone(), Some(checked), cx)
+    })
 }
 
 /// A bespoke, design-styled menu bar (one entity drives all top-level menus).
@@ -134,7 +147,13 @@ pub(crate) struct MenuBar {
 
 impl MenuBar {
     pub(crate) fn new(app: WeakEntity<AppView>, action_context: FocusHandle) -> Self {
-        Self { app, action_context, selected: None, popup: None, _sub: None }
+        Self {
+            app,
+            action_context,
+            selected: None,
+            popup: None,
+            _sub: None,
+        }
     }
 
     /// Current state of the checkable menu items: (auto-scroll, selected row is
@@ -186,9 +205,11 @@ impl MenuBar {
         if !focus.contains_focused(window, cx) {
             focus.focus(window, cx);
         }
-        self._sub = Some(cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, _, cx| {
-            this.close(cx);
-        }));
+        self._sub = Some(
+            cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, _, cx| {
+                this.close(cx);
+            }),
+        );
         self.popup = Some(popup);
         cx.notify();
     }
@@ -202,7 +223,12 @@ impl MenuBar {
 
     /// Builds the dropdown for menu `ix`. Read fresh each open so the Theme /
     /// Language checks and localized labels reflect the current state.
-    fn build_popup(&self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> Entity<PopupMenu> {
+    fn build_popup(
+        &self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PopupMenu> {
         use PmIcon as I;
         let handle = self.action_context.clone();
         let (autoscroll, bookmarked, always_on_top, advanced_display) = self.checks(cx);
@@ -216,26 +242,60 @@ impl MenuBar {
                 0 => {
                     // File
                     let menu = it(menu, I::Open, "menu.open", Box::new(Open), Some("Ctrl+O"));
-                    let menu = it(menu, I::Save, "menu.save", Box::new(Save), Some("Ctrl+S"));
-                    let menu = it(menu, I::SaveAs, "menu.save_as", Box::new(SaveAs), None).separator();
-                    let menu = it(menu, I::Download, "menu.import", Box::new(ImportSettings), None);
                     let menu =
-                        it(menu, I::Upload, "menu.export", Box::new(ExportSettings), None).separator();
+                        it(menu, I::Save, "menu.save", Box::new(Save), Some("Ctrl+S")).separator();
+                    let menu = it(
+                        menu,
+                        I::Download,
+                        "menu.import",
+                        Box::new(ImportSettings),
+                        None,
+                    );
+                    let menu = it(
+                        menu,
+                        I::Upload,
+                        "menu.export",
+                        Box::new(ExportSettings),
+                        None,
+                    )
+                    .separator();
                     it(menu, I::Logout, "menu.exit", Box::new(Quit), None)
                 }
                 1 => {
                     // Edit
                     let menu = it(menu, I::Copy, "menu.copy", Box::new(Copy), Some("Ctrl+C"));
-                    let menu =
-                        it(menu, I::Search, "menu.find", Box::new(FocusSearch), Some("Ctrl+F"))
-                            .separator();
-                    it(menu, I::Trash, "menu.clear_display", Box::new(ClearDisplay), Some("Ctrl+X"))
+                    let menu = it(
+                        menu,
+                        I::Search,
+                        "menu.find",
+                        Box::new(FocusSearch),
+                        Some("Ctrl+F"),
+                    )
+                    .separator();
+                    it(
+                        menu,
+                        I::Trash,
+                        "menu.clear_display",
+                        Box::new(ClearDisplay),
+                        Some("Ctrl+X"),
+                    )
                 }
                 2 => {
                     // Event
-                    let menu = it(menu, I::Filter, "menu.filter", Box::new(OpenFilter), Some("Ctrl+L"));
-                    let menu =
-                        it(menu, I::Ban, "menu.clear_filter", Box::new(ClearFilter), None);
+                    let menu = it(
+                        menu,
+                        I::Filter,
+                        "menu.filter",
+                        Box::new(OpenFilter),
+                        Some("Ctrl+L"),
+                    );
+                    let menu = it(
+                        menu,
+                        I::Ban,
+                        "menu.clear_filter",
+                        Box::new(ClearFilter),
+                        None,
+                    );
                     let menu = itc(
                         menu,
                         I::FilterFill,
@@ -245,10 +305,21 @@ impl MenuBar {
                         None,
                     )
                     .separator();
-                    let menu = it(menu, I::Highlight, "menu.highlight", Box::new(OpenHighlight), None);
-                    let menu =
-                        it(menu, I::Ban, "menu.clear_highlight", Box::new(ClearHighlight), None)
-                            .separator();
+                    let menu = it(
+                        menu,
+                        I::Highlight,
+                        "menu.highlight",
+                        Box::new(OpenHighlight),
+                        None,
+                    );
+                    let menu = it(
+                        menu,
+                        I::Ban,
+                        "menu.clear_highlight",
+                        Box::new(ClearHighlight),
+                        None,
+                    )
+                    .separator();
                     let menu = itc(
                         menu,
                         I::Scroll,
@@ -272,27 +343,80 @@ impl MenuBar {
                 3 => {
                     // Tools
                     let menu = it(menu, I::Tree, "menu.tree", Box::new(OpenTree), None);
-                    let menu = it(menu, I::Perf, "menu.summary", Box::new(OpenSummary), None).separator();
-                    let menu = it(menu, I::Cpu, "menu.sum_process", Box::new(OpenProcessSummary), None);
-                    let menu = it(menu, I::Filesys, "menu.sum_file", Box::new(OpenFileSummary), None);
                     let menu =
-                        it(menu, I::Registry, "menu.sum_registry", Box::new(OpenRegSummary), None);
-                    let menu = it(menu, I::Network, "menu.sum_network", Box::new(OpenNetSummary), None);
-                    it(menu, I::Crosshair, "menu.sum_xref", Box::new(OpenXrefSummary), None)
+                        it(menu, I::Perf, "menu.summary", Box::new(OpenSummary), None).separator();
+                    let menu = it(
+                        menu,
+                        I::Cpu,
+                        "menu.sum_process",
+                        Box::new(OpenProcessSummary),
+                        None,
+                    );
+                    let menu = it(
+                        menu,
+                        I::Filesys,
+                        "menu.sum_file",
+                        Box::new(OpenFileSummary),
+                        None,
+                    );
+                    let menu = it(
+                        menu,
+                        I::Registry,
+                        "menu.sum_registry",
+                        Box::new(OpenRegSummary),
+                        None,
+                    );
+                    let menu = it(
+                        menu,
+                        I::Network,
+                        "menu.sum_network",
+                        Box::new(OpenNetSummary),
+                        None,
+                    );
+                    it(
+                        menu,
+                        I::Crosshair,
+                        "menu.sum_xref",
+                        Box::new(OpenXrefSummary),
+                        None,
+                    )
                 }
                 4 => {
                     // Options (theme/language/symbols/history now live in Settings)
-                    let menu =
-                        it(menu, I::Settings, "menu.settings", Box::new(OpenSettings), Some("Ctrl+,"))
-                            .separator();
-                    itc(menu, I::Pin, "menu.always_on_top", always_on_top, Box::new(AlwaysOnTop), None)
+                    let menu = it(
+                        menu,
+                        I::Settings,
+                        "menu.settings",
+                        Box::new(OpenSettings),
+                        Some("Ctrl+,"),
+                    )
+                    .separator();
+                    itc(
+                        menu,
+                        I::Pin,
+                        "menu.always_on_top",
+                        always_on_top,
+                        Box::new(AlwaysOnTop),
+                        None,
+                    )
                 }
                 _ => {
                     // Help
-                    let menu = it(menu, I::Help, "menu.help_topics", Box::new(HelpTopics), Some("F1"));
-                    let menu =
-                        it(menu, I::Refresh, "menu.check_updates", Box::new(CheckUpdates), None)
-                            .separator();
+                    let menu = it(
+                        menu,
+                        I::Help,
+                        "menu.help_topics",
+                        Box::new(HelpTopics),
+                        Some("F1"),
+                    );
+                    let menu = it(
+                        menu,
+                        I::Refresh,
+                        "menu.check_updates",
+                        Box::new(CheckUpdates),
+                        None,
+                    )
+                    .separator();
                     it(menu, I::Info, "menu.about", Box::new(About), None)
                 }
             }
@@ -325,17 +449,18 @@ impl MenuBar {
                 cx.stop_propagation();
             })
             .on_click(cx.listener(move |this, _, window, cx| this.toggle(ix, window, cx)))
-            .on_hover(cx.listener(move |this, hovered, window, cx| {
-                this.hover(ix, *hovered, window, cx)
-            }))
+            .on_hover(
+                cx.listener(move |this, hovered, window, cx| this.hover(ix, *hovered, window, cx)),
+            )
             // Anchor the open dropdown under this trigger (design `.menu-dropdown`
             // sits at `top: 100%; margin-top: 3px`).
             .when(open, |this| {
                 this.children(popup.map(|popup| {
                     deferred(
-                        anchored().anchor(Anchor::TopLeft).snap_to_window_with_margin(px(8.)).child(
-                            div().occlude().mt(px(3.)).child(popup),
-                        ),
+                        anchored()
+                            .anchor(Anchor::TopLeft)
+                            .snap_to_window_with_margin(px(8.))
+                            .child(div().occlude().mt(px(3.)).child(popup)),
                     )
                 }))
             })
@@ -364,9 +489,19 @@ pub(crate) fn render(menu_bar: &Entity<MenuBar>, cx: &gpui::App) -> impl IntoEle
         .pl(px(6.))
         .pr(px(12.))
         .child(crate::components::brand_icon(16.))
-        .child(div().text_color(fg).text_size(px(12.5)).font_semibold().child("OpenProcmon"));
+        .child(
+            div()
+                .text_color(fg)
+                .text_size(px(12.5))
+                .font_semibold()
+                .child("OpenProcmon"),
+        );
 
-    TitleBar::new()
-        .h(px(30.))
-        .child(h_flex().items_center().gap(px(2.)).child(brand).child(menu_bar.clone()))
+    TitleBar::new().h(px(30.)).child(
+        h_flex()
+            .items_center()
+            .gap(px(2.))
+            .child(brand)
+            .child(menu_bar.clone()),
+    )
 }

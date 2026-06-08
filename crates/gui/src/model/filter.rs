@@ -8,6 +8,7 @@
 //! (monitor-toggle gating, the Advanced Display rule set).
 
 use procmon_sdk::filter::{Column, FilterFields};
+use procmon_sdk::Relation::Contains;
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{CapturedEvent, EventCategory};
@@ -50,6 +51,7 @@ pub fn advanced_display_rules() -> Vec<FilterRule> {
 
     let proc = |name: &str| FilterRule::new(ProcessName, Is, name, Exclude);
     let ends = |name: &str| FilterRule::new(Path, EndsWith, name, Exclude);
+    let contains = |name: &str| FilterRule::new(Path, Contains, name, Exclude);
     vec![
         proc("OpenProcmon.exe"),
         proc("Procmon.exe"),
@@ -74,7 +76,7 @@ pub fn advanced_display_rules() -> Vec<FilterRule> {
         ends("$BadClus"),
         ends("$Secure"),
         ends("$Upcase"),
-        ends("$Extend"),
+        contains("$Extend"),
     ]
 }
 
@@ -89,7 +91,8 @@ pub fn advanced_display_on(set: &FilterModel) -> bool {
 /// very end (after the user's own rules).
 pub fn set_advanced_display(set: &mut FilterModel, on: bool) {
     let defaults = advanced_display_rules();
-    set.rules.retain(|r| !defaults.iter().any(|d| d.same_rule(r)));
+    set.rules
+        .retain(|r| !defaults.iter().any(|d| d.same_rule(r)));
     if on {
         set.rules.extend(defaults);
     }

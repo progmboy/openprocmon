@@ -61,7 +61,8 @@ impl EventClass {
         match self {
             Self::Process => crate::strings::process_operation(code),
             Self::Registry => crate::strings::reg_operation(code),
-            Self::File => crate::strings::file_operation(code, 0),
+            // Canonical (advanced) name with a minor-function fallback of 0.
+            Self::File => crate::strings::file_operation(code, 0, false, true),
             Self::Network => crate::network::NetOp::from_pml(code).name(),
             Self::Profiling => crate::strings::profiling_operation(code),
             Self::Other => "<Unknown>",
@@ -117,7 +118,11 @@ impl Event {
             LogEntry::view(p, 0)?;
         }
         Some(Event {
-            backing: Backing::KernelRecord { pre, post, mode: crate::parse::DetailMode::Live },
+            backing: Backing::KernelRecord {
+                pre,
+                post,
+                mode: crate::parse::DetailMode::Live,
+            },
             proc: ProcessSource::Live(proc),
             duration: None,
         })
@@ -138,7 +143,11 @@ impl Event {
             LogEntry::view(p, 0)?;
         }
         Some(Event {
-            backing: Backing::KernelRecord { pre, post, mode: crate::parse::DetailMode::Pml },
+            backing: Backing::KernelRecord {
+                pre,
+                post,
+                mode: crate::parse::DetailMode::Pml,
+            },
             proc,
             duration,
         })
@@ -161,7 +170,11 @@ impl Event {
 
     /// Builds a network event from a decoded ETW/PML record.
     pub(crate) fn from_network(net: Arc<NetworkEvent>, proc: ProcessSource) -> Self {
-        Event { backing: Backing::Network(net), proc, duration: None }
+        Event {
+            backing: Backing::Network(net),
+            proc,
+            duration: None,
+        }
     }
 
     /// The PRE record header for a minifilter event, else `None`.
@@ -320,6 +333,13 @@ impl Event {
         crate::time::date(self.time_raw())
     }
 
+    /// Start date/time at full 100-ns precision (`YYYY/MM/DD HH:MM:SS.fffffff`),
+    /// used as the comparison value for Date & Time filtering so "before/after this
+    /// event" is exact rather than truncated to the second.
+    pub fn date_precise(&self) -> String {
+        crate::time::date_precise(self.time_raw())
+    }
+
     /// Completion time as local `HH:MM:SS.fffffff`, if a completion is attached.
     pub fn completion_time(&self) -> Option<String> {
         self.end_time_raw().map(crate::time::time_of_day)
@@ -390,7 +410,10 @@ impl Event {
                 .info()
                 .map(|i| crate::sid::luid_string(i.authentication_id.0, i.authentication_id.1)),
             ProcessSource::Pml(..) => self.pml_proc().map(|p| {
-                crate::sid::luid_string((p.authentication_id >> 32) as i32, p.authentication_id as u32)
+                crate::sid::luid_string(
+                    (p.authentication_id >> 32) as i32,
+                    p.authentication_id as u32,
+                )
             }),
         }
     }
@@ -437,7 +460,10 @@ impl Event {
     /// worker fills it; for PML, from the capture's process table.
     pub fn company(&self) -> Option<&str> {
         match &self.proc {
-            ProcessSource::Live(_) => self.live_record().and_then(|r| r.meta()).and_then(|m| m.company.as_deref()),
+            ProcessSource::Live(_) => self
+                .live_record()
+                .and_then(|r| r.meta())
+                .and_then(|m| m.company.as_deref()),
             ProcessSource::Pml(..) => self.pml_proc().map(|p| p.company.as_ref()),
         }
     }
@@ -445,7 +471,10 @@ impl Event {
     /// Image description / product name (`emDescription`).
     pub fn description(&self) -> Option<&str> {
         match &self.proc {
-            ProcessSource::Live(_) => self.live_record().and_then(|r| r.meta()).and_then(|m| m.description.as_deref()),
+            ProcessSource::Live(_) => self
+                .live_record()
+                .and_then(|r| r.meta())
+                .and_then(|m| m.description.as_deref()),
             ProcessSource::Pml(..) => self.pml_proc().map(|p| p.description.as_ref()),
         }
     }
@@ -453,7 +482,10 @@ impl Event {
     /// Image version (`emVersion`).
     pub fn version(&self) -> Option<&str> {
         match &self.proc {
-            ProcessSource::Live(_) => self.live_record().and_then(|r| r.meta()).and_then(|m| m.version.as_deref()),
+            ProcessSource::Live(_) => self
+                .live_record()
+                .and_then(|r| r.meta())
+                .and_then(|m| m.version.as_deref()),
             ProcessSource::Pml(..) => self.pml_proc().map(|p| p.version.as_ref()),
         }
     }
@@ -461,16 +493,28 @@ impl Event {
     /// Raw small-icon bytes (`ICONIMAGE`), if present.
     pub fn icon_small(&self) -> Option<&[u8]> {
         match &self.proc {
-            ProcessSource::Live(_) => self.live_record().and_then(|r| r.meta()).and_then(|m| m.icon_small.as_deref()),
-            ProcessSource::Pml(reader, _) => self.pml_proc().and_then(|p| reader.icon(p.icon_small)).map(|i| i.data.as_ref()),
+            ProcessSource::Live(_) => self
+                .live_record()
+                .and_then(|r| r.meta())
+                .and_then(|m| m.icon_small.as_deref()),
+            ProcessSource::Pml(reader, _) => self
+                .pml_proc()
+                .and_then(|p| reader.icon(p.icon_small))
+                .map(|i| i.data.as_ref()),
         }
     }
 
     /// Raw large-icon bytes (`ICONIMAGE`), if present.
     pub fn icon_large(&self) -> Option<&[u8]> {
         match &self.proc {
-            ProcessSource::Live(_) => self.live_record().and_then(|r| r.meta()).and_then(|m| m.icon_large.as_deref()),
-            ProcessSource::Pml(reader, _) => self.pml_proc().and_then(|p| reader.icon(p.icon_big)).map(|i| i.data.as_ref()),
+            ProcessSource::Live(_) => self
+                .live_record()
+                .and_then(|r| r.meta())
+                .and_then(|m| m.icon_large.as_deref()),
+            ProcessSource::Pml(reader, _) => self
+                .pml_proc()
+                .and_then(|p| reader.icon(p.icon_big))
+                .map(|i| i.data.as_ref()),
         }
     }
 
@@ -486,7 +530,9 @@ impl Event {
     pub fn process_exit_time(&self) -> Option<i64> {
         match &self.proc {
             ProcessSource::Live(_) => self.live_record().and_then(|r| r.exit_time()),
-            ProcessSource::Pml(..) => self.pml_proc().and_then(|p| (p.end_time != 0).then_some(p.end_time as i64)),
+            ProcessSource::Pml(..) => self
+                .pml_proc()
+                .and_then(|p| (p.end_time != 0).then_some(p.end_time as i64)),
         }
     }
 
@@ -564,10 +610,20 @@ impl Event {
         self.post_data().and_then(crate::kernel_types::cast::<T>)
     }
 
-    /// The operation's display name (cf. C++ `StrMapOperation`). For file events
-    /// the IRP minor function refines it (e.g. `QueryStandardInformationFile`).
+    /// The operation's canonical display name (cf. C++ `StrMapOperation`, advanced).
+    /// For file events the IRP minor function refines it (e.g.
+    /// `QueryStandardInformationFile`). This is the stable name used for filtering,
+    /// search and export — independent of the GUI's display toggle; the toggle-aware
+    /// variant is [`operation_name_advanced`](Self::operation_name_advanced).
     pub fn operation_name(&self) -> &'static str {
-        crate::strings::operation(self)
+        crate::strings::operation(self, true)
+    }
+
+    /// Operation name honoring the "Advanced Display" toggle (C++ `bAdvance`): the
+    /// friendly detail name when `advance`, otherwise the raw `IRP_MJ_*` name (or the
+    /// `FASTIO_*` name when the file record's fast-I/O flag is set).
+    pub fn operation_name_advanced(&self, advance: bool) -> &'static str {
+        crate::strings::operation(self, advance)
     }
 
     /// The event category's display name.

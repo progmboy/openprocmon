@@ -170,120 +170,285 @@ pub mod irp_mj {
 
 /// File information classes used to refine `IRP_MJ_QUERY_INFORMATION` /
 /// `IRP_MJ_SET_INFORMATION` operations by their minor function (`FILE_INFORMATION_CLASS`).
+///
+/// Each entry is `(minor, fast_io_name, show_name)`, mirroring the C++
+/// `FILE_OPT_SUB_DESC { Minjor, lpszFastIoName, lpszShowName }`: `show_name` is the
+/// friendly "Advanced Display" name, `fast_io_name` the `FASTIO_*` name used when
+/// the operation arrived via the fast-I/O path. See [`crate::strings::operation`].
 pub mod file_info_class {
     // Query-information minor functions (`FILE_INFORMATION_CLASS`), cf. C++
     // `gFileSubMapQueryInfo`.
-    pub const QUERY: &[(u8, &str)] = &[
-        (0x04, "QueryBasicInformationFile"),
-        (0x05, "QueryStandardInformationFile"),
-        (0x06, "QueryFileInternalInformationFile"),
-        (0x07, "QueryEaInformationFile"),
-        (0x09, "QueryNameInformationFile"),
-        (0x0e, "QueryPositionInformationFile"),
-        (0x12, "QueryAllInformationFile"),
-        (0x14, "QueryEndOfFile"),
-        (0x16, "QueryStreamInformationFile"),
-        (0x1c, "QueryCompressionInformationFile"),
-        (0x1d, "QueryId"),
-        (0x1f, "QueryMoveClusterInformationFile"),
-        (0x22, "QueryNetworkOpenInformationFile"),
-        (0x23, "QueryAttributeTagFile"),
-        (0x25, "QueryIdBothDirectory"),
-        (0x27, "QueryValidDataLength"),
-        (0x28, "QueryShortNameInformationFile"),
-        (0x2b, "QueryIoPriorityHint"),
-        (0x2e, "QueryLinks"),
-        (0x30, "QueryNormalizedNameInformationFile"),
-        (0x31, "QueryNetworkPhysicalNameInformationFile"),
-        (0x32, "QueryIdGlobalTxDirectoryInformation"),
-        (0x33, "QueryIsRemoteDeviceInformation"),
-        (0x34, "QueryAttributeCacheInformation"),
-        (0x35, "QueryNumaNodeInformation"),
-        (0x36, "QueryStandardLinkInformation"),
-        (0x37, "QueryRemoteProtocolInformation"),
-        (0x38, "QueryRenameInformationBypassAccessCheck"),
-        (0x39, "QueryLinkInformationBypassAccessCheck"),
-        (0x3a, "QueryVolumeNameInformation"),
-        (0x3b, "QueryIdInformation"),
-        (0x3c, "QueryIdExtdDirectoryInformation"),
-        (0x3e, "QueryHardLinkFullIdInformation"),
-        (0x3f, "QueryIdExtdBothDirectoryInformation"),
-        (0x43, "QueryDesiredStorageClassInformation"),
-        (0x44, "QueryStatInformation"),
-        (0x45, "QueryMemoryPartitionInformation"),
+    pub const QUERY: &[(u8, &str, &str)] = &[
+        (
+            0x04,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryBasicInformationFile",
+        ),
+        (
+            0x05,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryStandardInformationFile",
+        ),
+        (
+            0x06,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryFileInternalInformationFile",
+        ),
+        (0x07, "FASTIO_QUERY_INFORMATION", "QueryEaInformationFile"),
+        (0x09, "FASTIO_QUERY_INFORMATION", "QueryNameInformationFile"),
+        (
+            0x0e,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryPositionInformationFile",
+        ),
+        (0x12, "FASTIO_QUERY_INFORMATION", "QueryAllInformationFile"),
+        (0x14, "FASTIO_QUERY_INFORMATION", "QueryEndOfFile"),
+        (
+            0x16,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryStreamInformationFile",
+        ),
+        (
+            0x1c,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryCompressionInformationFile",
+        ),
+        (0x1d, "FASTIO_QUERY_INFORMATION", "QueryId"),
+        (
+            0x1f,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryMoveClusterInformationFile",
+        ),
+        (
+            0x22,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryNetworkOpenInformationFile",
+        ),
+        (0x23, "FASTIO_QUERY_INFORMATION", "QueryAttributeTagFile"),
+        (0x25, "FASTIO_QUERY_INFORMATION", "QueryIdBothDirectory"),
+        (0x27, "FASTIO_QUERY_INFORMATION", "QueryValidDataLength"),
+        (
+            0x28,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryShortNameInformationFile",
+        ),
+        (0x2b, "FASTIO_QUERY_INFORMATION", "QueryIoPriorityHint"),
+        (0x2e, "FASTIO_QUERY_INFORMATION", "QueryLinks"),
+        (
+            0x30,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryNormalizedNameInformationFile",
+        ),
+        (
+            0x31,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryNetworkPhysicalNameInformationFile",
+        ),
+        (
+            0x32,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryIdGlobalTxDirectoryInformation",
+        ),
+        (
+            0x33,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryIsRemoteDeviceInformation",
+        ),
+        (
+            0x34,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryAttributeCacheInformation",
+        ),
+        (0x35, "FASTIO_QUERY_INFORMATION", "QueryNumaNodeInformation"),
+        (
+            0x36,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryStandardLinkInformation",
+        ),
+        (
+            0x37,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryRemoteProtocolInformation",
+        ),
+        (
+            0x38,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryRenameInformationBypassAccessCheck",
+        ),
+        (
+            0x39,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryLinkInformationBypassAccessCheck",
+        ),
+        (
+            0x3a,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryVolumeNameInformation",
+        ),
+        (0x3b, "FASTIO_QUERY_INFORMATION", "QueryIdInformation"),
+        (
+            0x3c,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryIdExtdDirectoryInformation",
+        ),
+        (
+            0x3e,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryHardLinkFullIdInformation",
+        ),
+        (
+            0x3f,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryIdExtdBothDirectoryInformation",
+        ),
+        (
+            0x43,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryDesiredStorageClassInformation",
+        ),
+        (0x44, "FASTIO_QUERY_INFORMATION", "QueryStatInformation"),
+        (
+            0x45,
+            "FASTIO_QUERY_INFORMATION",
+            "QueryMemoryPartitionInformation",
+        ),
     ];
     // Set-information minor functions, cf. C++ `gFileSubMapSetInfo`.
-    pub const SET: &[(u8, &str)] = &[
-        (0x04, "SetBasicInformationFile"),
-        (0x0a, "SetRenameInformationFile"),
-        (0x0b, "SetLinkInformationFile"),
-        (0x0d, "SetDispositionInformationFile"),
-        (0x0e, "SetPositionInformationFile"),
-        (0x13, "SetAllocationInformationFile"),
-        (0x14, "SetEndOfFileInformationFile"),
-        (0x16, "SetFileStreamInformation"),
-        (0x17, "SetPipeInformation"),
-        (0x27, "SetValidDataLengthInformationFile"),
-        (0x28, "SetShortNameInformation"),
-        (0x3d, "SetReplaceCompletionInformation"),
-        (0x40, "SetDispositionInformationEx"),
-        (0x41, "SetRenameInformationEx"),
-        (0x42, "SetRenameInformationExBypassAccessCheck"),
+    pub const SET: &[(u8, &str, &str)] = &[
+        (0x04, "FASTIO_SET_INFORMATION", "SetBasicInformationFile"),
+        (0x0a, "FASTIO_SET_INFORMATION", "SetRenameInformationFile"),
+        (0x0b, "FASTIO_SET_INFORMATION", "SetLinkInformationFile"),
+        (
+            0x0d,
+            "FASTIO_SET_INFORMATION",
+            "SetDispositionInformationFile",
+        ),
+        (0x0e, "FASTIO_SET_INFORMATION", "SetPositionInformationFile"),
+        (
+            0x13,
+            "FASTIO_SET_INFORMATION",
+            "SetAllocationInformationFile",
+        ),
+        (
+            0x14,
+            "FASTIO_SET_INFORMATION",
+            "SetEndOfFileInformationFile",
+        ),
+        (0x16, "FASTIO_SET_INFORMATION", "SetFileStreamInformation"),
+        (0x17, "FASTIO_SET_INFORMATION", "SetPipeInformation"),
+        (
+            0x27,
+            "FASTIO_SET_INFORMATION",
+            "SetValidDataLengthInformationFile",
+        ),
+        (0x28, "FASTIO_SET_INFORMATION", "SetShortNameInformation"),
+        (
+            0x3d,
+            "FASTIO_SET_INFORMATION",
+            "SetReplaceCompletionInformation",
+        ),
+        (
+            0x40,
+            "FASTIO_SET_INFORMATION",
+            "SetDispositionInformationEx",
+        ),
+        (0x41, "FASTIO_SET_INFORMATION", "SetRenameInformationEx"),
+        (
+            0x42,
+            "FASTIO_SET_INFORMATION",
+            "SetRenameInformationExBypassAccessCheck",
+        ),
     ];
     // Volume-information minor functions.
-    pub const VOLUME: &[(u8, &str)] = &[
-        (0x01, "QueryInformationVolume"),
-        (0x02, "QueryLabelInformationVolume"),
-        (0x03, "QuerySizeInformationVolume"),
-        (0x04, "QueryDeviceInformationVolume"),
-        (0x05, "QueryAttributeInformationVolume"),
-        (0x06, "QueryControlInformationVolume"),
-        (0x07, "QueryFullSizeInformationVolume"),
-        (0x08, "QueryObjectIdInformationVolume"),
+    pub const VOLUME: &[(u8, &str, &str)] = &[
+        (
+            0x01,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryInformationVolume",
+        ),
+        (
+            0x02,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryLabelInformationVolume",
+        ),
+        (
+            0x03,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QuerySizeInformationVolume",
+        ),
+        (
+            0x04,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryDeviceInformationVolume",
+        ),
+        (
+            0x05,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryAttributeInformationVolume",
+        ),
+        (
+            0x06,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryControlInformationVolume",
+        ),
+        (
+            0x07,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryFullSizeInformationVolume",
+        ),
+        (
+            0x08,
+            "FASTIO_QUERY_VOLUME_INFORMATION",
+            "QueryObjectIdInformationVolume",
+        ),
     ];
     // Directory-control minor functions.
-    pub const DIRECTORY: &[(u8, &str)] =
-        &[(0x01, "QueryDirectory"), (0x02, "NotifyChangeDirectory")];
-    // Lock-control minor functions (fast-I/O lock operations).
-    pub const LOCK: &[(u8, &str)] = &[
-        (0x01, "LockFile"),
-        (0x02, "UnlockFileSingle"),
-        (0x03, "UnlockFileAll"),
-        (0x04, "UnlockFileByKey"),
+    pub const DIRECTORY: &[(u8, &str, &str)] = &[
+        (0x01, "FASTIO_DIRECTORY_CONTROL", "QueryDirectory"),
+        (0x02, "FASTIO_DIRECTORY_CONTROL", "NotifyChangeDirectory"),
     ];
-    // Plug-and-play minor functions, cf. C++ `gFileSubMapPnp`.
-    pub const PNP: &[(u8, &str)] = &[
-        (0x00, "StartDevice"),
-        (0x01, "QueryRemoveDevice"),
-        (0x02, "RemoveDevice"),
-        (0x03, "CancelRemoveDevice"),
-        (0x04, "StopDevice"),
-        (0x05, "QueryStopDevice"),
-        (0x06, "CancelStopDevice"),
-        (0x07, "QueryDeviceRelations"),
-        (0x08, "QueryInterface"),
-        (0x09, "QueryCapabilities"),
-        (0x0a, "QueryResources"),
-        (0x0b, "QueryResourceRequirements"),
-        (0x0c, "QueryDeviceText"),
-        (0x0d, "FilterResourceRequirements"),
-        (0x0f, "ReadConfig"),
-        (0x10, "WriteConfig"),
-        (0x11, "Eject"),
-        (0x12, "SetLock"),
-        (0x13, "QueryId"),
-        (0x14, "QueryPnpDeviceState"),
-        (0x15, "QueryBusInformation"),
-        (0x16, "DeviceUsageNotification"),
-        (0x17, "SurpriseRemoval"),
-        (0x18, "QueryLegacyBusInformation"),
+    // Lock-control minor functions (fast-I/O lock operations); each has its own
+    // `FASTIO_*` name (cf. C++ `gFileSubMapLockControl`).
+    pub const LOCK: &[(u8, &str, &str)] = &[
+        (0x01, "FASTIO_LOCK", "LockFile"),
+        (0x02, "FASTIO_UNLOCK_SINGLE", "UnlockFileSingle"),
+        (0x03, "FASTIO_UNLOCK_ALL", "UnlockFileAll"),
+        (0x04, "FASTIO_UNLOCK_ALL_BY_KEY", "UnlockFileByKey"),
+    ];
+    // Plug-and-play minor functions, cf. C++ `gFileSubMapPnp` (whose fast-I/O name
+    // is the raw `IRP_MJ_PNP`).
+    pub const PNP: &[(u8, &str, &str)] = &[
+        (0x00, "IRP_MJ_PNP", "StartDevice"),
+        (0x01, "IRP_MJ_PNP", "QueryRemoveDevice"),
+        (0x02, "IRP_MJ_PNP", "RemoveDevice"),
+        (0x03, "IRP_MJ_PNP", "CancelRemoveDevice"),
+        (0x04, "IRP_MJ_PNP", "StopDevice"),
+        (0x05, "IRP_MJ_PNP", "QueryStopDevice"),
+        (0x06, "IRP_MJ_PNP", "CancelStopDevice"),
+        (0x07, "IRP_MJ_PNP", "QueryDeviceRelations"),
+        (0x08, "IRP_MJ_PNP", "QueryInterface"),
+        (0x09, "IRP_MJ_PNP", "QueryCapabilities"),
+        (0x0a, "IRP_MJ_PNP", "QueryResources"),
+        (0x0b, "IRP_MJ_PNP", "QueryResourceRequirements"),
+        (0x0c, "IRP_MJ_PNP", "QueryDeviceText"),
+        (0x0d, "IRP_MJ_PNP", "FilterResourceRequirements"),
+        (0x0f, "IRP_MJ_PNP", "ReadConfig"),
+        (0x10, "IRP_MJ_PNP", "WriteConfig"),
+        (0x11, "IRP_MJ_PNP", "Eject"),
+        (0x12, "IRP_MJ_PNP", "SetLock"),
+        (0x13, "IRP_MJ_PNP", "QueryId"),
+        (0x14, "IRP_MJ_PNP", "QueryPnpDeviceState"),
+        (0x15, "IRP_MJ_PNP", "QueryBusInformation"),
+        (0x16, "IRP_MJ_PNP", "DeviceUsageNotification"),
+        (0x17, "IRP_MJ_PNP", "SurpriseRemoval"),
+        (0x18, "IRP_MJ_PNP", "QueryLegacyBusInformation"),
     ];
     // Read/Write carry a single fast-I/O wildcard entry (`0xFF`): the minor
     // function never refines the displayed name, so any minor maps to the base
     // verb. Kept as tables (rather than only the major name) to mirror C++
     // `gFileSubMapRead`/`gFileSubMapWrite` and to exercise the `0xFF` wildcard.
-    pub const READ: &[(u8, &str)] = &[(SUB_WILDCARD, "ReadFile")];
-    pub const WRITE: &[(u8, &str)] = &[(SUB_WILDCARD, "WriteFile")];
+    pub const READ: &[(u8, &str, &str)] = &[(SUB_WILDCARD, "FASTIO_READ", "ReadFile")];
+    pub const WRITE: &[(u8, &str, &str)] = &[(SUB_WILDCARD, "FASTIO_WRITE", "WriteFile")];
 
     /// Sentinel minor that matches any minor function (cf. C++ sub-map `0xff`).
     pub const SUB_WILDCARD: u8 = 0xFF;
@@ -759,7 +924,12 @@ const _: () = {
 /// the driver's `EventData`, modulo PML's string re-encoding handled by the
 /// detail views' `DetailMode`).
 #[allow(dead_code)] // used by the PML detail decode path (round-trip / comparison tests)
-pub(crate) fn synth_record(monitor_type: u16, notify_type: u16, status: i32, data: &[u8]) -> Vec<u8> {
+pub(crate) fn synth_record(
+    monitor_type: u16,
+    notify_type: u16,
+    status: i32,
+    data: &[u8],
+) -> Vec<u8> {
     // SAFETY: `LogEntry` is a packed struct of integers; all-zero is valid.
     let mut h: LogEntry = unsafe { core::mem::zeroed() };
     h.monitor_type = monitor_type;
@@ -860,8 +1030,14 @@ mod tests {
         let bytes = synth_record_full(3, 20, 0, 7, 123, &[0xAA, 0xBB], &[1, 2, 3]);
         let e = LogEntry::view(&bytes, 0).expect("header");
         // Copy packed fields to locals before asserting (can't reference packed fields).
-        let (mt, nt, tid, time, nfc, dl) =
-            (e.monitor_type, e.notify_type, e.thread_id, e.time, e.n_frame_chain, e.data_length);
+        let (mt, nt, tid, time, nfc, dl) = (
+            e.monitor_type,
+            e.notify_type,
+            e.thread_id,
+            e.time,
+            e.n_frame_chain,
+            e.data_length,
+        );
         assert_eq!(mt, 3);
         assert_eq!(nt, 20);
         assert_eq!(tid, 7);

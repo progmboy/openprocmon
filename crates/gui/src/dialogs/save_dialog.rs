@@ -79,7 +79,11 @@ pub(crate) struct SaveDialog {
 }
 
 impl SaveDialog {
-    pub(crate) fn new(app: WeakEntity<AppView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        app: WeakEntity<AppView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // Default to a full path (current directory + Logfile.PML) so the field
         // shows the complete destination rather than a bare file name.
         let default_path = std::env::current_dir()
@@ -126,9 +130,10 @@ impl SaveDialog {
         }
         let cur = self.path.read(cx).value().to_string();
         let new = match cur.rfind('.') {
-            Some(i) if cur[i + 1..].eq_ignore_ascii_case("PML")
-                || cur[i + 1..].eq_ignore_ascii_case("CSV")
-                || cur[i + 1..].eq_ignore_ascii_case("XML") =>
+            Some(i)
+                if cur[i + 1..].eq_ignore_ascii_case("PML")
+                    || cur[i + 1..].eq_ignore_ascii_case("CSV")
+                    || cur[i + 1..].eq_ignore_ascii_case("XML") =>
             {
                 format!("{}.{}", &cur[..i], format.ext())
             }
@@ -146,7 +151,9 @@ impl SaveDialog {
             stacks: self.stacks,
             path: self.path.read(cx).value().to_string(),
         };
-        self.app.update(cx, |view, cx| view.save_to_file(opts, window, cx)).ok();
+        self.app
+            .update(cx, |view, cx| view.save_to_file(opts, window, cx))
+            .ok();
         window.close_dialog(cx);
     }
 
@@ -242,17 +249,15 @@ impl gpui::Render for SaveDialog {
                         &co,
                         cx,
                     ))
-                    .child(
-                        div().pl(px(30.)).child(self.check_row(
-                            "sc-prof",
-                            self.profiling,
-                            self.scope != SaveScope::Filtered,
-                            t!("dlg.save_profiling").to_string(),
-                            &co,
-                            cx,
-                            |this| this.profiling = !this.profiling,
-                        )),
-                    )
+                    .child(div().pl(px(30.)).child(self.check_row(
+                        "sc-prof",
+                        self.profiling,
+                        self.scope != SaveScope::Filtered,
+                        t!("dlg.save_profiling").to_string(),
+                        &co,
+                        cx,
+                        |this| this.profiling = !this.profiling,
+                    )))
                     .child(self.radio_row(
                         "sc-hl",
                         SaveScope::Highlighted,
@@ -263,13 +268,35 @@ impl gpui::Render for SaveDialog {
                     )),
             )
             // --- Format ---
-            .child(div().mt(px(18.)).child(group_label(t!("dlg.save_format").to_string(), &co)))
+            .child(
+                div()
+                    .mt(px(18.))
+                    .child(group_label(t!("dlg.save_format").to_string(), &co)),
+            )
             .child(
                 v_flex()
                     .gap(px(1.))
-                    .child(self.format_row("fm-pml", SaveFormat::Pml, t!("dlg.save_pml").to_string(), &co, cx))
-                    .child(self.format_row("fm-csv", SaveFormat::Csv, t!("dlg.save_csv").to_string(), &co, cx))
-                    .child(self.format_row("fm-xml", SaveFormat::Xml, t!("dlg.save_xml").to_string(), &co, cx))
+                    .child(self.format_row(
+                        "fm-pml",
+                        SaveFormat::Pml,
+                        t!("dlg.save_pml").to_string(),
+                        &co,
+                        cx,
+                    ))
+                    .child(self.format_row(
+                        "fm-csv",
+                        SaveFormat::Csv,
+                        t!("dlg.save_csv").to_string(),
+                        &co,
+                        cx,
+                    ))
+                    .child(self.format_row(
+                        "fm-xml",
+                        SaveFormat::Xml,
+                        t!("dlg.save_xml").to_string(),
+                        &co,
+                        cx,
+                    ))
                     .child(
                         v_flex()
                             .pl(px(30.))
@@ -300,7 +327,13 @@ impl gpui::Render for SaveDialog {
                     .mt(px(20.))
                     .items_center()
                     .gap(px(11.))
-                    .child(div().text_size(px(12.5)).text_color(co.fg).flex_shrink_0().child(t!("dlg.save_path").to_string()))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(co.fg)
+                            .flex_shrink_0()
+                            .child(t!("dlg.save_path").to_string()),
+                    )
                     .child(div().flex_1().child(Input::new(&self.path).map(|mut i| {
                         i.style().size.height = Some(px(34.).into());
                         i
@@ -332,10 +365,12 @@ impl SaveDialog {
         rc_row(id, on, false, text, co.hover)
             .child(radio_mark(on, co))
             .child(
-                h_flex().flex_1().items_center().gap(px(8.)).child(div().child(label)).when_some(
-                    count,
-                    |this, n| this.child(count_badge(n, co)),
-                ),
+                h_flex()
+                    .flex_1()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().child(label))
+                    .when_some(count, |this, n| this.child(count_badge(n, co))),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.scope = scope;
@@ -391,7 +426,11 @@ impl SaveDialog {
         let cur = self.path.read(cx).value().to_string();
         let (tx, rx) = crossbeam_channel::bounded::<Option<std::path::PathBuf>>(1);
         std::thread::spawn(move || {
-            let name = cur.rsplit(['\\', '/']).next().unwrap_or("Logfile.PML").to_string();
+            let name = cur
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or("Logfile.PML")
+                .to_string();
             let _ = tx.send(rfd::FileDialog::new().set_file_name(name).save_file());
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -419,7 +458,13 @@ impl SaveDialog {
 }
 
 /// A `.rc-row`: 7px×8px padding, 7px radius, hover bg (unless disabled).
-fn rc_row(id: &'static str, _on: bool, disabled: bool, text: Hsla, hover: Hsla) -> gpui::Stateful<Div> {
+fn rc_row(
+    id: &'static str,
+    _on: bool,
+    disabled: bool,
+    text: Hsla,
+    hover: Hsla,
+) -> gpui::Stateful<Div> {
     let mut row = div()
         .id(id)
         .flex()
@@ -449,7 +494,9 @@ fn radio_mark(on: bool, co: &Co) -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
-        .when(on, |d| d.child(div().size(px(8.)).rounded_full().bg(co.accent)))
+        .when(on, |d| {
+            d.child(div().size(px(8.)).rounded_full().bg(co.accent))
+        })
 }
 
 /// A check mark (`.rc-check`): 17px box, accent fill + tick when on.
@@ -464,7 +511,13 @@ fn check_mark(on: bool, _disabled: bool, co: &Co) -> impl IntoElement {
         .items_center()
         .justify_center()
         .when(on, |d| d.bg(co.accent))
-        .when(on, |d| d.child(Icon::new(PmIcon::Check).size(px(12.)).text_color(gpui::white())))
+        .when(on, |d| {
+            d.child(
+                Icon::new(PmIcon::Check)
+                    .size(px(12.))
+                    .text_color(gpui::white()),
+            )
+        })
 }
 
 /// A `.rc-count` badge: mono, bordered pill.
@@ -484,7 +537,12 @@ fn count_badge(n: u64, co: &Co) -> impl IntoElement {
 
 /// A `.save-group-label`: 13px semibold.
 fn group_label(text: String, co: &Co) -> Div {
-    div().mb(px(8.)).text_size(px(13.)).font_semibold().text_color(co.fg).child(text)
+    div()
+        .mb(px(8.))
+        .text_size(px(13.))
+        .font_semibold()
+        .text_color(co.fg)
+        .child(text)
 }
 
 /// Formats a number with thousands separators (cf. design `toLocaleString`).
@@ -493,7 +551,7 @@ fn group_thousands(n: u64) -> SharedString {
     let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i) % 3 == 0 {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*b as char);

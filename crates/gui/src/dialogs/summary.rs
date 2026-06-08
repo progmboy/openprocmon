@@ -9,21 +9,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    App, Hsla, IntoElement, ParentElement, SharedString, Styled, div, linear_color_stop,
-    linear_gradient, prelude::FluentBuilder, px, relative,
+    div, linear_color_stop, linear_gradient, prelude::FluentBuilder, px, relative, App, Hsla,
+    IntoElement, ParentElement, SharedString, Styled,
 };
 use gpui_component::{
-    ActiveTheme, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     chart::AreaChart,
-    h_flex, v_flex,
+    h_flex, v_flex, ActiveTheme, StyledExt, WindowExt,
 };
 use rust_i18n::t;
 
 use crate::model::domain::{EventCategory, EventSummaryRow};
-use crate::theme::{ProcmonPalette, palette};
+use crate::theme::{palette, ProcmonPalette};
 
 const BINS: usize = 24;
+
+/// A "top process" aggregate row: name, event count and (optional) app icon.
+type TopProc = (SharedString, usize, Option<Arc<[u8]>>);
+/// Per-process accumulator value: running count and first-seen icon.
+type ProcStat = (usize, Option<Arc<[u8]>>);
 
 /// One sparkline point (`AreaChart` needs an `Into<SharedString>` x label).
 #[derive(Clone)]
@@ -44,7 +48,7 @@ pub(crate) struct SummaryStats {
     /// Network series (network counts per time bin).
     net: Vec<f64>,
     /// (process name, count, app-icon), top 6.
-    top_proc: Vec<(SharedString, usize, Option<Arc<[u8]>>)>,
+    top_proc: Vec<TopProc>,
 }
 
 impl SummaryStats {
@@ -53,10 +57,10 @@ impl SummaryStats {
         let mut rate = vec![0f64; BINS];
         let mut net = vec![0f64; BINS];
         let mut cat_counts = [0usize; 6];
-        let mut proc: HashMap<SharedString, (usize, Option<Arc<[u8]>>)> = HashMap::new();
+        let mut proc: HashMap<SharedString, ProcStat> = HashMap::new();
 
         for (i, row) in rows.iter().enumerate() {
-            let bin = if total > 0 { (i * BINS / total).min(BINS - 1) } else { 0 };
+            let bin = (i * BINS).checked_div(total).map_or(0, |b| b.min(BINS - 1));
             rate[bin] += 1.0;
             cat_counts[cat_index(row.category)] += 1;
             if row.category == EventCategory::Network {
@@ -79,11 +83,13 @@ impl SummaryStats {
         .into_iter()
         .map(|c| (c, cat_counts[cat_index(c)]))
         .collect();
-        cats.sort_by(|a, b| b.1.cmp(&a.1));
+        cats.sort_by_key(|c| std::cmp::Reverse(c.1));
 
-        let mut top_proc: Vec<(SharedString, usize, Option<Arc<[u8]>>)> =
-            proc.into_iter().map(|(name, (n, icon))| (name, n, icon)).collect();
-        top_proc.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut top_proc: Vec<TopProc> = proc
+            .into_iter()
+            .map(|(name, (n, icon))| (name, n, icon))
+            .collect();
+        top_proc.sort_by_key(|p| std::cmp::Reverse(p.1));
         top_proc.truncate(6);
 
         Self {
@@ -144,7 +150,14 @@ pub(crate) fn render(stats: &SummaryStats, cx: &App) -> impl IntoElement {
     };
 
     let pts = |series: &[f64]| -> Vec<Pt> {
-        series.iter().enumerate().map(|(i, v)| Pt { x: i.to_string().into(), y: *v }).collect()
+        series
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Pt {
+                x: i.to_string().into(),
+                y: *v,
+            })
+            .collect()
     };
 
     // Design `.perf-grid` — 2×2 cards.
@@ -178,8 +191,18 @@ pub(crate) fn render(stats: &SummaryStats, cx: &App) -> impl IntoElement {
         .child(
             h_flex()
                 .gap(px(14.))
-                .child(card(&co, t!("dlg.sum_by_cat").to_string(), None, cat_bars(&co, stats)))
-                .child(card(&co, t!("dlg.sum_top").to_string(), None, top_procs(&co, stats))),
+                .child(card(
+                    &co,
+                    t!("dlg.sum_by_cat").to_string(),
+                    None,
+                    cat_bars(&co, stats),
+                ))
+                .child(card(
+                    &co,
+                    t!("dlg.sum_top").to_string(),
+                    None,
+                    top_procs(&co, stats),
+                )),
         )
 }
 
@@ -204,7 +227,13 @@ fn card(
             h_flex()
                 .items_center()
                 .justify_between()
-                .child(div().text_color(co.fg).text_size(px(12.5)).font_semibold().child(title))
+                .child(
+                    div()
+                        .text_color(co.fg)
+                        .text_size(px(12.5))
+                        .font_semibold()
+                        .child(title),
+                )
                 .when_some(value, |this, (v, color)| {
                     this.child(
                         div()
@@ -239,37 +268,45 @@ fn sparkline(points: Vec<Pt>, color: Hsla, bg: Hsla) -> impl IntoElement {
 /// Design `.cat-bars`: swatch + label, a track bar, the count.
 fn cat_bars(co: &Co, stats: &SummaryStats) -> impl IntoElement {
     let max = stats.cats.iter().map(|(_, n)| *n).max().unwrap_or(0).max(1) as f32;
-    v_flex().gap(px(9.)).children(stats.cats.iter().map(|(cat, n)| {
-        let color = cat.color(&co.pal);
-        let ratio = *n as f32 / max;
-        h_flex()
-            .items_center()
-            .gap(px(10.))
-            .text_size(px(11.5))
-            .child(
-                h_flex()
-                    .w(px(92.))
-                    .items_center()
-                    .gap(px(7.))
-                    .text_color(co.text2)
-                    .child(div().size(px(9.)).rounded(px(2.)).bg(color))
-                    .child(div().child(cat.label())),
-            )
-            .child(track(co, ratio, color))
-            .child(
-                div()
-                    .w(px(52.))
-                    .text_right()
-                    .text_color(co.muted)
-                    .font_family("Consolas")
-                    .child(n.to_string()),
-            )
-    }))
+    v_flex()
+        .gap(px(9.))
+        .children(stats.cats.iter().map(|(cat, n)| {
+            let color = cat.color(&co.pal);
+            let ratio = *n as f32 / max;
+            h_flex()
+                .items_center()
+                .gap(px(10.))
+                .text_size(px(11.5))
+                .child(
+                    h_flex()
+                        .w(px(92.))
+                        .items_center()
+                        .gap(px(7.))
+                        .text_color(co.text2)
+                        .child(div().size(px(9.)).rounded(px(2.)).bg(color))
+                        .child(div().child(cat.label())),
+                )
+                .child(track(co, ratio, color))
+                .child(
+                    div()
+                        .w(px(52.))
+                        .text_right()
+                        .text_color(co.muted)
+                        .font_family("Consolas")
+                        .child(n.to_string()),
+                )
+        }))
 }
 
 /// Design `.top-proc-row`: app-icon + name + bar + count.
 fn top_procs(co: &Co, stats: &SummaryStats) -> impl IntoElement {
-    let max = stats.top_proc.iter().map(|(_, n, _)| *n).max().unwrap_or(0).max(1) as f32;
+    let max = stats
+        .top_proc
+        .iter()
+        .map(|(_, n, _)| *n)
+        .max()
+        .unwrap_or(0)
+        .max(1) as f32;
     v_flex().children(stats.top_proc.iter().map(|(name, n, icon)| {
         let ratio = *n as f32 / max;
         let color = proc_color(name, &co.pal);
@@ -281,7 +318,14 @@ fn top_procs(co: &Co, stats: &SummaryStats) -> impl IntoElement {
             .border_b_1()
             .border_color(co.border.opacity(0.5))
             .child(crate::components::app_icon(icon.as_ref(), name, color, 16.))
-            .child(div().flex_1().min_w(px(0.)).truncate().text_color(co.fg).child(name.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_color(co.fg)
+                    .child(name.clone()),
+            )
             .child(div().w(px(60.)).child(track(co, ratio, co.pal.row_sel_bar)))
             .child(
                 div()
@@ -302,7 +346,13 @@ fn track(co: &Co, ratio: f32, color: Hsla) -> impl IntoElement {
         .rounded(px(4.))
         .bg(co.panel2)
         .overflow_hidden()
-        .child(div().h_full().w(relative(ratio.clamp(0., 1.))).rounded(px(4.)).bg(color))
+        .child(
+            div()
+                .h_full()
+                .w(relative(ratio.clamp(0., 1.)))
+                .rounded(px(4.))
+                .bg(color),
+        )
 }
 
 fn proc_color(name: &str, pal: &ProcmonPalette) -> Hsla {

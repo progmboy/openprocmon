@@ -54,14 +54,14 @@ impl SdkSource {
     /// Connects the driver and spawns the relay thread. Called from `start()` only
     /// when launching unpaused, otherwise on the first `set_capturing(true)`.
     fn connect_and_run(&mut self, tx: Sender<SourceEvent>) {
-        // Connect (auto-loading the driver next to the exe if the port is absent).
-        let loader = DriverLoader::new(DRIVER_NAME, driver_sys_path());
+        // Build the driver loader. The port is connected first inside
+        // `connect_with_driver`; an embedded image is only dropped to
+        // System32\Drivers if that connect misses and the driver must be loaded.
+        let loader = make_loader();
         let mut controller = match MonitorController::connect_with_driver(loader) {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(SourceEvent::Error(
-                    format!("Failed to connect to the driver: {e}").into(),
-                ));
+                let _ = tx.send(SourceEvent::Error(driver_error_message(&e)));
                 return;
             }
         };
@@ -69,7 +69,9 @@ impl SdkSource {
             Ok(r) => r,
             Err(e) => {
                 let _ = tx.send(SourceEvent::Error(
-                    format!("Failed to start capture: {e}").into(),
+                    rust_i18n::t!("capture.err.start", detail = e.to_string())
+                        .to_string()
+                        .into(),
                 ));
                 return;
             }
@@ -195,12 +197,43 @@ fn flags_from(t: MonitorToggles) -> MonitorFlags {
     f
 }
 
-/// `procmon.sys` next to the executable (where the build/installer places it).
-fn driver_sys_path() -> PathBuf {
-    std::env::current_exe()
+/// Builds the [`DriverLoader`]. Without the `embedded-driver` feature it loads a
+/// `procmon.sys` from next to the executable; with it, the driver image is embedded
+/// in the binary and dropped to `%SystemRoot%\System32\Drivers` on demand.
+/// Maps an SDK error to a localized, user-facing toast message. The actionable
+/// driver-load failures get a dedicated string; everything else falls back to the
+/// SDK's (English) `Display` wrapped in a localized prefix.
+fn driver_error_message(e: &procmon_sdk::Error) -> gpui::SharedString {
+    use procmon_sdk::Error as E;
+    match e {
+        E::NotElevated => rust_i18n::t!("driver.err.not_elevated").to_string(),
+        E::OtherVersionLoaded => rust_i18n::t!("driver.err.other_version").to_string(),
+        E::AlreadyMonitoring => rust_i18n::t!("driver.err.already_monitoring").to_string(),
+        other => rust_i18n::t!("driver.err.generic", detail = other.to_string()).to_string(),
+    }
+    .into()
+}
+
+#[cfg(not(feature = "embedded-driver"))]
+fn make_loader() -> DriverLoader {
+    // `procmon.sys` next to the executable (where the build/installer places it).
+    let sys = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("procmon.sys")))
-        .unwrap_or_else(|| PathBuf::from("procmon.sys"))
+        .unwrap_or_else(|| PathBuf::from("procmon.sys"));
+    DriverLoader::new(DRIVER_NAME, sys)
+}
+
+#[cfg(feature = "embedded-driver")]
+fn make_loader() -> DriverLoader {
+    // The signed driver image (repo `bin/PROCMON24.SYS`), embedded at build time.
+    // It is only dropped to %SystemRoot%\System32\Drivers if the driver actually
+    // needs loading (connect-first miss) — see `DriverLoader::from_embedded`.
+    const DRIVER_IMAGE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../bin/PROCMON24.SYS"
+    ));
+    DriverLoader::from_embedded(DRIVER_NAME, "PROCMON24.SYS", DRIVER_IMAGE)
 }
 
 /// Builds the rich detail for an SDK event (Event/Process/Stack tabs).
@@ -428,14 +461,12 @@ impl EventSource for PmlSource {
 
         let stop = Arc::clone(&self.stop);
         self.handle = Some(thread::spawn(move || {
-            let mut seq: u64 = 1;
             // Each event is synthesized as a unified `Event` sharing the reader Arc.
-            for ev in reader.events() {
+            for (seq, ev) in (1_u64..).zip(reader.events()) {
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
                 let row = CapturedEvent::from_event(ev, seq);
-                seq += 1;
                 if tx.send(SourceEvent::Row(row)).is_err() {
                     break;
                 }
@@ -457,8 +488,11 @@ impl EventSource for PmlSource {
     fn set_filter(&mut self, _filter: FilterModel) {}
 
     fn detail_for(&self, row: &CapturedEvent) -> EventDetail {
-        let kernel_mods =
-            self.reader.as_ref().map(|r| pml_kernel_modules(r)).unwrap_or_default();
+        let kernel_mods = self
+            .reader
+            .as_ref()
+            .map(|r| pml_kernel_modules(r))
+            .unwrap_or_default();
         event_detail(row.event(), row, &kernel_mods)
     }
 
@@ -470,7 +504,10 @@ impl EventSource for PmlSource {
     }
 
     fn kernel_modules(&self) -> Vec<ModuleRow> {
-        self.reader.as_ref().map(|r| pml_kernel_modules(r)).unwrap_or_default()
+        self.reader
+            .as_ref()
+            .map(|r| pml_kernel_modules(r))
+            .unwrap_or_default()
     }
 }
 
@@ -567,8 +604,14 @@ pub(crate) fn export_csv(rows: &[&CapturedEvent], path: &str) -> Result<(), Stri
         ])
         .map_err(|e| e.to_string())?;
         for row in rows {
-            let (time, name, op, path_col, result, detail) =
-                (row.time(), row.process_name(), row.operation(), row.path(), row.result(), row.detail());
+            let (time, name, op, path_col, result, detail) = (
+                row.time(),
+                row.process_name(),
+                row.operation(),
+                row.path(),
+                row.result(),
+                row.detail(),
+            );
             let pid = row.pid().to_string();
             let user = row.event().user().unwrap_or_default();
             w.write_record([
@@ -618,10 +661,12 @@ pub(crate) fn export_xml(
 
     let mut w = Writer::new(Vec::<u8>::new());
     let start = |w: &mut Writer<Vec<u8>>, n: &str| {
-        w.write_event(Xml::Start(BytesStart::new(n))).map_err(|err| err.to_string())
+        w.write_event(Xml::Start(BytesStart::new(n)))
+            .map_err(|err| err.to_string())
     };
     let end = |w: &mut Writer<Vec<u8>>, n: &str| {
-        w.write_event(Xml::End(BytesEnd::new(n))).map_err(|err| err.to_string())
+        w.write_event(Xml::End(BytesEnd::new(n)))
+            .map_err(|err| err.to_string())
     };
 
     w.write_event(Xml::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
@@ -637,10 +682,22 @@ pub(crate) fn export_xml(
         leaf(&mut w, "ProcessId", &pid.to_string())?;
         leaf(&mut w, "ParentProcessId", &parent.to_string())?;
         leaf(&mut w, "ParentProcessIndex", &parent_index.to_string())?;
-        leaf(&mut w, "AuthenticationId", &ev.auth_id().unwrap_or_default())?;
+        leaf(
+            &mut w,
+            "AuthenticationId",
+            &ev.auth_id().unwrap_or_default(),
+        )?;
         leaf(&mut w, "CreateTime", &ev.process_create_time().to_string())?;
-        leaf(&mut w, "FinishTime", &ev.process_exit_time().unwrap_or(0).to_string())?;
-        leaf(&mut w, "IsVirtualized", bit(ev.is_virtualized() == Some(true)))?;
+        leaf(
+            &mut w,
+            "FinishTime",
+            &ev.process_exit_time().unwrap_or(0).to_string(),
+        )?;
+        leaf(
+            &mut w,
+            "IsVirtualized",
+            bit(ev.is_virtualized() == Some(true)),
+        )?;
         leaf(&mut w, "Is64bit", bit(ev.is_wow64() != Some(true)))?;
         leaf(&mut w, "Integrity", ev.integrity().unwrap_or(""))?;
         leaf(&mut w, "Owner", &ev.user().unwrap_or_default())?;
@@ -686,7 +743,11 @@ pub(crate) fn export_xml(
             let symmods: Vec<procmon_sdk::SymModule> = proc_mods
                 .iter()
                 .chain(kernel_mods.iter())
-                .map(|m| procmon_sdk::SymModule { base: m.base, size: m.size, path: m.path.as_ref() })
+                .map(|m| procmon_sdk::SymModule {
+                    base: m.base,
+                    size: m.size,
+                    path: m.path.as_ref(),
+                })
                 .collect();
             start(&mut w, "stack")?;
             for (depth, frame) in ev.call_stack().iter().enumerate() {
@@ -725,11 +786,7 @@ fn bit(on: bool) -> &'static str {
 }
 
 /// Writes a leaf `<name>escaped(text)</name>` element via quick-xml.
-fn leaf(
-    w: &mut quick_xml::writer::Writer<Vec<u8>>,
-    name: &str,
-    text: &str,
-) -> Result<(), String> {
+fn leaf(w: &mut quick_xml::writer::Writer<Vec<u8>>, name: &str, text: &str) -> Result<(), String> {
     use quick_xml::events::BytesText;
     w.create_element(name)
         .write_text_content(BytesText::new(text))
@@ -770,14 +827,19 @@ mod tests {
         for ev in reader.events() {
             pids.insert(CapturedEvent::from_event(ev, 0).pid());
         }
-        assert!(pids.len() > 1, "expected multiple pids in summary rows, got {pids:?}");
+        assert!(
+            pids.len() > 1,
+            "expected multiple pids in summary rows, got {pids:?}"
+        );
     }
 
     #[test]
     fn export_csv_and_xml_produce_expected_shape() {
         let reader = open_fixture();
-        let evs: Vec<CapturedEvent> =
-            reader.events().map(|e| CapturedEvent::from_event(e, 0)).collect();
+        let evs: Vec<CapturedEvent> = reader
+            .events()
+            .map(|e| CapturedEvent::from_event(e, 0))
+            .collect();
         let refs: Vec<&CapturedEvent> = evs.iter().collect();
         assert!(refs.len() > 1);
 

@@ -49,7 +49,11 @@ pub(crate) struct SettingsDialog {
 }
 
 impl SettingsDialog {
-    pub(crate) fn new(app: WeakEntity<AppView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        app: WeakEntity<AppView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let sym = cx.new(|cx| InputState::new(window, cx));
         let dbg = cx.new(|cx| InputState::new(window, cx));
         let mb = cx.new(|cx| InputState::new(window, cx));
@@ -80,8 +84,14 @@ impl SettingsDialog {
         self.draft = config;
         self.theme = theme;
         self.lang_zh = rust_i18n::locale().starts_with("zh");
-        let (sym, dbg) = (self.draft.symbols_path.clone(), self.draft.dbghelp_path.clone());
-        let (mb, min) = (self.draft.history_mb.to_string(), self.draft.history_min.to_string());
+        let (sym, dbg) = (
+            self.draft.symbols_path.clone(),
+            self.draft.dbghelp_path.clone(),
+        );
+        let (mb, min) = (
+            self.draft.history_mb.to_string(),
+            self.draft.history_min.to_string(),
+        );
         self.sym.update(cx, |s, cx| s.set_value(sym, window, cx));
         self.dbg.update(cx, |s, cx| s.set_value(dbg, window, cx));
         self.mb.update(cx, |s, cx| s.set_value(mb, window, cx));
@@ -97,7 +107,9 @@ impl SettingsDialog {
         cfg.history_min = parse_min1(&self.min.read(cx).value(), cfg.history_min);
         let (theme, zh) = (self.theme, self.lang_zh);
         if let Some(app) = self.app.upgrade() {
-            app.update(cx, |view, cx| view.apply_settings(cfg, theme, zh, window, cx));
+            app.update(cx, |view, cx| {
+                view.apply_settings(cfg, theme, zh, window, cx)
+            });
         }
         window.close_dialog(cx);
     }
@@ -105,18 +117,24 @@ impl SettingsDialog {
     /// Footer: Cancel + Apply.
     pub(crate) fn footer(dialog: &Entity<Self>) -> impl IntoElement {
         let ok = dialog.clone();
-        h_flex().w_full().items_center().justify_end().gap(px(8.)).child(
-            Button::new("set-cancel")
-                .h(px(34.))
-                .label(t!("dlg.cancel").to_string())
-                .on_click(|_, window, cx| window.close_dialog(cx)),
-        ).child(
-            Button::new("set-apply")
-                .primary()
-                .h(px(34.))
-                .label(t!("dlg.apply").to_string())
-                .on_click(move |_, window, cx| ok.update(cx, |d, cx| d.apply(window, cx))),
-        )
+        h_flex()
+            .w_full()
+            .items_center()
+            .justify_end()
+            .gap(px(8.))
+            .child(
+                Button::new("set-cancel")
+                    .h(px(34.))
+                    .label(t!("dlg.cancel").to_string())
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+            )
+            .child(
+                Button::new("set-apply")
+                    .primary()
+                    .h(px(34.))
+                    .label(t!("dlg.apply").to_string())
+                    .on_click(move |_, window, cx| ok.update(cx, |d, cx| d.apply(window, cx))),
+            )
     }
 }
 
@@ -154,11 +172,11 @@ impl gpui::Render for SettingsDialog {
                             d.text_color(co.text2).hover(|s| s.bg(co.hover))
                         }
                     })
-                    .child(
-                        Icon::new(*icon)
-                            .size(px(16.))
-                            .text_color(if active { co.accent } else { co.muted }),
-                    )
+                    .child(Icon::new(*icon).size(px(16.)).text_color(if active {
+                        co.accent
+                    } else {
+                        co.muted
+                    }))
                     .child(t!(*key).to_string())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.selected = ix;
@@ -199,34 +217,66 @@ impl SettingsDialog {
                 t!("set.theme").to_string(),
                 Some(t!("set.theme_desc").to_string()),
                 seg(co)
-                    .child(seg_btn("th-l", t!("set.light").to_string(), self.theme == ThemeMode::Light, co)
-                        .on_click(cx.listener(|t, _, _, cx| { t.theme = ThemeMode::Light; cx.notify(); })))
-                    .child(seg_btn("th-d", t!("set.dark").to_string(), self.theme == ThemeMode::Dark, co)
-                        .on_click(cx.listener(|t, _, _, cx| { t.theme = ThemeMode::Dark; cx.notify(); }))),
+                    .child(
+                        seg_btn(
+                            "th-l",
+                            t!("set.light").to_string(),
+                            self.theme == ThemeMode::Light,
+                            co,
+                        )
+                        .on_click(cx.listener(|t, _, _, cx| {
+                            t.theme = ThemeMode::Light;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        seg_btn(
+                            "th-d",
+                            t!("set.dark").to_string(),
+                            self.theme == ThemeMode::Dark,
+                            co,
+                        )
+                        .on_click(cx.listener(|t, _, _, cx| {
+                            t.theme = ThemeMode::Dark;
+                            cx.notify();
+                        })),
+                    ),
                 co,
             ))
             .child(set_row(
                 t!("set.lang").to_string(),
                 Some(t!("set.lang_desc").to_string()),
                 seg(co)
-                    .child(seg_btn("lg-zh", "中文".to_string(), self.lang_zh, co)
-                        .on_click(cx.listener(|t, _, _, cx| { t.lang_zh = true; cx.notify(); })))
-                    .child(seg_btn("lg-en", "English".to_string(), !self.lang_zh, co)
-                        .on_click(cx.listener(|t, _, _, cx| { t.lang_zh = false; cx.notify(); }))),
+                    .child(
+                        seg_btn("lg-zh", "中文".to_string(), self.lang_zh, co).on_click(
+                            cx.listener(|t, _, _, cx| {
+                                t.lang_zh = true;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        seg_btn("lg-en", "English".to_string(), !self.lang_zh, co).on_click(
+                            cx.listener(|t, _, _, cx| {
+                                t.lang_zh = false;
+                                cx.notify();
+                            }),
+                        ),
+                    ),
                 co,
             ))
             .child(set_row_full(
                 t!("set.hl_color").to_string(),
                 Some(t!("set.hl_color_desc").to_string()),
-                h_flex().gap(px(10.)).flex_wrap().children(HighlightColor::ALL.iter().enumerate().map(
-                    |(i, c)| {
+                h_flex().gap(px(10.)).flex_wrap().children(
+                    HighlightColor::ALL.iter().enumerate().map(|(i, c)| {
                         let c = *c;
                         swatch(i, c, hl == c, co).on_click(cx.listener(move |t, _, _, cx| {
                             t.draft.highlight_color = c;
                             cx.notify();
                         }))
-                    },
-                )),
+                    }),
+                ),
                 co,
             ))
             // Preview (design `.set-preview`): a highlighted row + a normal row.
@@ -279,8 +329,10 @@ impl SettingsDialog {
             .child(set_row(
                 t!("set.ring").to_string(),
                 Some(t!("set.ring_desc").to_string()),
-                switch(ring, co)
-                    .on_click(cx.listener(|t, _, _, cx| { t.draft.history_ring = !t.draft.history_ring; cx.notify(); })),
+                switch(ring, co).on_click(cx.listener(|t, _, _, cx| {
+                    t.draft.history_ring = !t.draft.history_ring;
+                    cx.notify();
+                })),
                 co,
             ))
             // Limit card (design `.limit-card`): dimmed + disabled when ring is off.
@@ -294,8 +346,20 @@ impl SettingsDialog {
                     .border_color(co.border)
                     .bg(co.panel)
                     .when(!ring, |d| d.opacity(0.4))
-                    .child(limit_line(t!("set.limit").to_string(), &self.mb, "MB".to_string(), ring, co))
-                    .child(limit_line(t!("set.limit").to_string(), &self.min, t!("set.minutes").to_string(), ring, co)),
+                    .child(limit_line(
+                        t!("set.limit").to_string(),
+                        &self.mb,
+                        "MB".to_string(),
+                        ring,
+                        co,
+                    ))
+                    .child(limit_line(
+                        t!("set.limit").to_string(),
+                        &self.min,
+                        t!("set.minutes").to_string(),
+                        ring,
+                        co,
+                    )),
             )
     }
 
@@ -308,7 +372,10 @@ impl SettingsDialog {
             .child(set_row(
                 t!("set.prof_enable").to_string(),
                 None,
-                switch(on, co).on_click(cx.listener(|t, _, _, cx| { t.draft.profiling_enabled = !t.draft.profiling_enabled; cx.notify(); })),
+                switch(on, co).on_click(cx.listener(|t, _, _, cx| {
+                    t.draft.profiling_enabled = !t.draft.profiling_enabled;
+                    cx.notify();
+                })),
                 co,
             ))
             .child(set_row(
@@ -316,27 +383,48 @@ impl SettingsDialog {
                 Some(t!("set.interval_desc").to_string()),
                 div().when(!on, |d| d.opacity(0.4)).child(
                     seg(co)
-                        .child(seg_btn("iv-1", t!("set.every_1s").to_string(), iv == ProfilingInterval::OneSecond, co)
-                            .on_click(cx.listener(|t, _, _, cx| { t.draft.profiling_interval = ProfilingInterval::OneSecond; cx.notify(); })))
-                        .child(seg_btn("iv-100", t!("set.every_100ms").to_string(), iv == ProfilingInterval::HundredMs, co)
-                            .on_click(cx.listener(|t, _, _, cx| { t.draft.profiling_interval = ProfilingInterval::HundredMs; cx.notify(); }))),
+                        .child(
+                            seg_btn(
+                                "iv-1",
+                                t!("set.every_1s").to_string(),
+                                iv == ProfilingInterval::OneSecond,
+                                co,
+                            )
+                            .on_click(cx.listener(|t, _, _, cx| {
+                                t.draft.profiling_interval = ProfilingInterval::OneSecond;
+                                cx.notify();
+                            })),
+                        )
+                        .child(
+                            seg_btn(
+                                "iv-100",
+                                t!("set.every_100ms").to_string(),
+                                iv == ProfilingInterval::HundredMs,
+                                co,
+                            )
+                            .on_click(cx.listener(|t, _, _, cx| {
+                                t.draft.profiling_interval = ProfilingInterval::HundredMs;
+                                cx.notify();
+                            })),
+                        ),
                 ),
                 co,
             ))
     }
 
-    fn panel_boot(&self, co: &Co, cx: &mut Context<Self>) -> impl IntoElement {
-        let on = self.draft.boot_capture;
+    fn panel_boot(&self, co: &Co, _cx: &mut Context<Self>) -> impl IntoElement {
+        // Boot logging (the BOOT_START driver path) isn't supported yet, so the
+        // toggle is shown disabled (dimmed, non-interactive) until it lands.
         v_flex()
             .child(section_title(t!("set.boot_title").to_string(), co))
             .child(lead(t!("set.boot_lead").to_string(), co))
             .child(set_row(
                 t!("set.boot_enable").to_string(),
                 Some(t!("set.boot_enable_desc").to_string()),
-                switch(on, co).on_click(cx.listener(|t, _, _, cx| { t.draft.boot_capture = !t.draft.boot_capture; cx.notify(); })),
+                switch_disabled(co),
                 co,
             ))
-            .when(on, |this| this.child(note_warn(t!("set.boot_note").to_string(), co)))
+            .child(note_warn(t!("set.boot_unsupported").to_string(), co))
     }
 
     fn panel_display(&self, co: &Co, cx: &mut Context<Self>) -> impl IntoElement {
@@ -356,13 +444,19 @@ impl SettingsDialog {
             .child(set_row(
                 t!("set.hex_offset").to_string(),
                 Some(t!("set.hex_offset_desc").to_string()),
-                switch(hx_off, co).on_click(cx.listener(|t, _, _, cx| { t.draft.hex_file_offset = !t.draft.hex_file_offset; cx.notify(); })),
+                switch(hx_off, co).on_click(cx.listener(|t, _, _, cx| {
+                    t.draft.hex_file_offset = !t.draft.hex_file_offset;
+                    cx.notify();
+                })),
                 co,
             ))
             .child(set_row(
                 t!("set.hex_id").to_string(),
                 Some(t!("set.hex_id_desc").to_string()),
-                switch(hx_id, co).on_click(cx.listener(|t, _, _, cx| { t.draft.hex_thread_proc_id = !t.draft.hex_thread_proc_id; cx.notify(); })),
+                switch(hx_id, co).on_click(cx.listener(|t, _, _, cx| {
+                    t.draft.hex_thread_proc_id = !t.draft.hex_thread_proc_id;
+                    cx.notify();
+                })),
                 co,
             ))
             .child(
@@ -374,7 +468,11 @@ impl SettingsDialog {
                     .border_color(co.border)
                     .bg(cx.theme().background)
                     .child(preview_mono(id_line, co))
-                    .child(preview_mono(off_line, co).border_t_1().border_color(co.border)),
+                    .child(
+                        preview_mono(off_line, co)
+                            .border_t_1()
+                            .border_color(co.border),
+                    ),
             )
     }
 }
@@ -414,15 +512,30 @@ impl Co {
 }
 
 fn section_title(text: String, co: &Co) -> Div {
-    div().text_size(px(15.)).font_bold().text_color(co.fg).child(text)
+    div()
+        .text_size(px(15.))
+        .font_bold()
+        .text_color(co.fg)
+        .child(text)
 }
 
 fn lead(text: String, co: &Co) -> Div {
-    div().mt(px(6.)).mb(px(18.)).text_size(px(12.)).line_height(px(20.)).text_color(co.muted).child(text)
+    div()
+        .mt(px(6.))
+        .mb(px(18.))
+        .text_size(px(12.))
+        .line_height(px(20.))
+        .text_color(co.muted)
+        .child(text)
 }
 
 fn fld_label(text: String, co: &Co) -> Div {
-    div().mt(px(14.)).mb(px(6.)).text_size(px(11.5)).text_color(co.muted).child(text)
+    div()
+        .mt(px(14.))
+        .mb(px(6.))
+        .text_size(px(11.5))
+        .text_color(co.muted)
+        .child(text)
 }
 
 /// Forces a single-line `Input` to the design's 34px field height.
@@ -432,7 +545,12 @@ fn fld(mut input: Input) -> Input {
 }
 
 /// A `.set-row`: title (+ desc) on the left, control on the right.
-fn set_row(title: String, desc: Option<String>, control: impl IntoElement, co: &Co) -> impl IntoElement {
+fn set_row(
+    title: String,
+    desc: Option<String>,
+    control: impl IntoElement,
+    co: &Co,
+) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap(px(16.))
@@ -443,16 +561,33 @@ fn set_row(title: String, desc: Option<String>, control: impl IntoElement, co: &
             v_flex()
                 .flex_1()
                 .min_w(px(0.))
-                .child(div().text_size(px(12.5)).font_medium().text_color(co.fg).child(title))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .font_medium()
+                        .text_color(co.fg)
+                        .child(title),
+                )
                 .when_some(desc, |t, d| {
-                    t.child(div().mt(px(3.)).text_size(px(11.)).text_color(co.muted).child(d))
+                    t.child(
+                        div()
+                            .mt(px(3.))
+                            .text_size(px(11.))
+                            .text_color(co.muted)
+                            .child(d),
+                    )
                 }),
         )
         .child(div().flex_shrink_0().child(control))
 }
 
 /// A `.set-row.full`: title/desc, then the control on its own line below.
-fn set_row_full(title: String, desc: Option<String>, control: impl IntoElement, co: &Co) -> impl IntoElement {
+fn set_row_full(
+    title: String,
+    desc: Option<String>,
+    control: impl IntoElement,
+    co: &Co,
+) -> impl IntoElement {
     v_flex()
         .gap(px(11.))
         .py(px(13.))
@@ -460,9 +595,21 @@ fn set_row_full(title: String, desc: Option<String>, control: impl IntoElement, 
         .border_color(co.border_soft)
         .child(
             v_flex()
-                .child(div().text_size(px(12.5)).font_medium().text_color(co.fg).child(title))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .font_medium()
+                        .text_color(co.fg)
+                        .child(title),
+                )
                 .when_some(desc, |t, d| {
-                    t.child(div().mt(px(3.)).text_size(px(11.)).text_color(co.muted).child(d))
+                    t.child(
+                        div()
+                            .mt(px(3.))
+                            .text_size(px(11.))
+                            .text_color(co.muted)
+                            .child(d),
+                    )
                 }),
         )
         .child(control)
@@ -487,6 +634,27 @@ fn switch(on: bool, co: &Co) -> Stateful<Div> {
                 .size(px(16.))
                 .rounded_full()
                 .bg(white()),
+        )
+}
+
+/// A non-interactive, dimmed off-switch for settings that aren't supported yet
+/// (no `id`/`cursor`/`on_click`, so it can't be toggled).
+fn switch_disabled(co: &Co) -> Div {
+    div()
+        .w(px(40.))
+        .h(px(22.))
+        .rounded_full()
+        .flex_shrink_0()
+        .relative()
+        .bg(co.faint)
+        .child(
+            div()
+                .absolute()
+                .top(px(3.))
+                .left(px(3.))
+                .size(px(16.))
+                .rounded_full()
+                .bg(white().opacity(0.4)),
         )
 }
 
@@ -537,11 +705,19 @@ fn swatch(ix: usize, color: HighlightColor, selected: bool, co: &Co) -> Stateful
         .border_2()
         .border_color(if selected { co.fg } else { transparent_black() })
         .bg(color.hsla())
-        .when(selected, |d| d.child(Icon::new(PmIcon::Check).size(px(14.)).text_color(black())))
+        .when(selected, |d| {
+            d.child(Icon::new(PmIcon::Check).size(px(14.)).text_color(black()))
+        })
 }
 
 /// A `.limit-line`: label + numeric field + unit. Field disabled when `enabled` off.
-fn limit_line(label: String, input: &Entity<InputState>, unit: String, enabled: bool, co: &Co) -> impl IntoElement {
+fn limit_line(
+    label: String,
+    input: &Entity<InputState>,
+    unit: String,
+    enabled: bool,
+    co: &Co,
+) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap(px(11.))
@@ -574,7 +750,13 @@ fn note_warn(text: String, co: &Co) -> impl IntoElement {
 
 /// A `.set-preview.mono` row.
 fn preview_mono(text: String, co: &Co) -> Div {
-    div().px(px(13.)).py(px(9.)).text_size(px(11.5)).font_family("Consolas").text_color(co.fg).child(text)
+    div()
+        .px(px(13.))
+        .py(px(9.))
+        .text_size(px(11.5))
+        .font_family("Consolas")
+        .text_color(co.fg)
+        .child(text)
 }
 
 /// Parses a positive integer, clamped to >= 1, falling back to `fallback`.

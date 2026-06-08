@@ -60,7 +60,12 @@ pub(crate) fn str_field_len(raw: u16, mode: DetailMode) -> (usize, usize) {
 /// Reads a detail string at `data[off..]` whose length is the raw field `raw`,
 /// returning the decoded string and the byte length it occupied (so callers can
 /// advance past it — PML ASCII strings are half the bytes of UTF-16).
-pub(crate) fn read_detail_str(data: &[u8], off: usize, raw: u16, mode: DetailMode) -> (String, usize) {
+pub(crate) fn read_detail_str(
+    data: &[u8],
+    off: usize,
+    raw: u16,
+    mode: DetailMode,
+) -> (String, usize) {
     let (_, bytes) = str_field_len(raw, mode);
     let s = match data.get(off..off + bytes) {
         Some(b) if mode == DetailMode::Pml && raw >> 15 == 1 => {

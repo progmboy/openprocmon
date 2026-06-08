@@ -65,5 +65,7 @@ pub(crate) fn live_str(data: &[u8], off: usize, raw: u16) -> String {
 
 /// Reads a little-endian `u16` at `off`, or 0 if out of bounds.
 pub(crate) fn u16_at(data: &[u8], off: usize) -> u16 {
-    data.get(off..off + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).unwrap_or(0)
+    data.get(off..off + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .unwrap_or(0)
 }

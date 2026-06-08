@@ -49,6 +49,22 @@ pub fn date(ticks: i64) -> String {
     }
 }
 
+/// `YYYY/MM/DD HH:MM:SS.fffffff` in local time — the full 100-ns precision used for
+/// Date & Time filtering. Every field is fixed-width zero-padded, so lexicographic
+/// comparison (the filter engine's `LessThan`/`MoreThan`) orders correctly.
+pub fn date_precise(ticks: i64) -> String {
+    match to_local(ticks) {
+        Some(st) => {
+            let frac = ticks.rem_euclid(TICKS_PER_SECOND);
+            format!(
+                "{:04}/{:02}/{:02} {:02}:{:02}:{:02}.{:07}",
+                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, frac
+            )
+        }
+        None => ticks.to_string(),
+    }
+}
+
 /// Duration between two tick timestamps as `S.fffffff` seconds
 /// (cf. `UtilConvertTimeSpan`).
 pub fn duration(start: i64, end: i64) -> String {

@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["embedded-driver"]
+# Embed the signed driver image (repo `bin/PROCMON24.SYS`) into the GUI binary and
+# drop it to %SystemRoot%\System32\Drivers on demand. On by default; build with
+# `--no-default-features` to instead load a `procmon.sys` from next to the exe.
+embedded-driver = []
+
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed"}
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
@@ -34,6 +41,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
+    # Token impersonation for writing the config as the logged-on user (config.rs).
+    "Win32_Security",
+    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]

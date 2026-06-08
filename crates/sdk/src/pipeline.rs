@@ -183,7 +183,10 @@ fn handle_batch(
 /// Wraps a network event with its process snapshot and forwards it.
 fn emit_network(net: NetworkEvent, enrich: &Enrichment, tx_b: &Sender<Event>) {
     let proc = enrich.mgr.by_pid(net.pid);
-    let _ = tx_b.send(Event::from_network(Arc::new(net), crate::event::ProcessSource::Live(proc)));
+    let _ = tx_b.send(Event::from_network(
+        Arc::new(net),
+        crate::event::ProcessSource::Live(proc),
+    ));
 }
 
 /// On a process create/init event, resolves the image metadata (version strings

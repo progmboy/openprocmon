@@ -12,16 +12,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    AppContext, Context, Entity, Hsla, IntoElement, ParentElement, Render, SharedString, Styled,
-    WeakEntity, Window, div, px,
+    div, px, AppContext, Context, Entity, Hsla, IntoElement, ParentElement, Render, SharedString,
+    Styled, WeakEntity, Window,
 };
 use gpui_component::{
-    ActiveTheme, Icon, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
     list::ListItem,
-    tree::{TreeItem, TreeState, tree},
-    v_flex,
+    tree::{tree, TreeItem, TreeState},
+    v_flex, ActiveTheme, Icon, StyledExt, WindowExt,
 };
 use rust_i18n::t;
 
@@ -29,7 +28,7 @@ use crate::app::AppView;
 use crate::icons::PmIcon;
 use crate::model::domain::ProcessNode;
 use crate::model::filter::{FilterAction, FilterColumn};
-use crate::theme::{ProcmonPalette, palette};
+use crate::theme::{palette, ProcmonPalette};
 
 pub(crate) struct ProcessTreeDialog {
     app: WeakEntity<AppView>,
@@ -41,12 +40,21 @@ pub(crate) struct ProcessTreeDialog {
 }
 
 impl ProcessTreeDialog {
-    pub(crate) fn new(app: WeakEntity<AppView>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        app: WeakEntity<AppView>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let tree = cx.new(|cx| TreeState::new(cx));
         // TreeState emits no selection event; it only `cx.notify()`s on click. We
         // observe that so the footer's "Selected …" text re-renders on selection.
         cx.observe(&tree, |_, _, cx| cx.notify()).detach();
-        Self { app, tree, meta: HashMap::new(), icons: HashMap::new() }
+        Self {
+            app,
+            tree,
+            meta: HashMap::new(),
+            icons: HashMap::new(),
+        }
     }
 
     /// Seeds the tree from a process snapshot (call when opening).
@@ -60,7 +68,12 @@ impl ProcessTreeDialog {
 
     /// "View in Events": filter the table to the selected process, then close.
     fn view_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(name) = self.tree.read(cx).selected_item().map(|i| i.label.to_string()) {
+        if let Some(name) = self
+            .tree
+            .read(cx)
+            .selected_item()
+            .map(|i| i.label.to_string())
+        {
             self.app
                 .update(cx, |view, cx| {
                     view.quick_filter(FilterColumn::ProcessName, name, FilterAction::Include, cx)
@@ -89,8 +102,15 @@ impl Render for ProcessTreeDialog {
             // Caret (design `.tree-caret`, 13px): chevron, down when expanded; a
             // hidden 16px spacer for leaves. (Clicking the row toggles expansion.)
             let caret = if entry.is_folder() {
-                let icon = if entry.is_expanded() { PmIcon::ChevronDown } else { PmIcon::Chevron };
-                Icon::new(icon).size(px(13.)).text_color(muted).into_any_element()
+                let icon = if entry.is_expanded() {
+                    PmIcon::ChevronDown
+                } else {
+                    PmIcon::Chevron
+                };
+                Icon::new(icon)
+                    .size(px(13.))
+                    .text_color(muted)
+                    .into_any_element()
             } else {
                 div().size(px(16.)).flex_shrink_0().into_any_element()
             };
@@ -125,14 +145,22 @@ impl Render for ProcessTreeDialog {
         let fg = cx.theme().foreground;
         // Footer (design `.tree-dialog .dialog-foot`): live "Selected name (pid)"
         // (muted label + mono-bold value) on the left, Close + View on the right.
-        let selected = self.tree.read(cx).selected_item().map(|i| (i.label.clone(), i.id.clone()));
+        let selected = self
+            .tree
+            .read(cx)
+            .selected_item()
+            .map(|i| (i.label.clone(), i.id.clone()));
         let left = match selected {
             Some((name, pid)) => h_flex()
                 .flex_1()
                 .items_center()
                 .gap_1()
                 .text_size(px(12.))
-                .child(div().text_color(muted).child(t!("dlg.selected").to_string()))
+                .child(
+                    div()
+                        .text_color(muted)
+                        .child(t!("dlg.selected").to_string()),
+                )
                 .child(
                     div()
                         .text_color(fg)
@@ -171,7 +199,9 @@ impl Render for ProcessTreeDialog {
                             .primary()
                             .h(px(34.))
                             .label(t!("dlg.tree_view").to_string())
-                            .on_click(cx.listener(|this, _, window, cx| this.view_selected(window, cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.view_selected(window, cx)),
+                            ),
                     ),
             )
     }
@@ -194,7 +224,11 @@ fn item_of(node: &ProcessNode) -> TreeItem {
 fn meta_map(nodes: &[ProcessNode]) -> HashMap<SharedString, SharedString> {
     let mut map = HashMap::new();
     fn walk(node: &ProcessNode, map: &mut HashMap<SharedString, SharedString>) {
-        let desc = if node.company.is_empty() { node.user.clone() } else { node.company.clone() };
+        let desc = if node.company.is_empty() {
+            node.user.clone()
+        } else {
+            node.company.clone()
+        };
         map.insert(SharedString::from(node.pid.to_string()), desc);
         for child in &node.children {
             walk(child, map);

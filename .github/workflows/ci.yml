@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on any rustc/clippy warning.
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Fast, cheap gate: formatting only. Runs on Linux since rustfmt is
+  # platform-independent and Linux runners are quicker to spin up.
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  # The workspace targets Windows exclusively (windows / windows-sys / gpui
+  # with Win32 features), so check, clippy and tests all run on windows-latest.
+  check:
+    name: Check / Clippy / Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Caches the cargo registry, git deps (gpui is pulled from git) and the
+      # target dir keyed on Cargo.lock — large gpui builds dominate runtime.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets

@@ -5,23 +5,34 @@
 //! minifilter instance/altitude, and finally `NtLoadDriver` against that key.
 
 use crate::error::{Error, Result};
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use windows::core::{HSTRING, PCWSTR};
 use windows::Wdk::System::SystemServices::{NtLoadDriver, NtUnloadDriver};
 use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, STATUS_IMAGE_ALREADY_LOADED, STATUS_SUCCESS, UNICODE_STRING, WIN32_ERROR,
+    CloseHandle, ERROR_SHARING_VIOLATION, HANDLE, NTSTATUS, STATUS_IMAGE_ALREADY_LOADED,
+    STATUS_SUCCESS, UNICODE_STRING, WIN32_ERROR,
 };
 use windows::Win32::Security::{
     AdjustTokenPrivileges, GetTokenInformation, LookupPrivilegeValueW, TokenElevation,
     LUID_AND_ATTRIBUTES, SE_LOAD_DRIVER_NAME, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
     TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
+use windows::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_NORMAL};
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_DWORD,
-    REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE,
+    KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
 };
+use windows::Win32::System::Services::{
+    SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_FILE_SYSTEM_DRIVER,
+};
+use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+/// `STATUS_FLT_INSTANCE_ALTITUDE_COLLISION` — a different driver build already
+/// occupies this minifilter altitude; replacing it requires a reboot.
+const STATUS_FLT_INSTANCE_ALTITUDE_COLLISION: NTSTATUS = NTSTATUS(0xC01F_0011u32 as i32);
 
 /// Service key location (relative to `HKEY_LOCAL_MACHINE`).
 const SERVICE_KEY_ROOT: &str = "SYSTEM\\CurrentControlSet\\Services\\";
@@ -30,13 +41,29 @@ const NT_SERVICE_PREFIX: &str = "\\Registry\\Machine\\System\\CurrentControlSet\
 /// Minifilter instance name and altitude registered under `Instances`.
 const INSTANCE_NAME: &str = "Process Monitor 24 Instance";
 const ALTITUDE: &str = "385200";
+/// Capability bitmask the user-mode app hands the driver via the service key's
+/// `SupportedFeatures` value (read by the driver's `DriverEntry`). It must match
+/// the *loaded driver's* expectation, so it is version/driver-specific:
+/// `15` (0xF) for the genuine Process Monitor 24 driver currently used; switch to
+/// `3` when loading our own driver (cf. `kernel/procmon.inf` `SupportedFeatures`).
+const SUPPORTED_FEATURES: u32 = 15;
 /// NT namespace prefix for the `ImagePath` value.
 const IMAGE_PATH_PREFIX: &str = "\\??\\";
 
-/// Loads/unloads the OpenProcessMonitor driver by name and on-disk `.sys` path.
+/// The driver image: an on-disk `.sys` path, or bytes embedded in the binary that
+/// are dropped to `System32\Drivers` *only when the driver actually needs loading*.
+enum Image {
+    Path(PathBuf),
+    Embedded {
+        file_name: String,
+        bytes: &'static [u8],
+    },
+}
+
+/// Loads/unloads the OpenProcessMonitor driver by service `name` and image.
 pub struct DriverLoader {
     name: String,
-    sys_path: PathBuf,
+    image: Image,
 }
 
 impl DriverLoader {
@@ -44,20 +71,77 @@ impl DriverLoader {
     pub fn new(name: impl Into<String>, sys_path: impl AsRef<Path>) -> Self {
         Self {
             name: name.into(),
-            sys_path: sys_path.as_ref().to_path_buf(),
+            image: Image::Path(sys_path.as_ref().to_path_buf()),
+        }
+    }
+
+    /// Creates a loader from an in-memory driver image (e.g. one embedded via
+    /// `include_bytes!`). The bytes are **not** written here — extraction to
+    /// `%SystemRoot%\System32\Drivers\<file_name>` is deferred to
+    /// [`ensure_loaded`](Self::ensure_loaded), so a connect-first hit (driver
+    /// already running) never touches the disk. Mirrors Process Monitor, which only
+    /// drops its embedded `.sys` when it has to load.
+    pub fn from_embedded(
+        name: impl Into<String>,
+        file_name: impl Into<String>,
+        bytes: &'static [u8],
+    ) -> Self {
+        Self {
+            name: name.into(),
+            image: Image::Embedded {
+                file_name: file_name.into(),
+                bytes,
+            },
         }
     }
 
     /// Ensures the driver is loaded: verifies elevation, enables the load-driver
-    /// privilege, writes the service key, and calls `NtLoadDriver`. An already
-    /// loaded driver is treated as success.
+    /// privilege, resolves the image path (extracting an embedded image to disk on
+    /// demand), writes the service key, and calls `NtLoadDriver`. An already loaded
+    /// driver is treated as success. Only called after a connect-first miss, so an
+    /// embedded image is written to disk lazily — never when the port already exists.
     pub fn ensure_loaded(&self) -> Result<()> {
         if !is_elevated()? {
             return Err(Error::NotElevated);
         }
         enable_privilege(SE_LOAD_DRIVER_NAME)?;
-        self.create_service_key()?;
-        load_driver(&self.registry_path())
+        let sys_path = self.resolve_sys_path()?;
+        self.create_service_key(&sys_path)?;
+        let result = load_driver(&self.registry_path());
+        // Remove the system-generated noise subkeys whether or not the load
+        // succeeded — Procmon cleans up regardless of NtLoadDriver's result. The
+        // load outcome is surfaced afterwards.
+        self.cleanup_service_subkeys();
+        result
+    }
+
+    /// After a successful load, removes the noise subkeys the system auto-creates
+    /// under the service key (`Enum`, `Security`) plus any `Parameters`, mirroring
+    /// Process Monitor's post-load cleanup. The core service values
+    /// (`Type`/`Start`/`ImagePath`) and the `Instances` subtree are kept, so the
+    /// driver can still be unloaded via [`unload`](Self::unload). Best-effort: a
+    /// missing subkey (e.g. `Parameters`, which we never create) is ignored.
+    fn cleanup_service_subkeys(&self) {
+        for sub in ["Enum", "Security", "Parameters"] {
+            let path = format!("{SERVICE_KEY_ROOT}{}\\{sub}", self.name);
+            // SAFETY: `&HSTRING` is a valid NUL-terminated subkey path; the result
+            // is intentionally ignored (the subkey may not exist).
+            unsafe {
+                let _ = RegDeleteKeyW(HKEY_LOCAL_MACHINE, &HSTRING::from(path));
+            }
+        }
+    }
+
+    /// Resolves the on-disk `.sys` path, extracting an embedded image to
+    /// `System32\Drivers` on demand (this is the only place an embedded image is
+    /// written, so it happens lazily at load time).
+    fn resolve_sys_path(&self) -> Result<Cow<'_, Path>> {
+        match &self.image {
+            Image::Path(p) => Ok(Cow::Borrowed(p)),
+            Image::Embedded { file_name, bytes } => {
+                Ok(Cow::Owned(extract_to_system32(file_name, bytes)?))
+            }
+        }
     }
 
     /// Unloads the driver via `NtUnloadDriver`.
@@ -78,8 +162,8 @@ impl DriverLoader {
     }
 
     /// Creates the service registry key and its minifilter `Instances` subkeys.
-    fn create_service_key(&self) -> Result<()> {
-        let image_path = format!("{IMAGE_PATH_PREFIX}{}", normalize_sys_path(&self.sys_path));
+    fn create_service_key(&self, sys_path: &Path) -> Result<()> {
+        let image_path = format!("{IMAGE_PATH_PREFIX}{}", normalize_sys_path(sys_path));
 
         let service = create_key(
             HKEY_LOCAL_MACHINE,
@@ -87,10 +171,10 @@ impl DriverLoader {
         )?;
         let result = (|| {
             set_string(service, "ImagePath", &image_path, REG_EXPAND_SZ)?;
-            set_dword(service, "Type", 1)?; // SERVICE_KERNEL_DRIVER
-            set_dword(service, "ErrorControl", 1)?; // SERVICE_ERROR_NORMAL
-            set_dword(service, "Start", 3)?; // SERVICE_DEMAND_START
-            set_dword(service, "SupportedFeatures", 3)?;
+            set_dword(service, "Type", SERVICE_FILE_SYSTEM_DRIVER.0)?; // minifilter
+            set_dword(service, "ErrorControl", SERVICE_ERROR_NORMAL.0)?;
+            set_dword(service, "Start", SERVICE_DEMAND_START.0)?;
+            set_dword(service, "SupportedFeatures", SUPPORTED_FEATURES)?;
 
             let instances = create_key(service, "Instances")?;
             let r = (|| {
@@ -131,15 +215,55 @@ fn to_unicode(s: &str) -> OwnedUnicode {
     OwnedUnicode { value, _buf: buf }
 }
 
-/// Calls `NtLoadDriver`, treating "already loaded" as success.
+/// Calls `NtLoadDriver`, treating "already loaded" as success and an altitude
+/// collision (another driver version) as the distinct [`Error::OtherVersionLoaded`].
 fn load_driver(registry_path: &str) -> Result<()> {
     let path = to_unicode(registry_path);
     // SAFETY: `path` is a valid UNICODE_STRING backed by a live buffer.
     let status = unsafe { NtLoadDriver(&path.value) };
     if status == STATUS_SUCCESS || status == STATUS_IMAGE_ALREADY_LOADED {
         Ok(())
+    } else if status == STATUS_FLT_INSTANCE_ALTITUDE_COLLISION {
+        Err(Error::OtherVersionLoaded)
     } else {
         Err(Error::DriverLoad(status))
+    }
+}
+
+/// `%SystemRoot%\System32\Drivers` — where boot/runtime kernel drivers live.
+fn system_drivers_dir() -> Result<PathBuf> {
+    let mut buf = [0u16; 260];
+    // SAFETY: `buf` is a valid writable buffer; the call fills it and returns the
+    // number of characters written (0 on failure).
+    let len = unsafe { GetSystemDirectoryW(Some(&mut buf)) } as usize;
+    if len == 0 || len > buf.len() {
+        return Err(Error::DriverExtract(std::io::Error::last_os_error()));
+    }
+    Ok(PathBuf::from(String::from_utf16_lossy(&buf[..len])).join("Drivers"))
+}
+
+/// Writes a driver image to `%SystemRoot%\System32\Drivers\<file_name>` and returns
+/// its path. Mirrors Process Monitor's resource extraction: it clears any
+/// HIDDEN/SYSTEM attributes first (so an existing image can be overwritten) and
+/// treats a sharing violation — the file is locked because the driver is already
+/// loaded — as success, reusing the on-disk path. The file is intentionally left
+/// in place (newer Process Monitor builds keep it too).
+pub fn extract_to_system32(file_name: &str, bytes: &[u8]) -> Result<PathBuf> {
+    let path = system_drivers_dir()?.join(file_name);
+    let wide = HSTRING::from(path.to_string_lossy().as_ref());
+    // Best-effort: clear attributes so a previously-dropped HIDDEN/SYSTEM/READONLY
+    // image can be overwritten (cf. Procmon's SetFileAttributes(NORMAL)). The file
+    // may not exist yet, so the result is ignored.
+    // SAFETY: `wide` is a valid NUL-terminated path string.
+    unsafe {
+        let _ = SetFileAttributesW(&wide, FILE_ATTRIBUTE_NORMAL);
+    }
+    match std::fs::write(&path, bytes) {
+        Ok(()) => Ok(path),
+        // The image is present and locked because the driver is already loaded —
+        // reuse it (cf. Procmon's `GetLastError() == ERROR_SHARING_VIOLATION`).
+        Err(e) if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => Ok(path),
+        Err(e) => Err(Error::DriverExtract(e)),
     }
 }
 
@@ -312,5 +436,12 @@ mod tests {
     fn reg_sz_bytes_has_terminator() {
         // "A" -> 0x41 0x00 then NUL 0x00 0x00.
         assert_eq!(reg_sz_bytes("A"), vec![0x41, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn drivers_dir_under_system32() {
+        // GetSystemDirectory needs no privileges, so this is safe in CI.
+        let dir = system_drivers_dir().expect("system directory");
+        assert!(dir.ends_with("Drivers"), "got {dir:?}");
     }
 }

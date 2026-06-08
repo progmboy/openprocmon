@@ -15,7 +15,7 @@
 
 use std::rc::Rc;
 
-use gpui::{rgb, App, Global, Hsla, Window};
+use gpui::{rgb, Anchor, App, Global, Hsla, Window};
 use gpui_component::scroll::ScrollbarShow;
 use gpui_component::{Theme, ThemeConfig, ThemeMode};
 use serde::Deserialize;
@@ -178,6 +178,9 @@ fn apply(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
     // event table's horizontal scrollbar). Re-applied here so it survives a theme
     // switch. The `DataTable` reads this global; it has no per-table show mode.
     Theme::global_mut(cx).scrollbar_show = ScrollbarShow::Hover;
+    // Toasts appear at the bottom-center of the window. Re-applied here so it
+    // survives a theme switch (same reason as `scrollbar_show`).
+    Theme::global_mut(cx).notification.placement = Anchor::BottomCenter;
     cx.set_global(pal);
 
     if let Some(window) = window {

@@ -16,7 +16,9 @@ use arc_swap::ArcSwap;
 use crate::{DriverLoader, Event, FilterSet, MonitorController, MonitorFlags, PmlReader, Result};
 
 enum Source {
-    Driver(MonitorController, crossbeam_channel::Receiver<Event>),
+    // MonitorController is large (~216 bytes); box it so the enum isn't dominated
+    // by the live variant (clippy::large_enum_variant).
+    Driver(Box<MonitorController>, crossbeam_channel::Receiver<Event>),
     Pml(Arc<PmlReader>),
 }
 
@@ -33,7 +35,7 @@ impl EventSource {
         let rx = ctrl.start_with(flags)?;
         Ok(Self {
             filter: Arc::new(ArcSwap::from_pointee(FilterSet::default())),
-            inner: Source::Driver(ctrl, rx),
+            inner: Source::Driver(Box::new(ctrl), rx),
         })
     }
 
@@ -99,9 +101,11 @@ mod tests {
         )
         .expect("read fixture");
         let mut buf = Vec::new();
-        flate2::read::ZlibDecoder::new(&raw[..]).read_to_end(&mut buf).expect("zlib");
-        let tmp = std::env::temp_dir()
-            .join(format!("openprocmon-source-{}.pml", std::process::id()));
+        flate2::read::ZlibDecoder::new(&raw[..])
+            .read_to_end(&mut buf)
+            .expect("zlib");
+        let tmp =
+            std::env::temp_dir().join(format!("openprocmon-source-{}.pml", std::process::id()));
         std::fs::write(&tmp, &buf).expect("write temp pml");
         tmp
     }

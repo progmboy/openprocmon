@@ -15,11 +15,11 @@ use gpui::{
     IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt, WindowExt,
-    button::{Button, ButtonVariants},
 };
 use rust_i18n::t;
 
@@ -65,7 +65,12 @@ impl ProcessSummaryDialog {
             }
         })
         .detach();
-        Self { search, query: String::new(), rows: Vec::new(), total_events: 0 }
+        Self {
+            search,
+            query: String::new(),
+            rows: Vec::new(),
+            total_events: 0,
+        }
     }
 
     /// Aggregates a fresh snapshot of the captured rows (call when opening).
@@ -128,9 +133,24 @@ impl Render for ProcessSummaryDialog {
                     .child(th(t!("sumc.process").to_string(), None, false, &co))
                     .child(th("PID".to_string(), Some(px(W_PID)), true, &co))
                     .child(th(t!("sumc.file").to_string(), Some(px(W_FILE)), true, &co))
-                    .child(th(t!("sumc.registry").to_string(), Some(px(W_REG)), true, &co))
-                    .child(th(t!("sumc.network").to_string(), Some(px(W_NET)), true, &co))
-                    .child(th(t!("sumc.total").to_string(), Some(px(W_TOTAL)), true, &co)),
+                    .child(th(
+                        t!("sumc.registry").to_string(),
+                        Some(px(W_REG)),
+                        true,
+                        &co,
+                    ))
+                    .child(th(
+                        t!("sumc.network").to_string(),
+                        Some(px(W_NET)),
+                        true,
+                        &co,
+                    ))
+                    .child(th(
+                        t!("sumc.total").to_string(),
+                        Some(px(W_TOTAL)),
+                        true,
+                        &co,
+                    )),
             )
             // Scrollable body (fixed height bounds the scroll region).
             .child(
@@ -237,7 +257,12 @@ fn data_row(r: &ProcRow, co: &Co) -> impl IntoElement {
                 .gap(px(8.))
                 .px(px(14.))
                 .py(px(7.))
-                .child(crate::components::app_icon(r.icon.as_ref(), &r.name, icon_color, 16.))
+                .child(crate::components::app_icon(
+                    r.icon.as_ref(),
+                    &r.name,
+                    icon_color,
+                    16.,
+                ))
                 .child(
                     div()
                         .flex_1()
@@ -249,7 +274,13 @@ fn data_row(r: &ProcRow, co: &Co) -> impl IntoElement {
                 ),
         )
         .child(num_cell(r.pid.to_string(), W_PID, co.muted, false, co))
-        .child(num_cell(count(r.file), W_FILE, color_for(r.file, co.pal.op_file, co), false, co))
+        .child(num_cell(
+            count(r.file),
+            W_FILE,
+            color_for(r.file, co.pal.op_file, co),
+            false,
+            co,
+        ))
         .child(num_cell(
             count(r.registry),
             W_REG,
@@ -257,7 +288,13 @@ fn data_row(r: &ProcRow, co: &Co) -> impl IntoElement {
             false,
             co,
         ))
-        .child(num_cell(count(r.network), W_NET, color_for(r.network, co.pal.op_network, co), false, co))
+        .child(num_cell(
+            count(r.network),
+            W_NET,
+            color_for(r.network, co.pal.op_network, co),
+            false,
+            co,
+        ))
         .child(num_cell(r.total.to_string(), W_TOTAL, co.fg, true, co))
 }
 
@@ -275,12 +312,20 @@ fn num_cell(text: String, width: f32, color: Hsla, bold: bool, _co: &Co) -> impl
 }
 
 fn count(n: usize) -> String {
-    if n == 0 { "—".to_string() } else { n.to_string() }
+    if n == 0 {
+        "—".to_string()
+    } else {
+        n.to_string()
+    }
 }
 
 /// Category count color: the op color when non-zero, faint otherwise.
 fn color_for(n: usize, op: Hsla, co: &Co) -> Hsla {
-    if n > 0 { op } else { co.muted.opacity(0.45) }
+    if n > 0 {
+        op
+    } else {
+        co.muted.opacity(0.45)
+    }
 }
 
 /// Aggregates rows per PID into file/registry/network/total counts (total desc).
@@ -305,7 +350,7 @@ fn aggregate(rows: &[EventSummaryRow]) -> Vec<ProcRow> {
         entry.total += 1;
     }
     let mut out: Vec<ProcRow> = map.into_values().collect();
-    out.sort_by(|a, b| b.total.cmp(&a.total));
+    out.sort_by_key(|r| std::cmp::Reverse(r.total));
     out
 }
 

@@ -28,7 +28,7 @@ pub mod strings;
 pub mod symbols;
 pub mod time;
 
-pub use driver::DriverLoader;
+pub use driver::{extract_to_system32, DriverLoader};
 pub use error::{Error, Result};
 pub use event::{Event, EventClass};
 pub use filter::{Action, Column, FilterFields, FilterSet, Relation, Rule};
@@ -36,8 +36,8 @@ pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};
 
-pub use process::{Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use pml::{PmlIcon, PmlProcess, PmlReader, PmlWriter};
+pub use process::{Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use resolver::AddressResolver;
 pub use source::EventSource;
 pub use symbols::{SymModule, SymbolResolver};

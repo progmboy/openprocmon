@@ -236,6 +236,7 @@ The Rust rewrite is under active development.
 - [x] Save the current capture from the GUI
 - [ ] AI Mcp server and skills
 - [ ] Performance optimization
+- [ ] Boot logging capture
 
 ## License
 

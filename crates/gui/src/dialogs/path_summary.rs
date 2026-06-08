@@ -18,11 +18,11 @@ use gpui::{
     IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt, WindowExt,
-    button::{Button, ButtonVariants},
 };
 use rust_i18n::t;
 
@@ -130,7 +130,12 @@ impl PathSummaryDialog {
     }
 
     /// Sets the kind + aggregates a fresh snapshot (call when opening).
-    pub(crate) fn load(&mut self, kind: PathKind, rows: &[EventSummaryRow], cx: &mut Context<Self>) {
+    pub(crate) fn load(
+        &mut self,
+        kind: PathKind,
+        rows: &[EventSummaryRow],
+        cx: &mut Context<Self>,
+    ) {
         self.kind = kind;
         self.total_events = rows.len();
         self.rows = aggregate(kind, rows);
@@ -156,7 +161,11 @@ impl Render for PathSummaryDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let co = Co::new(cx);
         // Send/Receive counts are network-colored; other sub-counts are muted.
-        let ab_color = if self.kind == PathKind::Network { co.pal.op_network } else { co.muted };
+        let ab_color = if self.kind == PathKind::Network {
+            co.pal.op_network
+        } else {
+            co.muted
+        };
         let (h_path, h_a, h_b, h_c) = self.kind.headers();
         let filtered = self.filtered();
         let shown = filtered.len();
@@ -165,17 +174,23 @@ impl Render for PathSummaryDialog {
             .w_full()
             // Toolbar (design `.sum-toolbar`).
             .child(
-                h_flex().flex_shrink_0().px(px(16.)).py(px(12.)).border_b_1().border_color(co.border).child(
-                    Input::new(&self.search)
-                        .small()
-                        .w_full()
-                        .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                        .cleanable(true)
-                        .map(|mut i| {
-                            i.style().size.height = Some(px(30.).into());
-                            i
-                        }),
-                ),
+                h_flex()
+                    .flex_shrink_0()
+                    .px(px(16.))
+                    .py(px(12.))
+                    .border_b_1()
+                    .border_color(co.border)
+                    .child(
+                        Input::new(&self.search)
+                            .small()
+                            .w_full()
+                            .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
+                            .cleanable(true)
+                            .map(|mut i| {
+                                i.style().size.height = Some(px(30.).into());
+                                i
+                            }),
+                    ),
             )
             // Sticky header row.
             .child(
@@ -315,12 +330,20 @@ fn num_cell(text: String, width: f32, color: Hsla) -> gpui::Div {
 }
 
 fn count(n: usize) -> String {
-    if n == 0 { "—".to_string() } else { n.to_string() }
+    if n == 0 {
+        "—".to_string()
+    } else {
+        n.to_string()
+    }
 }
 
 /// `color` when non-zero, faint otherwise.
 fn color_for(n: usize, color: Hsla, co: &Co) -> Hsla {
-    if n > 0 { color } else { co.muted.opacity(0.45) }
+    if n > 0 {
+        color
+    } else {
+        co.muted.opacity(0.45)
+    }
 }
 
 // ============================ Cross Reference ============================
@@ -356,7 +379,12 @@ impl XrefSummaryDialog {
             }
         })
         .detach();
-        Self { search, query: String::new(), rows: Vec::new(), total_events: 0 }
+        Self {
+            search,
+            query: String::new(),
+            rows: Vec::new(),
+            total_events: 0,
+        }
     }
 
     pub(crate) fn load(&mut self, rows: &[EventSummaryRow], cx: &mut Context<Self>) {
@@ -388,17 +416,23 @@ impl Render for XrefSummaryDialog {
         v_flex()
             .w_full()
             .child(
-                h_flex().flex_shrink_0().px(px(16.)).py(px(12.)).border_b_1().border_color(co.border).child(
-                    Input::new(&self.search)
-                        .small()
-                        .w_full()
-                        .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                        .cleanable(true)
-                        .map(|mut i| {
-                            i.style().size.height = Some(px(30.).into());
-                            i
-                        }),
-                ),
+                h_flex()
+                    .flex_shrink_0()
+                    .px(px(16.))
+                    .py(px(12.))
+                    .border_b_1()
+                    .border_color(co.border)
+                    .child(
+                        Input::new(&self.search)
+                            .small()
+                            .w_full()
+                            .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
+                            .cleanable(true)
+                            .map(|mut i| {
+                                i.style().size.height = Some(px(30.).into());
+                                i
+                            }),
+                    ),
             )
             .child(
                 h_flex()
@@ -587,10 +621,14 @@ fn aggregate(kind: PathKind, rows: &[EventSummaryRow]) -> Vec<PathRow> {
             path,
             a: agg.a,
             b: agg.b,
-            c: if proc_count_kind { agg.procs.len() } else { agg.c },
+            c: if proc_count_kind {
+                agg.procs.len()
+            } else {
+                agg.c
+            },
             total: agg.total,
         })
         .collect();
-    out.sort_by(|a, b| b.total.cmp(&a.total));
+    out.sort_by_key(|r| std::cmp::Reverse(r.total));
     out
 }

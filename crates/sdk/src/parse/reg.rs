@@ -58,7 +58,9 @@ impl<'a> RegView<'a> {
     /// The leading raw `KeyNameLength` field (present on all registry records at
     /// offset 0). In PML its high bit is the ASCII flag — interpret via the mode.
     fn key_name_raw(data: &[u8]) -> u16 {
-        data.get(0..2).map(|b| u16::from_le_bytes([b[0], b[1]])).unwrap_or(0)
+        data.get(0..2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .unwrap_or(0)
     }
 
     fn create_open_detail(&self, data: &[u8]) -> String {
@@ -198,7 +200,11 @@ impl OperationView for RegView<'_> {
             return None;
         }
         // PML stores the already-normalized hive path; live needs conversion.
-        Some(if mode == DetailMode::Pml { name } else { reg_internal_to_normal(&name) })
+        Some(if mode == DetailMode::Pml {
+            name
+        } else {
+            reg_internal_to_normal(&name)
+        })
     }
 
     fn detail(&self) -> String {

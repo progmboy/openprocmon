@@ -37,7 +37,12 @@ pub(crate) struct Parsed {
 
 impl Default for Parsed {
     fn default() -> Self {
-        Self { category: Cow::Borrowed(""), path: Arc::from(""), details: Vec::new(), op_name: None }
+        Self {
+            category: Cow::Borrowed(""),
+            path: Arc::from(""),
+            details: Vec::new(),
+            op_name: None,
+        }
     }
 }
 
@@ -67,7 +72,10 @@ pub(crate) fn parse_event(
         return p;
     }
 
-    if matches!(class, EventClass::File | EventClass::Registry | EventClass::Process) {
+    if matches!(
+        class,
+        EventClass::File | EventClass::Registry | EventClass::Process
+    ) {
         return parse_via_sdk(class, operation, details, extra);
     }
 
@@ -76,15 +84,22 @@ pub(crate) fn parse_event(
 
 /// Feeds the detail blob through the mode-aware SDK `Event` parsing, reusing its
 /// full per-operation Path + Detail formatting (and sub-op names). 64-bit only.
-fn parse_via_sdk(class: EventClass, operation: u16, details: &[u8], extra: Option<&[u8]>) -> Parsed {
+fn parse_via_sdk(
+    class: EventClass,
+    operation: u16,
+    details: &[u8],
+    extra: Option<&[u8]>,
+) -> Parsed {
     // EventClass::to_u32 == the driver MonitorType code (Process=1, Registry=2,
     // File=3, Profiling=4); only File/Registry/Process reach here.
     let monitor = class.to_u32() as u16;
     let pre = synth_record(monitor, operation, 0, details).into_boxed_slice();
     let post = extra.map(|e| synth_record(0, operation, 0, e).into_boxed_slice());
 
-    let mut p = Parsed::default();
-    p.category = category_for(class, operation);
+    let mut p = Parsed {
+        category: category_for(class, operation),
+        ..Default::default()
+    };
     if let Some(ev) = Event::from_pml(pre, post) {
         if let Some(path) = ev.path() {
             p.path = Arc::from(path.as_str());

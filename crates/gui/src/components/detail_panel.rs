@@ -5,24 +5,23 @@
 //! built from kv-groups, field-boxes, codeblocks, tags and a stack table.
 
 use gpui::{
-    AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement, ScrollHandle,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window, div,
-    prelude::FluentBuilder, px, transparent_black,
+    div, prelude::FluentBuilder, px, transparent_black, AppContext, Context, Entity, Hsla,
+    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use gpui_component::{
-    ActiveTheme, Icon, Sizable, StyledExt,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
-    v_flex,
+    v_flex, ActiveTheme, Icon, Sizable, StyledExt,
 };
 use rust_i18n::t;
 
 use crate::app::AppView;
 use crate::icons::PmIcon;
 use crate::model::domain::{EventDetail, ProcessNode};
-use crate::theme::{ProcmonPalette, palette};
+use crate::theme::{palette, ProcmonPalette};
 
 /// Resolved colors for the panel, derived once per render from theme + palette.
 #[derive(Clone, Copy)]
@@ -66,9 +65,13 @@ pub(crate) struct DetailView {
 }
 
 impl DetailView {
-    pub(crate) fn new(app: WeakEntity<AppView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mod_filter =
-            cx.new(|cx| InputState::new(window, cx).placeholder(t!("dt.filter_modules").to_string()));
+    pub(crate) fn new(
+        app: WeakEntity<AppView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mod_filter = cx
+            .new(|cx| InputState::new(window, cx).placeholder(t!("dt.filter_modules").to_string()));
         // Re-render (re-filter the module list) as the filter text changes.
         cx.subscribe(&mod_filter, |_, _, ev: &InputEvent, cx| {
             if matches!(ev, InputEvent::Change) {
@@ -198,8 +201,19 @@ impl gpui::Render for DetailView {
                                 h_flex()
                                     .items_center()
                                     .gap_2()
-                                    .child(div().text_color(co.fg).text_base().font_semibold().child(d.process.name.clone()))
-                                    .child(div().text_color(co.muted).text_sm().child(format!("PID {}", fmt_id(d.pid, co.hex_id)))),
+                                    .child(
+                                        div()
+                                            .text_color(co.fg)
+                                            .text_base()
+                                            .font_semibold()
+                                            .child(d.process.name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(co.muted)
+                                            .text_sm()
+                                            .child(format!("PID {}", fmt_id(d.pid, co.hex_id))),
+                                    ),
                             )
                             .child(
                                 div()
@@ -228,9 +242,33 @@ impl gpui::Render for DetailView {
                     .border_b_1()
                     .border_color(co.border)
                     .bg(cx.theme().secondary)
-                    .child(tab_btn(0, tab, PmIcon::Info, t!("dt.tab_event").to_string(), None, &co, cx))
-                    .child(tab_btn(1, tab, PmIcon::Cpu, t!("dt.tab_process").to_string(), None, &co, cx))
-                    .child(tab_btn(2, tab, PmIcon::Layers, t!("dt.tab_stack").to_string(), Some(frames), &co, cx)),
+                    .child(tab_btn(
+                        0,
+                        tab,
+                        PmIcon::Info,
+                        t!("dt.tab_event").to_string(),
+                        None,
+                        &co,
+                        cx,
+                    ))
+                    .child(tab_btn(
+                        1,
+                        tab,
+                        PmIcon::Cpu,
+                        t!("dt.tab_process").to_string(),
+                        None,
+                        &co,
+                        cx,
+                    ))
+                    .child(tab_btn(
+                        2,
+                        tab,
+                        PmIcon::Layers,
+                        t!("dt.tab_stack").to_string(),
+                        Some(frames),
+                        &co,
+                        cx,
+                    )),
             )
             // Content (.detail-content) — scrolls.
             .child(
@@ -277,7 +315,13 @@ fn group(
                     .when_some(icon, |this, ic| {
                         this.child(Icon::new(ic).size(px(13.)).text_color(co.faint))
                     })
-                    .child(div().text_color(co.faint).text_xs().font_semibold().child(title.to_uppercase()))
+                    .child(
+                        div()
+                            .text_color(co.faint)
+                            .text_xs()
+                            .font_semibold()
+                            .child(title.to_uppercase()),
+                    )
                     .child(div().flex_1().h(px(1.)).bg(co.border)),
             )
         })
@@ -292,8 +336,22 @@ fn kv(k: &str, v: impl Into<SharedString>, v_color: Hsla, co: &Co) -> impl IntoE
         .items_center()
         .justify_between()
         .gap_4()
-        .child(div().w(px(110.)).flex_shrink_0().text_color(co.muted).text_sm().child(k.to_string()))
-        .child(div().flex_1().text_right().text_color(v_color).text_sm().child(v.into()))
+        .child(
+            div()
+                .w(px(110.))
+                .flex_shrink_0()
+                .text_color(co.muted)
+                .text_sm()
+                .child(k.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .text_right()
+                .text_color(v_color)
+                .text_sm()
+                .child(v.into()),
+        )
 }
 
 /// `.evt-field`: a small label above a `.field-box`.
@@ -302,7 +360,13 @@ fn field(label: &str, co: &Co, content: impl IntoElement) -> impl IntoElement {
         .px(px(16.))
         .pt(px(10.))
         .pb(px(0.5))
-        .child(div().text_color(co.muted).text_sm().mb_2().child(label.to_string()))
+        .child(
+            div()
+                .text_color(co.muted)
+                .text_sm()
+                .mb_2()
+                .child(label.to_string()),
+        )
         .child(
             div()
                 .w_full()
@@ -374,7 +438,11 @@ fn tab_btn(
         .px(px(14.))
         .py(px(8.))
         .border_b_2()
-        .border_color(if active { co.accent } else { transparent_black() })
+        .border_color(if active {
+            co.accent
+        } else {
+            transparent_black()
+        })
         .text_color(color)
         .text_sm()
         .cursor_pointer()
@@ -386,7 +454,11 @@ fn tab_btn(
                     .px_1p5()
                     .rounded_full()
                     .text_xs()
-                    .bg(if active { co.accent.opacity(0.16) } else { co.bg2 })
+                    .bg(if active {
+                        co.accent.opacity(0.16)
+                    } else {
+                        co.bg2
+                    })
                     .text_color(color)
                     .child(n.to_string()),
             )
@@ -415,7 +487,13 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
                 .pt(px(14.))
                 .pb(px(0.5))
                 .child(Icon::new(category_icon(d)).size(px(18.)).text_color(cat))
-                .child(div().text_color(cat).text_lg().font_semibold().child(d.category.label())),
+                .child(
+                    div()
+                        .text_color(cat)
+                        .text_lg()
+                        .font_semibold()
+                        .child(d.category.label()),
+                ),
         )
         // Operation field.
         .child(field(
@@ -433,7 +511,10 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
                 .child(kv(&t!("dt.timestamp"), d.time.clone(), co.text2, co))
                 .child(kv(
                     &t!("dt.duration"),
-                    d.duration.clone().map(|s| format!("{s} s")).unwrap_or_else(|| "—".into()),
+                    d.duration
+                        .clone()
+                        .map(|s| format!("{s} s"))
+                        .unwrap_or_else(|| "—".into()),
                     co.pal.res_success,
                     co,
                 )),
@@ -461,7 +542,11 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
     col = col.child(field(
         &t!("dt.result"),
         co,
-        div().text_color(res).text_lg().font_semibold().child(d.result.clone()),
+        div()
+            .text_color(res)
+            .text_lg()
+            .font_semibold()
+            .child(d.result.clone()),
     ));
 
     // Target file group (file events with metadata).
@@ -479,7 +564,13 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
                         .min_h(px(26.))
                         .items_center()
                         .justify_between()
-                        .child(div().w(px(110.)).text_color(co.muted).text_sm().child(t!("dt.signed").to_string()))
+                        .child(
+                            div()
+                                .w(px(110.))
+                                .text_color(co.muted)
+                                .text_sm()
+                                .child(t!("dt.signed").to_string()),
+                        )
                         .child(if signed {
                             tag(t!("dt.signed").to_string(), co.pal.res_success).into_any_element()
                         } else {
@@ -526,42 +617,90 @@ fn process_tab(
                         .gap_3()
                         .items_center()
                         .pb(px(8.))
-                        .child(crate::components::app_icon(p.icon.as_ref(), &p.name, cat, 40.))
+                        .child(crate::components::app_icon(
+                            p.icon.as_ref(),
+                            &p.name,
+                            cat,
+                            40.,
+                        ))
                         .child(
                             v_flex()
                                 .min_w(px(0.))
                                 .gap_0p5()
-                                .child(div().text_color(co.fg).text_lg().font_semibold().child(p.name.clone()))
-                                .child(div().text_color(co.muted).text_sm().child(p.company.clone()))
+                                .child(
+                                    div()
+                                        .text_color(co.fg)
+                                        .text_lg()
+                                        .font_semibold()
+                                        .child(p.name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(co.muted)
+                                        .text_sm()
+                                        .child(p.company.clone()),
+                                )
                                 .child(
                                     h_flex()
                                         .gap_1()
-                                        .child(div().text_color(co.muted).text_sm().child(t!("dt.version").to_string()))
-                                        .child(div().text_color(co.text2).text_sm().child(p.version.clone())),
+                                        .child(
+                                            div()
+                                                .text_color(co.muted)
+                                                .text_sm()
+                                                .child(t!("dt.version").to_string()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_color(co.text2)
+                                                .text_sm()
+                                                .child(p.version.clone()),
+                                        ),
                                 )
                                 .child(
                                     h_flex()
                                         .gap_1p5()
                                         .mt_1()
                                         .child(if p.running {
-                                            tag(t!("dt.running").to_string(), co.pal.res_success).into_any_element()
+                                            tag(t!("dt.running").to_string(), co.pal.res_success)
+                                                .into_any_element()
                                         } else {
-                                            tag(t!("dt.exited").to_string(), co.muted).into_any_element()
+                                            tag(t!("dt.exited").to_string(), co.muted)
+                                                .into_any_element()
                                         })
                                         .child(tag(p.integrity.clone(), integrity_color)),
                                 ),
                         ),
                 )
                 .child(kv(&t!("dt.pid"), fmt_id(p.pid, co.hex_id), co.text2, co))
-                .child(kv(&t!("dt.architecture"), format!("{}-bit", p.arch), co.text2, co))
-                .child(kv(&t!("dt.parent_pid"), p.parent_pid.to_string(), co.text2, co))
                 .child(kv(
-                    &t!("dt.virtualized"),
-                    if p.virtualized { t!("dt.yes") } else { t!("dt.no") }.to_string(),
+                    &t!("dt.architecture"),
+                    format!("{}-bit", p.arch),
                     co.text2,
                     co,
                 ))
-                .child(kv(&t!("dt.session"), p.session_id.to_string(), co.text2, co))
+                .child(kv(
+                    &t!("dt.parent_pid"),
+                    p.parent_pid.to_string(),
+                    co.text2,
+                    co,
+                ))
+                .child(kv(
+                    &t!("dt.virtualized"),
+                    if p.virtualized {
+                        t!("dt.yes")
+                    } else {
+                        t!("dt.no")
+                    }
+                    .to_string(),
+                    co.text2,
+                    co,
+                ))
+                .child(kv(
+                    &t!("dt.session"),
+                    p.session_id.to_string(),
+                    co.text2,
+                    co,
+                ))
                 .child(kv(&t!("dt.integrity"), p.integrity.clone(), co.text2, co))
                 .child(kv(&t!("dt.user"), p.user.clone(), co.text2, co))
                 .child(kv(&t!("dt.start_time"), p.start_time.clone(), co.text2, co)),
@@ -572,8 +711,16 @@ fn process_tab(
             None,
             co,
             v_flex()
-                .child(kv_block(&t!("dt.path"), co, codeblock(p.image_path.clone(), co.pal.path, co)))
-                .child(kv_block(&t!("dt.command_line"), co, codeblock(p.command_line.clone(), co.text2, co))),
+                .child(kv_block(
+                    &t!("dt.path"),
+                    co,
+                    codeblock(p.image_path.clone(), co.pal.path, co),
+                ))
+                .child(kv_block(
+                    &t!("dt.command_line"),
+                    co,
+                    codeblock(p.command_line.clone(), co.text2, co),
+                )),
         ))
         // Modules (with a filter box, design `.mod-search` + `.mod-list`).
         .child(group(
@@ -621,10 +768,26 @@ fn process_tab(
                                         h_flex()
                                             .justify_between()
                                             .gap_2()
-                                            .child(div().text_color(co.fg).text_sm().child(m.name.clone()))
-                                            .child(div().text_color(co.muted).text_xs().child(format!("0x{:x}", m.base))),
+                                            .child(
+                                                div()
+                                                    .text_color(co.fg)
+                                                    .text_sm()
+                                                    .child(m.name.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_color(co.muted)
+                                                    .text_xs()
+                                                    .child(format!("0x{:x}", m.base)),
+                                            ),
                                     )
-                                    .child(div().text_color(co.faint).text_xs().truncate().child(m.path.clone()))
+                                    .child(
+                                        div()
+                                            .text_color(co.faint)
+                                            .text_xs()
+                                            .truncate()
+                                            .child(m.path.clone()),
+                                    )
                             }),
                     ),
                 ),
@@ -643,7 +806,12 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
         .text_xs()
         .child(Icon::new(PmIcon::Layers).size(px(14.)))
         .child(t!("dt.cs_pre").to_string())
-        .child(div().text_color(co.fg).font_semibold().child(d.operation.clone()))
+        .child(
+            div()
+                .text_color(co.fg)
+                .font_semibold()
+                .child(d.operation.clone()),
+        )
         .child(t!("dt.cs_mid").to_string())
         .child(d.stack.len().to_string())
         .child(t!("dt.cs_suf").to_string());
@@ -712,7 +880,12 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
             .child(td(W_FRAME, kind_color, f.frame.to_string().into(), true))
             .child(td(W_MOD, mod_color, f.module.clone(), true))
             .child(td(W_LOC, co.text2, f.location.clone(), false))
-            .child(td(W_ADDR, co.pal.res_success.opacity(0.82), format!("0x{:x}", f.address).into(), false))
+            .child(td(
+                W_ADDR,
+                co.pal.res_success.opacity(0.82),
+                format!("0x{:x}", f.address).into(),
+                false,
+            ))
             .child(td(W_PATH, co.faint, f.path.clone(), false))
     }));
 
@@ -728,7 +901,12 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
             .py(px(40.))
             .text_color(co.faint)
             .child(Icon::new(PmIcon::Layers).size(px(34.)))
-            .child(div().text_color(co.text2).text_sm().child(t!("dt.no_stack").to_string()))
+            .child(
+                div()
+                    .text_color(co.text2)
+                    .text_sm()
+                    .child(t!("dt.no_stack").to_string()),
+            )
             .into_any_element()
     } else {
         crate::components::h_scroll_area(
@@ -765,7 +943,12 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
         .bg(co.bg2)
         .text_sm()
         .text_color(co.text2)
-        .child(div().text_color(co.fg).font_semibold().child(t!("dt.note").to_string()))
+        .child(
+            div()
+                .text_color(co.fg)
+                .font_semibold()
+                .child(t!("dt.note").to_string()),
+        )
         .child(
             h_flex()
                 .gap_1()

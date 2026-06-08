@@ -10,7 +10,6 @@ menu.help: { en: Help, zh: 帮助 }
 # File menu
 menu.open: { en: "Open…", zh: "打开…" }
 menu.save: { en: "Save…", zh: "保存…" }
-menu.save_as: { en: "Save As…", zh: "另存为…" }
 menu.import: { en: "Import Settings…", zh: "导入设置…" }
 menu.export: { en: "Export Settings…", zh: "导出设置…" }
 menu.exit: { en: Exit, zh: 退出 }
@@ -42,8 +41,6 @@ menu.theme: { en: Theme, zh: 主题 }
 menu.theme_light: { en: Light, zh: 浅色 }
 menu.theme_dark: { en: Dark, zh: 深色 }
 menu.language: { en: Language, zh: 语言 }
-menu.symbols: { en: "Configure Symbols…", zh: "配置符号…" }
-menu.history: { en: "History Depth…", zh: "历史记录深度…" }
 # Help menu
 menu.help_topics: { en: Help Topics, zh: 帮助主题 }
 menu.check_updates: { en: "Check for Updates…", zh: "检查更新…" }
@@ -283,5 +280,29 @@ dlg.about_copyright: { en: "© 2026 OpenProcmon Project", zh: "© 2026 OpenProcm
 cm.include: { en: "Include '%{name}'", zh: "包含 '%{name}'" }
 cm.exclude: { en: "Exclude '%{name}'", zh: "排除 '%{name}'" }
 cm.highlight: { en: "Highlight '%{name}'", zh: "高亮 '%{name}'" }
+cm.exclude_before: { en: Exclude Events Before, zh: 排除此事件之前的事件 }
+cm.exclude_after: { en: Exclude Events After, zh: 排除此事件之后的事件 }
 cm.bookmark: { en: Toggle Bookmark, zh: 切换书签 }
 cm.copy_path: { en: Copy Path, zh: 复制路径 }
+
+# Driver / capture notifications (toasts)
+driver.err.not_elevated: { en: "Loading the driver requires administrator privileges. Please run as administrator.", zh: "加载驱动需要管理员权限，请以管理员身份运行。" }
+driver.err.other_version: { en: "A different version of the driver is already loaded. A system reboot is required to run this version.", zh: "已加载其他版本的驱动，需要重启系统后才能运行此版本。" }
+driver.err.already_monitoring: { en: "The system is already being monitored by another instance.", zh: "系统已被另一个实例监控。" }
+driver.err.generic: { en: "Failed to load the driver: %{detail}", zh: "驱动加载失败：%{detail}" }
+capture.err.start: { en: "Failed to start capture: %{detail}", zh: "启动捕获失败：%{detail}" }
+
+# Misc notifications
+notify.unimplemented: { en: "This feature is not implemented yet.", zh: "该功能尚未实现。" }
+set.boot_unsupported: { en: "Boot logging is not supported yet.", zh: "暂不支持开机捕获，此选项暂不可用。" }
+
+# Settings persistence (toasts)
+set.save_failed: { en: "Failed to save settings: %{detail}", zh: "保存设置失败：%{detail}" }
+set.export_ok: { en: Settings exported., zh: 设置已导出。 }
+set.export_failed: { en: "Failed to export settings: %{detail}", zh: "导出设置失败：%{detail}" }
+set.import_ok: { en: Settings imported., zh: 设置已导入。 }
+set.import_failed: { en: "Failed to import settings: %{detail}", zh: "导入设置失败：%{detail}" }
+
+# Save-to-file result (toasts)
+notify.save_ok: { en: "Saved %{n} events to %{path}", zh: "已保存 %{n} 个事件到 %{path}" }
+notify.save_err: { en: "Save failed: %{detail}", zh: "保存失败：%{detail}" }

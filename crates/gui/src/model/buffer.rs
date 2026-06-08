@@ -13,7 +13,7 @@
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{CapturedEvent, CategoryCounts, EventSummaryRow};
-use crate::model::filter::{FilterModel, category_enabled};
+use crate::model::filter::{category_enabled, FilterModel};
 
 /// History ring-buffer limits (live capture only): drop the oldest events once the
 /// retained bytes exceed `max_bytes` or they fall outside the `max_age_ticks`
@@ -86,7 +86,10 @@ impl EventBuffer {
     /// toggles, filter and search) — used by the Tools analytics dialogs so their
     /// statistics reflect the active filter, not every captured event.
     pub fn summary_rows(&self) -> Vec<EventSummaryRow> {
-        self.view.iter().map(|&i| self.all[i].summary_row()).collect()
+        self.view
+            .iter()
+            .map(|&i| self.all[i].summary_row())
+            .collect()
     }
 
     /// Appends a row, updating counts and the view if it passes gating, then
@@ -241,6 +244,19 @@ impl EventBuffer {
     }
 }
 
+/// Case-insensitive search across the most useful columns.
+fn search_matches(row: &CapturedEvent, search: &str) -> bool {
+    if search.is_empty() {
+        return true;
+    }
+    let q = search.to_ascii_lowercase();
+    row.process_name().to_ascii_lowercase().contains(&q)
+        || row.operation().to_ascii_lowercase().contains(&q)
+        || row.path().to_ascii_lowercase().contains(&q)
+        || row.result().to_ascii_lowercase().contains(&q)
+        || row.pid().to_string().contains(&q)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,7 +274,9 @@ mod tests {
             .join("../sdk/tests/resources/CompressedLogFileUTC64FilesystemPML");
         let raw = std::fs::read(path).expect("fixture");
         let mut buf = Vec::new();
-        flate2::read::ZlibDecoder::new(&raw[..]).read_to_end(&mut buf).expect("unzip");
+        flate2::read::ZlibDecoder::new(&raw[..])
+            .read_to_end(&mut buf)
+            .expect("unzip");
         // Unique temp name per call (tests run in parallel; the reader mmaps the file).
         static N: AtomicU64 = AtomicU64::new(0);
         let tmp = std::env::temp_dir().join(format!(
@@ -288,12 +306,17 @@ mod tests {
     fn monitor_toggle_gates_view() {
         let mut buf = filled();
         let total = buf.total();
-        assert_eq!(buf.visible_len(), total, "all categories visible by default");
+        assert_eq!(
+            buf.visible_len(),
+            total,
+            "all categories visible by default"
+        );
 
         // Snapshot every row's category (the view == all rows initially), then disable
         // the first row's category and assert exactly the still-enabled rows remain.
-        let cats: Vec<EventCategory> =
-            (0..total).map(|i| buf.visible(i).unwrap().category()).collect();
+        let cats: Vec<EventCategory> = (0..total)
+            .map(|i| buf.visible(i).unwrap().category())
+            .collect();
         let mut m = MonitorToggles::default();
         match cats[0] {
             EventCategory::Registry => m.registry = false,
@@ -306,7 +329,11 @@ mod tests {
         let expected = cats.iter().filter(|&&c| category_enabled(c, &m)).count();
         buf.set_monitor(m);
         assert_eq!(buf.visible_len(), expected);
-        assert_eq!(buf.total(), total, "totals are unaffected; only the view is gated");
+        assert_eq!(
+            buf.total(),
+            total,
+            "totals are unaffected; only the view is gated"
+        );
     }
 
     #[test]
@@ -353,25 +380,19 @@ mod tests {
         // 125% hard cap and forces a trim regardless of per-event size.
         let total_bytes: usize = rows.iter().map(|r| r.byte_size()).sum();
         let mut buf = EventBuffer::new();
-        buf.set_retention(Some(Retention { max_bytes: total_bytes / 4, max_age_ticks: 0 }));
+        buf.set_retention(Some(Retention {
+            max_bytes: total_bytes / 4,
+            max_age_ticks: 0,
+        }));
         for r in rows {
             buf.push(r);
         }
-        assert!(buf.total() >= 1 && buf.total() < n, "expected trimming, total={}", buf.total());
+        assert!(
+            buf.total() >= 1 && buf.total() < n,
+            "expected trimming, total={}",
+            buf.total()
+        );
         // The view stays consistent with the retained rows (no filter active).
         assert_eq!(buf.visible_len(), buf.total());
     }
-}
-
-/// Case-insensitive search across the most useful columns.
-fn search_matches(row: &CapturedEvent, search: &str) -> bool {
-    if search.is_empty() {
-        return true;
-    }
-    let q = search.to_ascii_lowercase();
-    row.process_name().to_ascii_lowercase().contains(&q)
-        || row.operation().to_ascii_lowercase().contains(&q)
-        || row.path().to_ascii_lowercase().contains(&q)
-        || row.result().to_ascii_lowercase().contains(&q)
-        || row.pid().to_string().contains(&q)
 }

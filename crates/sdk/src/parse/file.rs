@@ -37,7 +37,9 @@ impl<'a> FileView<'a> {
     /// char/byte counts are derived via [`str_field_len`] with the event's mode.
     fn name_len_raw(data: &[u8]) -> u16 {
         let off = file_opt::name_length_offset();
-        data.get(off..off + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).unwrap_or(0)
+        data.get(off..off + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .unwrap_or(0)
     }
 
     /// Reads the embedded `FLT_PARAMETERS` union by value (its pointer members
@@ -167,7 +169,10 @@ impl<'a> FileView<'a> {
         };
         // SAFETY: active arm matches IRP_MJ_QUERY_SECURITY.
         let sec = unsafe { params.QuerySecurity };
-        format!("Information: {}", strings::security_information(sec.SecurityInformation))
+        format!(
+            "Information: {}",
+            strings::security_information(sec.SecurityInformation)
+        )
     }
 
     /// Detail for device/IO control: the IOCTL control code.
@@ -207,7 +212,11 @@ impl OperationView for FileView<'_> {
         }
         // Live records hold NT device paths (convert to DOS); PML already stores
         // the DOS path.
-        Some(if mode == DetailMode::Pml { name } else { crate::path::nt_to_dos(&name) })
+        Some(if mode == DetailMode::Pml {
+            name
+        } else {
+            crate::path::nt_to_dos(&name)
+        })
     }
 
     fn detail(&self) -> String {

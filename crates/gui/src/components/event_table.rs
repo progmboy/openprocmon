@@ -19,7 +19,7 @@ use gpui_component::{
 };
 
 use crate::app::{AppState, AppView};
-use crate::model::filter::{FilterAction, FilterColumn};
+use crate::model::filter::{FilterAction, FilterColumn, FilterRelation};
 use crate::theme::palette;
 
 /// Column order matches the design's event table.
@@ -119,10 +119,7 @@ impl TableDelegate for EventTableDelegate {
                 .child(row.seq().to_string())
                 .into_any_element(),
             // Time.
-            1 => div()
-                .text_color(muted)
-                .child(row.time())
-                .into_any_element(),
+            1 => div().text_color(muted).child(row.time()).into_any_element(),
             // Process name with its app-icon (extracted `.ico`), or a category-
             // colored letter square when no icon is available. Icon is read live
             // (not cached) so async SDK metadata appears on the next frame.
@@ -148,13 +145,21 @@ impl TableDelegate for EventTableDelegate {
                 } else {
                     row.pid().to_string()
                 };
-                div().w_full().text_color(pal.pid).child(pid).into_any_element()
+                div()
+                    .w_full()
+                    .text_color(pal.pid)
+                    .child(pid)
+                    .into_any_element()
             }
-            // Operation, colored by category.
-            4 => div()
-                .text_color(row.category().color(&pal))
-                .child(row.operation())
-                .into_any_element(),
+            // Operation, colored by category. Honors the Event ▸ "Advanced Display"
+            // toggle: friendly detail names when on, raw IRP_MJ_*/FASTIO_* when off.
+            4 => {
+                let advance = crate::model::filter::advanced_display_on(&app.filter);
+                div()
+                    .text_color(row.category().color(&pal))
+                    .child(row.operation_display(advance))
+                    .into_any_element()
+            }
             // Path — truncated, with the full path as a tooltip (shown for every
             // non-empty path: gpui-component has no "only when clipped" mode).
             5 => {
@@ -227,12 +232,19 @@ impl TableDelegate for EventTableDelegate {
         cx: &mut Context<TableState<Self>>,
     ) -> PopupMenu {
         // `CapturedEvent` is not Clone — project just the owned strings we need.
-        let (name, path) = {
+        let (name, path, date) = {
             let app = self.app.read(cx);
             let Some(row) = app.buffer.visible(row_ix) else {
                 return menu;
             };
-            (row.process_name().to_string(), row.path().to_string())
+            (
+                row.process_name().to_string(),
+                row.path().to_string(),
+                // The full-precision "Date & Time" string this event sorts by (cf.
+                // `Column::Date`), e.g. "2026/06/05 14:42:43.9161935" — the value for
+                // the before/after time filters.
+                row.event().date_precise(),
+            )
         };
         let view = self.app_view.clone();
 
@@ -264,6 +276,40 @@ impl TableDelegate for EventTableDelegate {
                 view.update(cx, |v, cx| v.add_highlight(name, cx)).ok();
             }
         };
+        // Exclude every event timestamped before (Date & Time less than) this one.
+        let exclude_before = {
+            let (view, date) = (view.clone(), date.clone());
+            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                let (view, date) = (view.clone(), date.clone());
+                view.update(cx, |v, cx| {
+                    v.quick_filter_rel(
+                        FilterColumn::Date,
+                        FilterRelation::LessThan,
+                        date,
+                        FilterAction::Exclude,
+                        cx,
+                    )
+                })
+                .ok();
+            }
+        };
+        // Exclude every event timestamped after (Date & Time more than) this one.
+        let exclude_after = {
+            let (view, date) = (view.clone(), date.clone());
+            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                let (view, date) = (view.clone(), date.clone());
+                view.update(cx, |v, cx| {
+                    v.quick_filter_rel(
+                        FilterColumn::Date,
+                        FilterRelation::MoreThan,
+                        date,
+                        FilterAction::Exclude,
+                        cx,
+                    )
+                })
+                .ok();
+            }
+        };
         let bookmark = {
             let view = view.clone();
             move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
@@ -286,6 +332,15 @@ impl TableDelegate for EventTableDelegate {
         .item(
             PopupMenuItem::new(rust_i18n::t!("cm.highlight", name = name).to_string())
                 .on_click(highlight),
+        )
+        .separator()
+        .item(
+            PopupMenuItem::new(rust_i18n::t!("cm.exclude_before").to_string())
+                .on_click(exclude_before),
+        )
+        .item(
+            PopupMenuItem::new(rust_i18n::t!("cm.exclude_after").to_string())
+                .on_click(exclude_after),
         )
         .separator()
         .item(PopupMenuItem::new(rust_i18n::t!("cm.bookmark").to_string()).on_click(bookmark))

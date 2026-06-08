@@ -130,7 +130,10 @@ impl PmlWriter {
         match bytes {
             Some(b) if !b.is_empty() => {
                 let idx = self.icons.len() as u32;
-                self.icons.push(PmlIcon { dimension, data: Arc::from(b) });
+                self.icons.push(PmlIcon {
+                    dimension,
+                    data: Arc::from(b),
+                });
                 idx
             }
             _ => 0,
@@ -138,7 +141,11 @@ impl PmlWriter {
     }
 
     fn sizeof_pvoid(&self) -> usize {
-        if self.is_64bit { 8 } else { 4 }
+        if self.is_64bit {
+            8
+        } else {
+            4
+        }
     }
 
     /// Serializes everything to an in-memory PML image.
@@ -209,7 +216,8 @@ impl PmlWriter {
     /// Writes the PML image to `path`.
     pub fn write_to_path<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
         let bytes = self.to_bytes()?;
-        std::fs::write(path, bytes).map_err(|e| crate::error::Error::Parse(format!("PML write: {e}")))
+        std::fs::write(path, bytes)
+            .map_err(|e| crate::error::Error::Parse(format!("PML write: {e}")))
     }
 
     fn encode_header(&self, o: HeaderOffsets) -> Vec<u8> {
@@ -251,17 +259,27 @@ impl PmlWriter {
 fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
     let info = &rec.info;
     let image_dos = crate::path::nt_to_dos(&info.image_path);
-    let name = image_dos.rsplit(['\\', '/']).next().unwrap_or("").to_string();
+    let name = image_dos
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or("")
+        .to_string();
     let (hi, lo) = info.authentication_id;
     let user = info
         .user_sid
         .as_deref()
         .and_then(crate::sid::account_name)
         .unwrap_or_default();
-    let integrity = info.integrity_rid.map(crate::sid::integrity_level).unwrap_or("");
+    let integrity = info
+        .integrity_rid
+        .map(crate::sid::integrity_level)
+        .unwrap_or("");
     // Version metadata from the PE resources (absent fields → empty strings).
     let meta = rec.meta();
-    let meta_str = |f: Option<&String>| f.map(|v| Arc::from(v.as_str())).unwrap_or_else(|| Arc::from(""));
+    let meta_str = |f: Option<&String>| {
+        f.map(|v| Arc::from(v.as_str()))
+            .unwrap_or_else(|| Arc::from(""))
+    };
     let company = meta_str(meta.and_then(|m| m.company.as_ref()));
     let version = meta_str(meta.and_then(|m| m.version.as_ref()));
     let description = meta_str(meta.and_then(|m| m.description.as_ref()));
@@ -325,7 +343,10 @@ struct Interner {
 
 impl Interner {
     fn new() -> Self {
-        let mut s = Self { map: HashMap::new(), list: Vec::new() };
+        let mut s = Self {
+            map: HashMap::new(),
+            list: Vec::new(),
+        };
         s.intern(""); // index 0 = empty string
         s
     }
@@ -418,7 +439,10 @@ fn encode_icons(icons: &[PmlIcon]) -> WBuf {
 fn encode_processes(processes: &[PmlProcess], strings: &Interner, pv: usize) -> WBuf {
     let n = processes.len();
     // Encode each process struct first to know its size, then lay out offsets.
-    let structs: Vec<WBuf> = processes.iter().map(|p| encode_process(p, strings, pv)).collect();
+    let structs: Vec<WBuf> = processes
+        .iter()
+        .map(|p| encode_process(p, strings, pv))
+        .collect();
     let data_start = 4 + n * 4 + n * 4; // count + index array + offset array
     let mut offsets = Vec::with_capacity(n);
     let mut running = data_start;
@@ -487,7 +511,11 @@ fn encode_event(b: &mut WBuf, e: &PmlEvent, pv: usize) {
     // The detail blob is the event's `raw_detail`: from `push_event` (live →
     // PML, per-category serialized) or from the reader (PML → PML, verbatim).
     // Events with no raw detail (bare from-scratch `PmlEvent`s) get an empty blob.
-    let detail: Vec<u8> = e.raw_detail.as_deref().map(<[u8]>::to_vec).unwrap_or_default();
+    let detail: Vec<u8> = e
+        .raw_detail
+        .as_deref()
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default();
     let stack_bytes = e.stack.len() * pv;
     // Extra-detail is written right after the record; its field is the offset from
     // the event start (= common 52 + stack + details), which the reader resolves.
@@ -657,7 +685,11 @@ mod tests {
 
         let read = r.event(0).expect("event");
         assert_eq!(&*read.path, "HKLM\\SOFTWARE\\X");
-        let detail = read.details.iter().find(|(k, _)| k == "Detail").map(|(_, v)| v.as_str());
+        let detail = read
+            .details
+            .iter()
+            .find(|(k, _)| k == "Detail")
+            .map(|(_, v)| v.as_str());
         assert_eq!(detail, Some("Type: REG_DWORD, Length: 4, Data: 1"));
     }
 
@@ -666,7 +698,9 @@ mod tests {
     #[test]
     fn push_event_file_create_detail_round_trip() {
         use crate::event::Event;
-        use crate::kernel_types::{file_opt, irp_mj, synth_record, FILE_NOTIFY_BASE, LogFileOptHead};
+        use crate::kernel_types::{
+            file_opt, irp_mj, synth_record, LogFileOptHead, FILE_NOTIFY_BASE,
+        };
         use core::mem::size_of;
         use windows::Wdk::Storage::FileSystem::Minifilters::FLT_PARAMETERS;
         use windows::Win32::Storage::FileSystem::FILE_GENERIC_READ;
@@ -677,9 +711,12 @@ mod tests {
         // SAFETY: FLT_PARAMETERS is POD for our purposes; zeroed is valid.
         let mut params: FLT_PARAMETERS = unsafe { core::mem::zeroed() };
         params.Create.Options = 1u32 << 24; // disposition byte = 1 => "Open"
-        // SAFETY: read the union's bytes for serialization.
+                                            // SAFETY: read the union's bytes for serialization.
         let pb = unsafe {
-            core::slice::from_raw_parts(&params as *const _ as *const u8, size_of::<FLT_PARAMETERS>())
+            core::slice::from_raw_parts(
+                &params as *const _ as *const u8,
+                size_of::<FLT_PARAMETERS>(),
+            )
         };
         d.extend_from_slice(pb);
         d.extend_from_slice(&((name.len() / 2) as u16).to_le_bytes()); // NameLength
@@ -710,10 +747,17 @@ mod tests {
 
         let read = r.event(0).expect("event");
         assert_eq!(&*read.path, path.as_str(), "path preserved through PML");
-        let detail = read.details.iter().find(|(k, _)| k == "Detail").map(|(_, v)| v.clone());
+        let detail = read
+            .details
+            .iter()
+            .find(|(k, _)| k == "Detail")
+            .map(|(_, v)| v.clone());
         let detail = detail.expect("detail column");
         assert!(detail.contains("Disposition: Open"), "detail: {detail}");
-        assert!(detail.contains("OpenResult: Opened"), "OpenResult from extra: {detail}");
+        assert!(
+            detail.contains("OpenResult: Opened"),
+            "OpenResult from extra: {detail}"
+        );
     }
 
     /// A live (ETW) network event saves to PML and reads back with its operation,
@@ -749,7 +793,11 @@ mod tests {
         assert_eq!(read.operation, NetOp::Send.to_pml());
         assert_eq!(&*read.path, "10.0.0.1:5000 -> 1.2.3.4:443");
         assert_eq!(read.operation_name(), "TCP Send");
-        let len = read.details.iter().find(|(k, _)| k == "Length").map(|(_, v)| v.as_str());
+        let len = read
+            .details
+            .iter()
+            .find(|(k, _)| k == "Length")
+            .map(|(_, v)| v.as_str());
         assert_eq!(len, Some("1460"));
     }
 

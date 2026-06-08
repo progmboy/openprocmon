@@ -32,9 +32,10 @@ pub(crate) fn track(mgr: &ProcessManager, entry: &LogEntry, data: &[u8]) {
             }
         }
         pn::IMAGE_LOAD => {
-            if let (Ok(seq), Some(module)) =
-                (u32::try_from(entry.process_seq), image_module(data, DetailMode::Live))
-            {
+            if let (Ok(seq), Some(module)) = (
+                u32::try_from(entry.process_seq),
+                image_module(data, DetailMode::Live),
+            ) {
                 mgr.add_module(seq, module);
             }
         }
@@ -66,7 +67,11 @@ pub(crate) fn create_info(data: &[u8], mode: DetailMode) -> Option<ProcessInfo> 
     }
     let (name, _) = read_detail_str(data, name_off, ci.proc_name_length, mode);
     // Live records hold NT device paths (convert to DOS); PML already stores DOS.
-    let image_path = if mode == DetailMode::Pml { name } else { crate::path::nt_to_dos(&name) };
+    let image_path = if mode == DetailMode::Pml {
+        name
+    } else {
+        crate::path::nt_to_dos(&name)
+    };
 
     let cmd_off = name_off + name_bytes;
     let (command_line, _) = read_detail_str(data, cmd_off, ci.command_line_length, mode);
@@ -191,7 +196,9 @@ impl OperationView for ProcView<'_> {
             pn::INIT | pn::CREATE => create_info(data, mode)
                 .map(|i| i.image_path)
                 .filter(|p| !p.is_empty()),
-            pn::IMAGE_LOAD => image_module(data, mode).map(|m| m.path).filter(|p| !p.is_empty()),
+            pn::IMAGE_LOAD => image_module(data, mode)
+                .map(|m| m.path)
+                .filter(|p| !p.is_empty()),
             // Process Start carries no image path in its data; use the started
             // process's image path from the process table (already DOS form).
             pn::START => self
@@ -256,7 +263,12 @@ fn start_detail(data: &[u8], mode: DetailMode) -> String {
     let fixed = size_of::<LogProcessStart>();
     let (cmd, cmd_bytes) = read_detail_str(data, fixed, info.command_line_length, mode);
     let (cwd, _) = read_detail_str(data, fixed + cmd_bytes, info.current_directory_length, mode);
-    format!("Parent PID: {}, Command line: {}, Current directory: {}", { info.parent_id }, cmd, cwd)
+    format!(
+        "Parent PID: {}, Command line: {}, Current directory: {}",
+        { info.parent_id },
+        cmd,
+        cwd
+    )
 }
 
 /// Formats a Windows `LARGE_INTEGER` time span (100 ns ticks) as fractional

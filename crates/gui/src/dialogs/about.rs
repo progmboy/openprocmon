@@ -25,7 +25,13 @@ pub(crate) fn body(cx: &App) -> impl IntoElement {
         .py(px(30.))
         // Brand logo (design `.brand-logo` enlarged to 56×56, radius 14) — the app icon.
         .child(div().mb(px(16.)).child(crate::components::brand_icon(56.)))
-        .child(div().text_color(fg).text_size(px(19.)).font_bold().child("OpenProcmon"))
+        .child(
+            div()
+                .text_color(fg)
+                .text_size(px(19.))
+                .font_bold()
+                .child("OpenProcmon"),
+        )
         .child(
             div()
                 .mt(px(4.))
@@ -52,13 +58,19 @@ pub(crate) fn body(cx: &App) -> impl IntoElement {
 
 /// The footer's OK button row (design `.dialog-foot`, with a top divider).
 pub(crate) fn footer(cx: &App) -> impl IntoElement {
-    div().w_full().px(px(18.)).py(px(13.)).border_t_1().border_color(cx.theme().border).child(
-        h_flex().w_full().justify_end().child(
-            Button::new("about-ok")
-                .primary()
-                .h(px(34.))
-                .label(t!("dlg.ok").to_string())
-                .on_click(|_, window, cx| window.close_dialog(cx)),
-        ),
-    )
+    div()
+        .w_full()
+        .px(px(18.))
+        .py(px(13.))
+        .border_t_1()
+        .border_color(cx.theme().border)
+        .child(
+            h_flex().w_full().justify_end().child(
+                Button::new("about-ok")
+                    .primary()
+                    .h(px(34.))
+                    .label(t!("dlg.ok").to_string())
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+            ),
+        )
 }

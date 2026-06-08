@@ -15,28 +15,30 @@ use gpui::{
 use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
+    notification::NotificationType,
     table::{DataTable, TableEvent, TableState},
     v_flex, ActiveTheme, Root, ThemeMode, WindowExt,
 };
 
 use crate::actions::{
-    About, AlwaysOnTop, Bookmark, ClearDisplay, ClearFilter, ClearHighlight, FocusSearch, Open,
-    OpenFileSummary, OpenFilter, OpenHighlight, OpenNetSummary, OpenProcessSummary, OpenRegSummary,
-    OpenSettings, OpenSummary, OpenTree, OpenXrefSummary, Quit, Save, SaveAs, SelectLocale,
-    SwitchThemeMode, ToggleAdvancedDisplay, ToggleAutoscroll, ToggleCapture,
+    About, AlwaysOnTop, Bookmark, CheckUpdates, ClearDisplay, ClearFilter, ClearHighlight, Copy,
+    ExportSettings, FocusSearch, HelpTopics, ImportSettings, Open, OpenFileSummary, OpenFilter,
+    OpenHighlight, OpenNetSummary, OpenProcessSummary, OpenRegSummary, OpenSettings, OpenSummary,
+    OpenTree, OpenXrefSummary, Quit, Save, SelectLocale, SwitchThemeMode, ToggleAdvancedDisplay,
+    ToggleAutoscroll, ToggleCapture, WebSearch,
 };
 use crate::components::detail_panel::DetailView;
 use crate::components::event_table::EventTableDelegate;
 use crate::components::menubar::MenuBar;
 use crate::components::{menubar, monitorbar, statusbar, toolbar};
-use crate::dialogs::filter_dialog::{FilterDialog, RuleKind};
 use crate::dialogs::about;
+use crate::dialogs::filter_dialog::{FilterDialog, RuleKind};
 use crate::dialogs::form_dialog::FormDialog;
 use crate::dialogs::path_summary::{PathKind, PathSummaryDialog, XrefSummaryDialog};
-use crate::dialogs::settings_dialog::SettingsDialog;
 use crate::dialogs::process_summary::ProcessSummaryDialog;
-use crate::dialogs::save_dialog::{SaveCounts, SaveDialog, SaveOptions};
 use crate::dialogs::process_tree::ProcessTreeDialog;
+use crate::dialogs::save_dialog::{SaveCounts, SaveDialog, SaveOptions};
+use crate::dialogs::settings_dialog::SettingsDialog;
 use crate::dialogs::summary;
 use crate::icons::PmIcon;
 use crate::model::buffer::EventBuffer;
@@ -127,8 +129,9 @@ pub struct AppState {
 
     source: Box<dyn EventSource>,
     rx: Option<crossbeam_channel::Receiver<SourceEvent>>,
-    /// A source-level error pending display (drained into a notification by the UI).
-    last_error: Option<gpui::SharedString>,
+    /// A pending notice (error or save result) to surface as a toast notification
+    /// on the next UI tick, tagged with the level it should be shown at.
+    pending_notice: Option<(NotificationType, gpui::SharedString)>,
     /// True while viewing a loaded `.PML` (offline): history limits don't apply, so
     /// the whole capture stays visible.
     offline: bool,
@@ -140,7 +143,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let config = AppConfig::default();
+        // Load the persisted config (%USERPROFILE%\openprocmon\config.json), falling
+        // back to defaults if it is missing or unreadable.
+        let config = AppConfig::load();
         // Advanced Display (Event menu) defaults to on: seed the noise-suppression
         // rules so the monitor's own tools / NTFS metadata are excluded out of the
         // box.
@@ -162,7 +167,7 @@ impl AppState {
             config,
             source: make_source(),
             rx: None,
-            last_error: None,
+            pending_notice: None,
             offline: false,
             symbols: None,
         };
@@ -177,12 +182,11 @@ impl AppState {
     /// Applies the history ring-buffer limits from the config (live only; offline
     /// PML viewing is never trimmed).
     fn apply_retention(&mut self) {
-        let retention = (!self.offline && self.config.history_ring).then(|| {
-            crate::model::buffer::Retention {
+        let retention =
+            (!self.offline && self.config.history_ring).then(|| crate::model::buffer::Retention {
                 max_bytes: self.config.history_mb.saturating_mul(1024 * 1024),
                 max_age_ticks: (self.config.history_min as i64).saturating_mul(60 * 10_000_000),
-            }
-        });
+            });
         self.buffer.set_retention(retention);
     }
 
@@ -191,24 +195,37 @@ impl AppState {
     /// so callers skip symbol resolution and keep the `module+offset` fallback.
     fn symbol_resolver(&mut self) -> Option<std::sync::Arc<procmon_sdk::SymbolResolver>> {
         if self.symbols.is_none() {
-            self.symbols =
-                procmon_sdk::SymbolResolver::new(&self.config.dbghelp_path, &self.config.symbols_path)
-                    .map(std::sync::Arc::new);
+            self.symbols = procmon_sdk::SymbolResolver::new(
+                &self.config.dbghelp_path,
+                &self.config.symbols_path,
+            )
+            .map(std::sync::Arc::new);
         }
         self.symbols.clone()
     }
 
-    /// Takes the pending source error, if any (drained by the UI into a notification).
-    fn take_error(&mut self) -> Option<gpui::SharedString> {
-        self.last_error.take()
+    /// Takes the pending notice, if any (drained by the UI into a notification).
+    fn take_notice(&mut self) -> Option<(NotificationType, gpui::SharedString)> {
+        self.pending_notice.take()
     }
 
-    /// Writes the events selected by `opts` to its path, recording a result message.
-    fn save_to_file(&mut self, opts: &SaveOptions) {
-        self.last_error = Some(match self.do_save(opts) {
-            Ok(n) => format!("Saved {n} events to {}", opts.path).into(),
-            Err(e) => format!("Save failed: {e}").into(),
-        });
+    /// Writes the events selected by `opts` to its path, returning a success/error
+    /// notice for the caller to surface as a toast.
+    fn save_to_file(&mut self, opts: &SaveOptions) -> (NotificationType, gpui::SharedString) {
+        match self.do_save(opts) {
+            Ok(n) => (
+                NotificationType::Success,
+                rust_i18n::t!("notify.save_ok", n = n, path = opts.path.clone())
+                    .to_string()
+                    .into(),
+            ),
+            Err(e) => (
+                NotificationType::Error,
+                rust_i18n::t!("notify.save_err", detail = e)
+                    .to_string()
+                    .into(),
+            ),
+        }
     }
 
     fn do_save(&mut self, opts: &SaveOptions) -> Result<usize, String> {
@@ -243,7 +260,9 @@ impl AppState {
                 for row in &selected {
                     writer.push_event(row.event());
                 }
-                writer.write_to_path(&opts.path).map_err(|e| e.to_string())?;
+                writer
+                    .write_to_path(&opts.path)
+                    .map_err(|e| e.to_string())?;
             }
             SaveFormat::Csv => crate::model::sdk_source::export_csv(&selected, &opts.path)?,
             SaveFormat::Xml => crate::model::sdk_source::export_xml(
@@ -341,8 +360,10 @@ impl AppState {
                     added = true;
                 }
                 SourceEvent::CountsChanged(_) => {}
-                // Surfaced to the user by `on_tick`.
-                SourceEvent::Error(msg) => self.last_error = Some(msg),
+                // Surfaced to the user as an error toast by `on_tick`.
+                SourceEvent::Error(msg) => {
+                    self.pending_notice = Some((NotificationType::Error, msg))
+                }
             }
         }
         added
@@ -421,13 +442,11 @@ impl AppView {
         let highlight_dialog =
             cx.new(|cx| FilterDialog::new(app_weak.clone(), RuleKind::Highlight, window, cx));
         let save_dialog = cx.new(|cx| SaveDialog::new(app_weak.clone(), window, cx));
-        let tree_dialog =
-            cx.new(|cx| ProcessTreeDialog::new(app_weak.clone(), window, cx));
+        let tree_dialog = cx.new(|cx| ProcessTreeDialog::new(app_weak.clone(), window, cx));
         let process_summary = cx.new(|cx| ProcessSummaryDialog::new(window, cx));
         let path_summary = cx.new(|cx| PathSummaryDialog::new(window, cx));
         let xref_summary = cx.new(|cx| XrefSummaryDialog::new(window, cx));
-        let settings_dialog =
-            cx.new(|cx| SettingsDialog::new(app_weak.clone(), window, cx));
+        let settings_dialog = cx.new(|cx| SettingsDialog::new(app_weak.clone(), window, cx));
         let focus_handle = cx.focus_handle();
         // Menu items dispatch their actions to the AppView root's focus context, so
         // its `on_action` handlers fire even while the popup holds focus. The weak
@@ -437,12 +456,16 @@ impl AppView {
 
         // Drain the source channel on a frame timer and refresh the table only
         // when new rows arrived.
-        let drain = cx.spawn(async move |this, cx| {
+        let drain = cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(16))
                     .await;
-                if this.update(cx, |view, cx| view.on_tick(cx)).is_err() {
+                // `update_in` gives the `&mut Window` `push_notification` needs.
+                if this
+                    .update_in(cx, |view, window, cx| view.on_tick(window, cx))
+                    .is_err()
+                {
                     break; // the view was dropped; stop draining.
                 }
             }
@@ -513,15 +536,16 @@ impl AppView {
         });
     }
 
-    /// Writes the selected events to the chosen file (PML only for now); the
-    /// result message is surfaced via the source-error channel.
+    /// Writes the selected events to the chosen file, then toasts the result
+    /// (green "saved N events" / red "save failed").
     pub(crate) fn save_to_file(
         &mut self,
         opts: SaveOptions,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.state.update(cx, |s, _| s.save_to_file(&opts));
+        let notice = self.state.update(cx, |s, _| s.save_to_file(&opts));
+        window.push_notification(notice, cx);
     }
 
     pub(crate) fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -660,7 +684,8 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         let rows = self.state.read(cx).buffer.summary_rows();
-        self.path_summary.update(cx, |d, cx| d.load(kind, &rows, cx));
+        self.path_summary
+            .update(cx, |d, cx| d.load(kind, &rows, cx));
         let dialog = self.path_summary.clone();
         window.open_dialog(cx, move |d, window, cx| {
             let (icon, title, desc) = {
@@ -705,7 +730,8 @@ impl AppView {
             let s = self.state.read(cx);
             (s.config.clone(), s.theme_mode)
         };
-        self.settings_dialog.update(cx, |d, cx| d.load(config, theme, window, cx));
+        self.settings_dialog
+            .update(cx, |d, cx| d.load(config, theme, window, cx));
         let dialog = self.settings_dialog.clone();
         window.open_dialog(cx, move |d, window, cx| {
             FormDialog::new(d)
@@ -729,6 +755,17 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Persist to %USERPROFILE%\openprocmon\config.json (best-effort; a write
+        // failure is surfaced but doesn't block applying the in-memory settings).
+        if let Err(e) = config.save() {
+            window.push_notification(
+                (
+                    NotificationType::Error,
+                    rust_i18n::t!("set.save_failed", detail = e.to_string()).to_string(),
+                ),
+                cx,
+            );
+        }
         self.state.update(cx, |s, _| {
             s.config = config;
             s.apply_retention();
@@ -767,11 +804,24 @@ impl AppView {
         action: FilterAction,
         cx: &mut Context<Self>,
     ) {
+        self.quick_filter_rel(column, FilterRelation::Is, value, action, cx);
+    }
+
+    /// Like [`quick_filter`](Self::quick_filter) but with an explicit relation —
+    /// used by the "Exclude Events Before/After" actions (Date & Time less/more than).
+    pub(crate) fn quick_filter_rel(
+        &mut self,
+        column: FilterColumn,
+        relation: FilterRelation,
+        value: String,
+        action: FilterAction,
+        cx: &mut Context<Self>,
+    ) {
         let mut model = self.state.read(cx).filter.clone();
-        model
-            .rules
-            .push(FilterRule::new(column, FilterRelation::Is, value, action));
-        self.set_filter(model, cx);
+        // The filter list is a set: skip duplicates, newest at the front.
+        if model.add_front(FilterRule::new(column, relation, value, action)) {
+            self.set_filter(model, cx);
+        }
     }
 
     /// Context-menu quick action: highlight a process name (adds an Include rule
@@ -850,7 +900,12 @@ impl AppView {
     /// Snapshots the inputs the async symbol resolver needs (frame addresses + this
     /// process's module ranges), as owned data safe to move onto a worker thread.
     fn symbol_inputs(detail: &EventDetail) -> SymbolInputs {
-        let frames = detail.stack.iter().enumerate().map(|(i, f)| (i, f.address)).collect();
+        let frames = detail
+            .stack
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (i, f.address))
+            .collect();
         let mods = detail
             .modules
             .iter()
@@ -930,11 +985,12 @@ impl AppView {
         self.table_state.update(cx, |_, cx| cx.notify());
     }
 
-    fn on_tick(&mut self, cx: &mut Context<Self>) {
+    fn on_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let changed = self.state.update(cx, |s, _| s.drain());
-        if let Some(err) = self.state.update(cx, |s, _| s.take_error()) {
-            // TODO(Step 4): surface as a gpui-component notification.
-            eprintln!("event source error: {err}");
+        if let Some((level, message)) = self.state.update(cx, |s, _| s.take_notice()) {
+            // Toast at top-right: red for errors (driver/connect/save failures),
+            // green for save success. Auto-hides; the message carries the detail.
+            window.push_notification((level, message), cx);
         }
         if !changed {
             return;
@@ -949,6 +1005,166 @@ impl AppView {
                 .update(cx, |t, cx| t.scroll_to_row(visible - 1, cx));
         }
         cx.notify();
+    }
+
+    /// Edit ▸ Copy (Ctrl+C): copies the selected row's columns to the clipboard as
+    /// tab-separated values (`#`, Time, Process, PID, Operation, Path, Result,
+    /// Detail), so it pastes cleanly into a spreadsheet. No-op when nothing is
+    /// selected. The Operation honors the Advanced Display toggle, matching the table.
+    fn copy_selected_row(&self, cx: &mut Context<Self>) {
+        let text = {
+            let s = self.state.read(cx);
+            let Some(row) = s.selected.and_then(|ix| s.buffer.visible(ix)) else {
+                return;
+            };
+            let advance = crate::model::filter::advanced_display_on(&s.filter);
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                row.seq(),
+                row.time(),
+                row.process_name(),
+                row.pid(),
+                row.operation_display(advance),
+                row.path(),
+                row.result(),
+                row.detail(),
+            )
+        };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+    }
+
+    /// Toasts a "not implemented yet" warning for menu items that aren't wired up.
+    fn notify_unimplemented(&self, window: &mut Window, cx: &mut Context<Self>) {
+        window.push_notification(
+            (
+                NotificationType::Warning,
+                rust_i18n::t!("notify.unimplemented").to_string(),
+            ),
+            cx,
+        );
+    }
+
+    /// File ▸ Export Settings: writes the current config to a user-chosen `.json`.
+    fn export_settings(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let config = self.state.read(cx).config.clone();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send(
+                rfd::FileDialog::new()
+                    .set_file_name("openprocmon-config.json")
+                    .add_filter("JSON", &["json"])
+                    .save_file(),
+            );
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let picked = loop {
+                match rx.try_recv() {
+                    Ok(p) => break p,
+                    Err(crossbeam_channel::TryRecvError::Empty) => {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(30))
+                            .await;
+                    }
+                    Err(_) => break None,
+                }
+            };
+            let Some(path) = picked else { return };
+            let result = config.save_to(&path);
+            let _ = this.update_in(cx, |_, window, cx| match result {
+                Ok(()) => {
+                    window.push_notification(
+                        (
+                            NotificationType::Success,
+                            rust_i18n::t!("set.export_ok").to_string(),
+                        ),
+                        cx,
+                    );
+                }
+                Err(e) => {
+                    window.push_notification(
+                        (
+                            NotificationType::Error,
+                            rust_i18n::t!("set.export_failed", detail = e.to_string()).to_string(),
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// File ▸ Import Settings: loads a config from a user-chosen `.json`, overwriting
+    /// the live config and persisting it to the canonical location.
+    fn import_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send(
+                rfd::FileDialog::new()
+                    .add_filter("JSON", &["json"])
+                    .pick_file(),
+            );
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let picked = loop {
+                match rx.try_recv() {
+                    Ok(p) => break p,
+                    Err(crossbeam_channel::TryRecvError::Empty) => {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(30))
+                            .await;
+                    }
+                    Err(_) => break None,
+                }
+            };
+            let Some(path) = picked else { return };
+            let loaded = AppConfig::load_from(&path);
+            let _ = this.update_in(cx, |view, window, cx| match loaded {
+                Ok(cfg) => view.apply_imported_config(cfg, window, cx),
+                Err(e) => {
+                    window.push_notification(
+                        (
+                            NotificationType::Error,
+                            rust_i18n::t!("set.import_failed", detail = e).to_string(),
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Overwrites the live config with an imported one, persists it, and re-renders.
+    fn apply_imported_config(
+        &mut self,
+        cfg: AppConfig,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(e) = cfg.save() {
+            window.push_notification(
+                (
+                    NotificationType::Error,
+                    rust_i18n::t!("set.save_failed", detail = e.to_string()).to_string(),
+                ),
+                cx,
+            );
+        }
+        self.state.update(cx, |s, _| {
+            s.config = cfg;
+            s.apply_retention();
+            s.symbols = None;
+        });
+        self.notify_table(cx);
+        cx.notify();
+        window.push_notification(
+            (
+                NotificationType::Success,
+                rust_i18n::t!("set.import_ok").to_string(),
+            ),
+            cx,
+        );
     }
 
     /// Flips light/dark mode, keeping the gpui-component theme and our custom
@@ -1124,9 +1340,11 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|view, _: &OpenTree, window, cx| view.open_tree_dialog(window, cx)),
             )
-            .on_action(cx.listener(|view, _: &OpenSummary, window, cx| {
-                view.open_summary_dialog(window, cx)
-            }))
+            .on_action(
+                cx.listener(|view, _: &OpenSummary, window, cx| {
+                    view.open_summary_dialog(window, cx)
+                }),
+            )
             .on_action(cx.listener(|view, _: &OpenProcessSummary, window, cx| {
                 view.open_process_summary_dialog(window, cx)
             }))
@@ -1148,16 +1366,27 @@ impl Render for AppView {
             .on_action(cx.listener(|view, _: &Open, window, cx| view.open_pml_dialog(window, cx)))
             .on_action(cx.listener(|view, _: &Save, window, cx| view.open_save_dialog(window, cx)))
             .on_action(
-                cx.listener(|view, _: &SaveAs, window, cx| view.open_save_dialog(window, cx)),
+                cx.listener(|view, _: &About, window, cx| view.open_about_dialog(window, cx)),
             )
-            .on_action(cx.listener(|view, _: &About, window, cx| view.open_about_dialog(window, cx)))
             .on_action(cx.listener(|view, action: &SwitchThemeMode, window, cx| {
                 view.set_theme_mode(action.0, window, cx)
             }))
             .on_action(cx.listener(|view, action: &SelectLocale, window, cx| {
-                let code = if action.0.starts_with("zh") { "zh" } else { "en" };
+                let code = if action.0.starts_with("zh") {
+                    "zh"
+                } else {
+                    "en"
+                };
                 view.set_locale(code, window, cx);
             }))
+            // Menu items without a backing implementation yet: each shows a "not
+            // implemented" toast so the menu is fully clickable.
+            .on_action(cx.listener(|v, _: &Copy, _, cx| v.copy_selected_row(cx)))
+            .on_action(cx.listener(|v, _: &WebSearch, w, cx| v.notify_unimplemented(w, cx)))
+            .on_action(cx.listener(|v, _: &ImportSettings, w, cx| v.import_settings(w, cx)))
+            .on_action(cx.listener(|v, _: &ExportSettings, w, cx| v.export_settings(w, cx)))
+            .on_action(cx.listener(|v, _: &HelpTopics, w, cx| v.notify_unimplemented(w, cx)))
+            .on_action(cx.listener(|v, _: &CheckUpdates, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(|_: &Quit, _, cx| cx.quit())
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)

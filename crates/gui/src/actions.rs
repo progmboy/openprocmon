@@ -1,7 +1,7 @@
 //! Global actions + key bindings, dispatched to [`AppView`]'s root (handled in
 //! `app.rs`) or globally. The menu bar (`menubar.rs`) maps menu items to these.
 
-use gpui::{App, Action, KeyBinding, SharedString, actions};
+use gpui::{actions, Action, App, KeyBinding, SharedString};
 use gpui_component::ThemeMode;
 use serde::Deserialize;
 
@@ -32,7 +32,6 @@ actions!(
         // File menu.
         Open,
         Save,
-        SaveAs,
         ImportSettings,
         ExportSettings,
         Quit,
@@ -41,8 +40,6 @@ actions!(
         // Options / Help.
         OpenSettings,
         AlwaysOnTop,
-        ConfigureSymbols,
-        HistoryDepth,
         HelpTopics,
         CheckUpdates,
         About,
