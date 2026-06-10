@@ -26,6 +26,10 @@ impl FilterFields for CapturedEvent {
     fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>> {
         self.event().filter_field(column)
     }
+
+    fn filter_number(&self, column: Column) -> Option<i64> {
+        self.event().filter_number(column)
+    }
 }
 
 /// Whether a category is enabled by the monitor toggles (used to gate the view).

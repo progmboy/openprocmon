@@ -239,11 +239,31 @@ impl Rule {
 pub trait FilterFields {
     /// The column's value as a string, or `None` if the event has none.
     fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>>;
+
+    /// The column's value as an integer, for integer columns (PID, TID,
+    /// sequence, parent PID, session); `None` for string columns or when the
+    /// event has no value. Lets equality/ordering rules on these columns
+    /// compare numerically without stringifying per evaluation.
+    fn filter_number(&self, column: Column) -> Option<i64> {
+        let _ = column;
+        None
+    }
 }
 
 impl FilterFields for Event {
     fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>> {
         column_value(self, column)
+    }
+
+    fn filter_number(&self, column: Column) -> Option<i64> {
+        match column {
+            Column::Pid => Some(self.pid() as i64),
+            Column::Tid => Some(self.thread_id() as i64),
+            Column::Sequence => Some(self.sequence() as i64),
+            Column::ParentPid => self.parent_pid().map(|v| v as i64),
+            Column::Session => self.session_id().map(|v| v as i64),
+            _ => None,
+        }
     }
 }
 
@@ -344,6 +364,26 @@ impl FilterSet {
 
 /// Whether `rule`'s relation matches `ev`'s value for the rule's column.
 fn rule_hits<E: FilterFields>(ev: &E, rule: &Rule) -> bool {
+    // Numeric fast path: equality/ordering on integer columns compares the
+    // numbers directly (no per-evaluation to_string). Substring relations are
+    // inherently textual, and a non-numeric rule value falls back to the
+    // string path (lexicographic, as before).
+    if matches!(
+        rule.relation,
+        Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
+    ) {
+        if let (Some(actual), Ok(expected)) =
+            (ev.filter_number(rule.column), rule.value.parse::<i64>())
+        {
+            return match rule.relation {
+                Relation::Is => actual == expected,
+                Relation::IsNot => actual != expected,
+                Relation::LessThan => actual < expected,
+                Relation::MoreThan => actual > expected,
+                _ => unreachable!("guarded by the relation match above"),
+            };
+        }
+    }
     ev.filter_field(rule.column)
         .map(|actual| relation_matches(rule.relation, &actual, &rule.value))
         .unwrap_or(false)
@@ -566,5 +606,51 @@ mod tests {
             Action::Include,
         )]);
         assert!(!fs2.matches(&ev)); // 4321 is not > 9999
+    }
+
+    #[test]
+    fn numeric_columns_compare_as_numbers() {
+        let ev = file_event(20);
+        // `file_event` builds a record with thread_id 0 and sequence 1.
+        let is_rule = |v: &str| {
+            FilterSet::new(vec![Rule::new(
+                Column::Sequence,
+                Relation::Is,
+                v,
+                Action::Include,
+            )])
+        };
+        assert!(is_rule("1").matches(&ev));
+        assert!(is_rule("01").matches(&ev)); // numeric, not textual, equality
+        assert!(!is_rule("2").matches(&ev));
+        // A non-numeric value falls back to the string path (and misses).
+        assert!(!is_rule("one").matches(&ev));
+    }
+
+    #[test]
+    fn substring_relations_on_numeric_columns_stay_textual() {
+        use crate::network::{NetOp, NetworkEvent};
+        let net = NetworkEvent {
+            pid: 4321,
+            is_tcp: true,
+            op: NetOp::Send,
+            local: "10.0.0.1:5000".parse().unwrap(),
+            remote: "1.2.3.4:443".parse().unwrap(),
+            local_name: None,
+            remote_name: None,
+            length: 0,
+            time: 0,
+        };
+        let ev = Event::from_network(
+            std::sync::Arc::new(net),
+            crate::event::ProcessSource::Live(None),
+        );
+        let fs = FilterSet::new(vec![Rule::new(
+            Column::Pid,
+            Relation::Contains,
+            "32",
+            Action::Include,
+        )]);
+        assert!(fs.matches(&ev)); // "4321" contains "32"
     }
 }
