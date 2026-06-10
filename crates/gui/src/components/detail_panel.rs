@@ -63,6 +63,44 @@ fn sel_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
         .border_color(co.sel_border)
 }
 
+/// Border-only variant of [`sel_overlay`] for the row whose context menu is
+/// open — the event table draws its right-clicked row this way (`selection`
+/// color, no fill).
+fn menu_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
+    div()
+        .absolute()
+        .top(px(0.))
+        .left(px(0.))
+        .right(px(0.))
+        .bottom(px(0.))
+        .rounded(radius)
+        .border_1()
+        .border_color(co.menu_border)
+}
+
+/// Marks row `i` as having its context menu open (`field` selects
+/// `menu_module`/`menu_frame`) and clears the mark when the menu dismisses —
+/// mirroring DataTable's right-clicked-row tracking.
+fn mark_menu_row(
+    view: &WeakEntity<DetailView>,
+    cx: &mut Context<PopupMenu>,
+    field: fn(&mut DetailView) -> &mut Option<usize>,
+    i: usize,
+) {
+    let _ = view.update(cx, |v, cx| {
+        *field(v) = Some(i);
+        cx.notify();
+    });
+    let view = view.clone();
+    cx.subscribe(&cx.entity(), move |_, _, _: &gpui::DismissEvent, cx| {
+        let _ = view.update(cx, |v, cx| {
+            *field(v) = None;
+            cx.notify();
+        });
+    })
+    .detach();
+}
+
 /// The Copy / Copy All context menu shared by the panel's list rows (cf. the
 /// event table's row menu): Copy puts row `i`'s line on the clipboard, Copy All
 /// the whole list. Text is built only when an item is clicked.
@@ -105,6 +143,9 @@ struct Co {
     /// table's selection uses, so the panel lists select identically.
     sel_bg: Hsla,
     sel_border: Hsla,
+    /// Border of the row whose context menu is open — the event table
+    /// (DataTable) draws the right-clicked row with `theme().selection`.
+    menu_border: Hsla,
     /// Render PID/TID in hex (Settings ▸ Display Format).
     hex_id: bool,
     pal: ProcmonPalette,
@@ -129,6 +170,11 @@ pub(crate) struct DetailView {
     selected_module: Option<usize>,
     /// Selected frame in the call-stack table.
     selected_frame: Option<usize>,
+    /// Row whose context menu is currently open (module list / stack table),
+    /// drawn with the event table's right-clicked border. Set when the menu
+    /// builder runs, cleared when the menu dismisses.
+    menu_module: Option<usize>,
+    menu_frame: Option<usize>,
     /// Horizontal scroll handle for the stack table (wheel-restricted).
     stack_scroll: ScrollHandle,
     /// Bumped on every `set_detail`; an async symbol-resolution result is applied
@@ -163,6 +209,8 @@ impl DetailView {
             mod_filter,
             selected_module: None,
             selected_frame: None,
+            menu_module: None,
+            menu_frame: None,
             stack_scroll: ScrollHandle::new(),
             symbol_gen: 0,
         }
@@ -172,6 +220,8 @@ impl DetailView {
         self.detail = Some(detail);
         self.selected_module = None;
         self.selected_frame = None;
+        self.menu_module = None;
+        self.menu_frame = None;
         // Invalidate any in-flight symbol resolution for the previous row.
         self.symbol_gen = self.symbol_gen.wrapping_add(1);
         cx.notify();
@@ -227,6 +277,7 @@ impl gpui::Render for DetailView {
             row_hover: cx.theme().secondary_hover,
             sel_bg: cx.theme().table_active,
             sel_border: cx.theme().table_active_border,
+            menu_border: cx.theme().selection,
             hex_id,
             pal: palette(cx),
         };
@@ -257,9 +308,18 @@ impl gpui::Render for DetailView {
         let filter = self.mod_filter.read(cx).value().to_string();
 
         let (sel_module, sel_frame) = (self.selected_module, self.selected_frame);
+        let (menu_module, menu_frame) = (self.menu_module, self.menu_frame);
         let body = match tab {
-            1 => process_tab(d, &co, &filter, &self.mod_filter, sel_module, cx),
-            2 => stack_tab(d, &co, &self.stack_scroll, sel_frame, cx),
+            1 => process_tab(
+                d,
+                &co,
+                &filter,
+                &self.mod_filter,
+                sel_module,
+                menu_module,
+                cx,
+            ),
+            2 => stack_tab(d, &co, &self.stack_scroll, sel_frame, menu_frame, cx),
             _ => event_tab(d, &co),
         };
 
@@ -680,14 +740,17 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
     col.into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_tab(
     d: &EventDetail,
     co: &Co,
     filter: &str,
     mod_input: &Entity<InputState>,
     selected: Option<usize>,
+    menu_row: Option<usize>,
     cx: &mut Context<DetailView>,
 ) -> gpui::AnyElement {
+    let weak = cx.entity().downgrade();
     let p: &ProcessNode = &d.process;
     let cat = d.category.color(&co.pal);
     let integrity_color = integrity_color(p.integrity.as_ref(), co);
@@ -883,9 +946,14 @@ fn process_tab(
                                     .child(m.path.clone()),
                             )
                             .when(selected == Some(i), |s| s.child(sel_overlay(co, px(6.))))
+                            .when(menu_row == Some(i), |s| s.child(menu_overlay(co, px(6.))))
                             .context_menu({
                                 let rows = Rc::clone(&visible);
-                                move |menu, _, _| copy_menu(menu, &rows, i, module_line)
+                                let weak = weak.clone();
+                                move |menu, _, menu_cx| {
+                                    mark_menu_row(&weak, menu_cx, |v| &mut v.menu_module, i);
+                                    copy_menu(menu, &rows, i, module_line)
+                                }
                             })
                     }))
                 }),
@@ -898,8 +966,10 @@ fn stack_tab(
     co: &Co,
     scroll: &ScrollHandle,
     selected: Option<usize>,
+    menu_row: Option<usize>,
     cx: &mut Context<DetailView>,
 ) -> gpui::AnyElement {
+    let weak = cx.entity().downgrade();
     // `.stack-note`: "Operation <op> call stack · N frames", op emphasized.
     let note = h_flex()
         .items_center()
@@ -1009,9 +1079,14 @@ fn stack_tab(
                     })
             })
             .when(selected == Some(i), |s| s.child(sel_overlay(co, px(0.))))
+            .when(menu_row == Some(i), |s| s.child(menu_overlay(co, px(0.))))
             .context_menu({
                 let rows = Rc::clone(&frames);
-                move |menu, _, _| copy_menu(menu, &rows, i, stack_line)
+                let weak = weak.clone();
+                move |menu, _, menu_cx| {
+                    mark_menu_row(&weak, menu_cx, |v| &mut v.menu_frame, i);
+                    copy_menu(menu, &rows, i, stack_line)
+                }
             })
     }));
 
