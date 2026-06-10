@@ -46,6 +46,23 @@ fn stack_line(f: &StackRow) -> String {
     )
 }
 
+/// The selected-row overlay used by the panel's lists: an absolutely-positioned
+/// inset tint + 1px border in the event table's `table.active` tokens — the same
+/// construction gpui-component's table uses, so selection looks identical and
+/// costs no layout shift. The host row must be `.relative()`.
+fn sel_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
+    div()
+        .absolute()
+        .top(px(0.))
+        .left(px(0.))
+        .right(px(0.))
+        .bottom(px(0.))
+        .rounded(radius)
+        .bg(co.sel_bg)
+        .border_1()
+        .border_color(co.sel_border)
+}
+
 /// The Copy / Copy All context menu shared by the panel's list rows (cf. the
 /// event table's row menu): Copy puts row `i`'s line on the clipboard, Copy All
 /// the whole list. Text is built only when an item is clicked.
@@ -84,6 +101,10 @@ struct Co {
     head_bg: Hsla,
     accent: Hsla,
     row_hover: Hsla,
+    /// Selected-row overlay colors — the same `table.active` tokens the event
+    /// table's selection uses, so the panel lists select identically.
+    sel_bg: Hsla,
+    sel_border: Hsla,
     /// Render PID/TID in hex (Settings ▸ Display Format).
     hex_id: bool,
     pal: ProcmonPalette,
@@ -103,6 +124,11 @@ pub(crate) struct DetailView {
     detail: Option<EventDetail>,
     tab: usize,
     mod_filter: Entity<InputState>,
+    /// Selected row in the module list (index into the *visible* filtered list);
+    /// rendered with the event table's selection style.
+    selected_module: Option<usize>,
+    /// Selected frame in the call-stack table.
+    selected_frame: Option<usize>,
     /// Horizontal scroll handle for the stack table (wheel-restricted).
     stack_scroll: ScrollHandle,
     /// Bumped on every `set_detail`; an async symbol-resolution result is applied
@@ -119,9 +145,12 @@ impl DetailView {
     ) -> Self {
         let mod_filter = cx
             .new(|cx| InputState::new(window, cx).placeholder(t!("dt.filter_modules").to_string()));
-        // Re-render (re-filter the module list) as the filter text changes.
-        cx.subscribe(&mod_filter, |_, _, ev: &InputEvent, cx| {
+        // Re-render (re-filter the module list) as the filter text changes; the
+        // selection indexes the visible list, so it no longer points at the same
+        // module — clear it.
+        cx.subscribe(&mod_filter, |view: &mut Self, _, ev: &InputEvent, cx| {
             if matches!(ev, InputEvent::Change) {
+                view.selected_module = None;
                 cx.notify();
             }
         })
@@ -132,6 +161,8 @@ impl DetailView {
             detail: None,
             tab: 0,
             mod_filter,
+            selected_module: None,
+            selected_frame: None,
             stack_scroll: ScrollHandle::new(),
             symbol_gen: 0,
         }
@@ -139,6 +170,8 @@ impl DetailView {
 
     pub(crate) fn set_detail(&mut self, detail: EventDetail, cx: &mut Context<Self>) {
         self.detail = Some(detail);
+        self.selected_module = None;
+        self.selected_frame = None;
         // Invalidate any in-flight symbol resolution for the previous row.
         self.symbol_gen = self.symbol_gen.wrapping_add(1);
         cx.notify();
@@ -188,7 +221,12 @@ impl gpui::Render for DetailView {
             bg2: cx.theme().background,
             head_bg: cx.theme().table_head,
             accent: palette(cx).row_sel_bar,
-            row_hover: cx.theme().list_hover,
+            // `list_hover` is near-identical to the panel's `secondary` background
+            // (invisible); `secondary_hover` is the matching hover token for
+            // content sitting on `secondary`.
+            row_hover: cx.theme().secondary_hover,
+            sel_bg: cx.theme().table_active,
+            sel_border: cx.theme().table_active_border,
             hex_id,
             pal: palette(cx),
         };
@@ -218,9 +256,10 @@ impl gpui::Render for DetailView {
         let frames = d.stack.len();
         let filter = self.mod_filter.read(cx).value().to_string();
 
+        let (sel_module, sel_frame) = (self.selected_module, self.selected_frame);
         let body = match tab {
-            1 => process_tab(d, &co, &filter, &self.mod_filter),
-            2 => stack_tab(d, &co, &self.stack_scroll),
+            1 => process_tab(d, &co, &filter, &self.mod_filter, sel_module, cx),
+            2 => stack_tab(d, &co, &self.stack_scroll, sel_frame, cx),
             _ => event_tab(d, &co),
         };
 
@@ -646,6 +685,8 @@ fn process_tab(
     co: &Co,
     filter: &str,
     mod_input: &Entity<InputState>,
+    selected: Option<usize>,
+    cx: &mut Context<DetailView>,
 ) -> gpui::AnyElement {
     let p: &ProcessNode = &d.process;
     let cat = d.category.color(&co.pal);
@@ -809,13 +850,19 @@ fn process_tab(
                     );
                     v_flex().gap_0p5().children((0..visible.len()).map(|i| {
                         let m = &visible[i];
-                        // `.mod-row` with hover highlight.
+                        // `.mod-row` with hover highlight; click selects (event-
+                        // table-style overlay, see `sel_overlay`).
                         div()
                             .id(("mod", i))
+                            .relative()
                             .px(px(10.))
                             .py(px(7.))
                             .rounded(px(6.))
                             .hover(|s| s.bg(co.row_hover))
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.selected_module = Some(i);
+                                cx.notify();
+                            }))
                             .child(
                                 h_flex()
                                     .justify_between()
@@ -835,6 +882,7 @@ fn process_tab(
                                     .truncate()
                                     .child(m.path.clone()),
                             )
+                            .when(selected == Some(i), |s| s.child(sel_overlay(co, px(6.))))
                             .context_menu({
                                 let rows = Rc::clone(&visible);
                                 move |menu, _, _| copy_menu(menu, &rows, i, module_line)
@@ -845,7 +893,13 @@ fn process_tab(
         .into_any_element()
 }
 
-fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElement {
+fn stack_tab(
+    d: &EventDetail,
+    co: &Co,
+    scroll: &ScrollHandle,
+    selected: Option<usize>,
+    cx: &mut Context<DetailView>,
+) -> gpui::AnyElement {
     // `.stack-note`: "Operation <op> call stack · N frames", op emphasized.
     let note = h_flex()
         .items_center()
@@ -924,12 +978,17 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
         };
         h_flex()
             .id(("stack", i))
+            .relative()
             .w(px(total_w))
             .items_center()
             .bg(kind_color.opacity(0.07))
             .border_b_1()
             .border_color(co.border.opacity(0.5))
             .hover(move |s| s.bg(kind_color.opacity(0.16)))
+            .on_click(cx.listener(move |view, _, _, cx| {
+                view.selected_frame = Some(i);
+                cx.notify();
+            }))
             .child(td(W_FRAME, kind_color, f.frame.to_string().into(), true))
             .child(td(W_MOD, mod_color, f.module.clone(), true))
             .child(td(W_LOC, co.text2, f.location.clone(), false))
@@ -949,6 +1008,7 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
                         c.tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
                     })
             })
+            .when(selected == Some(i), |s| s.child(sel_overlay(co, px(0.))))
             .context_menu({
                 let rows = Rc::clone(&frames);
                 move |menu, _, _| copy_menu(menu, &rows, i, stack_line)
