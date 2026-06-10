@@ -5,9 +5,9 @@ release). Re-run after each hot-path optimization and append a row-set here, so
 CPU and memory effects stay quantified. Numbers are machine-dependent —
 compare runs from the same machine only.
 
-Fixture: local `tests/resources/Logfile.PML` (34 MB, 92,598 events, not
-committed). The `live/ingest` phase is synthetic (256 batches / ~29 MB /
-127,489 events) and needs no fixture.
+Fixture: `tests/resources/CompressedLogFileBench64PML` (zlib-compressed PML,
+34 MB / 92,598 events unpacked; committed). The `live/ingest` phase is
+synthetic (256 batches / ~29 MB / 127,489 events) and needs no fixture.
 
 ## 2026-06-10 — pre-refactor baseline (commit b9f8ce8 + bench)
 

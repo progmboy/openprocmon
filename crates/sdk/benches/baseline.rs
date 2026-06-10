@@ -435,10 +435,22 @@ fn sum_columns(events: &[Event]) -> usize {
 // PML phases
 // ---------------------------------------------------------------------------
 
-fn fixture_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+/// The committed PML fixture, zlib-compressed like its siblings (real PML is
+/// uncompressed). Decompressed to a temp file for the mmap-based reader; `None`
+/// if the fixture is missing or can't be unpacked (the PML phases then skip).
+fn fixture_path() -> Option<std::path::PathBuf> {
+    use std::io::Read;
+    let compressed = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/resources")
-        .join("Logfile.PML")
+        .join("CompressedLogFileBench64PML");
+    let raw = std::fs::read(&compressed).ok()?;
+    let mut buf = Vec::new();
+    flate2::read::ZlibDecoder::new(&raw[..])
+        .read_to_end(&mut buf)
+        .ok()?;
+    let tmp = std::env::temp_dir().join(format!("openprocmon-bench-{}.pml", std::process::id()));
+    std::fs::write(&tmp, &buf).ok()?;
+    Some(tmp)
 }
 
 /// A representative mixed rule set (case-folded relations over hot columns).
@@ -514,13 +526,12 @@ fn main() {
     drop(live_events);
 
     // --- PML phases --------------------------------------------------------
-    let path = fixture_path();
-    if path.exists() {
+    if let Some(path) = fixture_path() {
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         println!("pml: {} ({} MB)", path.display(), size / (1024 * 1024));
 
         let (r, reader) = phase("pml/open", iters, 0, || {
-            std::sync::Arc::new(PmlReader::open(&path).expect("open Logfile.PML"))
+            std::sync::Arc::new(PmlReader::open(&path).expect("open the bench PML fixture"))
         });
         results.push(r);
 
@@ -548,10 +559,7 @@ fn main() {
             fmt_count(n_events)
         );
     } else {
-        println!(
-            "pml: fixture {} not found — PML phases skipped",
-            path.display()
-        );
+        println!("pml: fixture CompressedLogFileBench64PML unavailable — PML phases skipped");
     }
 
     print_results(&results);

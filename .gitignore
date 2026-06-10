@@ -45,5 +45,5 @@
 /docs/superpowers/
 /ref-code
 
-# Large local-only benchmark fixture (benches/baseline.rs skips it when absent)
+# Raw source of the committed bench fixture (CompressedLogFileBench64PML)
 /crates/sdk/tests/resources/Logfile.PML
