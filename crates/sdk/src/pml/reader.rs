@@ -751,10 +751,10 @@ mod tests {
             );
             assert_eq!(ev.thread_id(), old.tid, "tid @ {i}");
             assert_eq!(
-                ev.filter_field(Column::ProcessName),
+                ev.filter_field(Column::ProcessName).as_deref(),
                 reader
                     .process(old.process_index)
-                    .map(|p| p.process_name.to_string()),
+                    .map(|p| p.process_name.as_ref()),
                 "pname @ {i}"
             );
         }

@@ -23,7 +23,7 @@ pub use procmon_sdk::filter::{
 /// unified `procmon_sdk::Event` (live or PML), which supports every column, so we
 /// delegate straight to it.
 impl FilterFields for CapturedEvent {
-    fn filter_field(&self, column: Column) -> Option<String> {
+    fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>> {
         self.event().filter_field(column)
     }
 }

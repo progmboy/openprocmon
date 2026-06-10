@@ -232,13 +232,17 @@ impl Rule {
 /// be evaluated against any event representation — the SDK [`Event`] (implemented
 /// here) or, e.g., the GUI's unified row type (implemented there). This is what
 /// lets a single filter engine serve both the driver pipeline and the UI.
+///
+/// Returns `Cow` so columns whose value already exists as a string (operation,
+/// process name, paths held by the event) are borrowed, not allocated — filter
+/// evaluation runs per event on the hot path.
 pub trait FilterFields {
     /// The column's value as a string, or `None` if the event has none.
-    fn filter_field(&self, column: Column) -> Option<String>;
+    fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>>;
 }
 
 impl FilterFields for Event {
-    fn filter_field(&self, column: Column) -> Option<String> {
+    fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>> {
         column_value(self, column)
     }
 }
@@ -349,74 +353,91 @@ fn rule_hits<E: FilterFields>(ev: &E, rule: &Rule) -> bool {
 ///
 /// Delegates to the [`Event`] accessors, which return `None` when no process is
 /// attached (network or untracked) and for metadata columns until the async
-/// worker fills them. Time columns are formatted as local time strings.
-fn column_value(ev: &Event, column: Column) -> Option<String> {
-    let yes_no =
-        |b: bool, yes: &'static str, no: &'static str| if b { yes } else { no }.to_string();
+/// worker fills them. Time columns are formatted as local time strings. Values
+/// the event already holds as strings are borrowed; only derived values
+/// (paths, details, formatted times, numbers) allocate.
+fn column_value(ev: &Event, column: Column) -> Option<std::borrow::Cow<'_, str>> {
+    use std::borrow::Cow::{Borrowed, Owned};
+    let yes_no = |b: bool, yes: &'static str, no: &'static str| Borrowed(if b { yes } else { no });
     match column {
         // Event-intrinsic columns.
-        Column::Operation => Some(ev.operation_name().to_string()),
-        Column::Path => ev.path(),
-        Column::Result => Some(ev.result().into_owned()),
-        Column::Detail => Some(ev.detail()),
-        Column::Class => Some(ev.class_name().to_string()),
-        Column::Pid => Some(ev.pid().to_string()),
-        Column::Tid => Some(ev.thread_id().to_string()),
-        Column::Sequence => Some(ev.sequence().to_string()),
+        Column::Operation => Some(Borrowed(ev.operation_name())),
+        Column::Path => ev.path().map(Owned),
+        Column::Result => Some(ev.result()),
+        Column::Detail => Some(Owned(ev.detail())),
+        Column::Class => Some(Borrowed(ev.class_name())),
+        Column::Pid => Some(Owned(ev.pid().to_string())),
+        Column::Tid => Some(Owned(ev.thread_id().to_string())),
+        Column::Sequence => Some(Owned(ev.sequence().to_string())),
         // Full precision so Date & Time `LessThan`/`MoreThan` compares to the tick,
         // not just the second.
-        Column::Date => Some(ev.date_precise()),
-        Column::TimeOfDay => Some(ev.time_of_day()),
-        Column::CompletionTime => ev.completion_time(),
-        Column::Duration => ev.duration(),
+        Column::Date => Some(Owned(ev.date_precise())),
+        Column::TimeOfDay => Some(Owned(ev.time_of_day())),
+        Column::CompletionTime => ev.completion_time().map(Owned),
+        Column::Duration => ev.duration().map(Owned),
 
         // Process-derived columns.
-        Column::ProcessName => ev.process_name().map(str::to_string),
-        Column::ImagePath => ev
-            .image_path()
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
-        Column::CommandLine => ev
-            .command_line()
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
-        Column::ParentPid => ev.parent_pid().map(|v| v.to_string()),
-        Column::Session => ev.session_id().map(|v| v.to_string()),
+        Column::ProcessName => ev.process_name().map(Borrowed),
+        Column::ImagePath => ev.image_path().filter(|s| !s.is_empty()).map(Borrowed),
+        Column::CommandLine => ev.command_line().filter(|s| !s.is_empty()).map(Borrowed),
+        Column::ParentPid => ev.parent_pid().map(|v| Owned(v.to_string())),
+        Column::Session => ev.session_id().map(|v| Owned(v.to_string())),
         Column::Architecture => ev.is_wow64().map(|w| yes_no(w, "32-bit", "64-bit")),
         Column::Virtualized => ev.is_virtualized().map(|v| yes_no(v, "True", "False")),
-        Column::AuthId => ev.auth_id(),
-        Column::Integrity => ev.integrity().map(str::to_string),
-        Column::User => ev.user(),
+        Column::AuthId => ev.auth_id().map(Owned),
+        Column::Integrity => ev.integrity().map(Borrowed),
+        Column::User => ev.user().map(Owned),
 
         // Metadata columns (populated asynchronously).
-        Column::Company => ev.company().map(str::to_string),
-        Column::Version => ev.version().map(str::to_string),
-        Column::Description => ev.description().map(str::to_string),
+        Column::Company => ev.company().map(Borrowed),
+        Column::Version => ev.version().map(Borrowed),
+        Column::Description => ev.description().map(Borrowed),
     }
 }
 
-/// Applies a relation, case-insensitively; numeric relations compare as integers
-/// when both sides parse as numbers, else fall back to lexicographic order.
+/// Applies a relation, ASCII-case-insensitively without allocating (the same
+/// case folding the previous `to_ascii_lowercase` comparison performed); numeric
+/// relations compare as integers when both sides parse as numbers, else fall
+/// back to case-insensitive lexicographic order.
 fn relation_matches(relation: Relation, actual: &str, expected: &str) -> bool {
-    let a = actual.to_ascii_lowercase();
-    let e = expected.to_ascii_lowercase();
+    let (a, e) = (actual.as_bytes(), expected.as_bytes());
     match relation {
-        Relation::Is => a == e,
-        Relation::IsNot => a != e,
-        Relation::Contains => a.contains(&e),
-        Relation::Excludes => !a.contains(&e),
-        Relation::BeginsWith => a.starts_with(&e),
-        Relation::EndsWith => a.ends_with(&e),
-        Relation::LessThan => compare(&a, &e).is_lt(),
-        Relation::MoreThan => compare(&a, &e).is_gt(),
+        Relation::Is => a.eq_ignore_ascii_case(e),
+        Relation::IsNot => !a.eq_ignore_ascii_case(e),
+        Relation::Contains => contains_ci(a, e),
+        Relation::Excludes => !contains_ci(a, e),
+        Relation::BeginsWith => a.len() >= e.len() && a[..e.len()].eq_ignore_ascii_case(e),
+        Relation::EndsWith => a.len() >= e.len() && a[a.len() - e.len()..].eq_ignore_ascii_case(e),
+        Relation::LessThan => compare_ci(actual, expected).is_lt(),
+        Relation::MoreThan => compare_ci(actual, expected).is_gt(),
     }
 }
 
-/// Orders two values numerically when both parse as integers, else lexically.
-fn compare(a: &str, b: &str) -> std::cmp::Ordering {
+/// Case-insensitive substring search. A byte-window scan is correct on UTF-8:
+/// multi-byte sequences are self-synchronizing and only ASCII bytes fold, so a
+/// window can match only at character boundaries — exactly the matches
+/// lowercase-then-`contains` produced.
+fn contains_ci(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle.len() {
+        return false;
+    }
+    haystack
+        .windows(needle.len())
+        .any(|w| w.eq_ignore_ascii_case(needle))
+}
+
+/// Orders two values numerically when both parse as integers, else lexically
+/// with ASCII case folding.
+fn compare_ci(a: &str, b: &str) -> std::cmp::Ordering {
     match (a.parse::<i64>(), b.parse::<i64>()) {
         (Ok(x), Ok(y)) => x.cmp(&y),
-        _ => a.cmp(b),
+        _ => a
+            .bytes()
+            .map(|c| c.to_ascii_lowercase())
+            .cmp(b.bytes().map(|c| c.to_ascii_lowercase())),
     }
 }
 
