@@ -240,7 +240,7 @@ The Rust rewrite is under active development.
 - [x] Call stack with module resolution
 - [x] Save the current capture from the GUI
 - [ ] AI Mcp server and skills
-- [ ] Performance optimization
+- [x] Performance optimization
 - [ ] Boot logging capture
 
 ## License
