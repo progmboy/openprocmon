@@ -50,7 +50,9 @@
         "button.primary.active.background": "#1e4fb0",
         "button.primary.foreground": "#ffffff",
         "ring": "#2563d9",
-        "overlay": "#1e263c52"
+        "overlay": "#1e263c52",
+        "scrollbar.thumb.background": "#c9ccd2",
+        "scrollbar.thumb.hover.background": "#a9aeb8"
       }
     }
   ],

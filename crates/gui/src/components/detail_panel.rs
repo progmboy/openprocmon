@@ -14,6 +14,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
+    tooltip::Tooltip,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt,
 };
 use rust_i18n::t;
@@ -886,7 +887,16 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
                 format!("0x{:x}", f.address).into(),
                 false,
             ))
-            .child(td(W_PATH, co.faint, f.path.clone(), false))
+            .child({
+                // Path cell: truncated like the rest, with the full path as a
+                // tooltip (same pattern as the event table's Path column).
+                let path = f.path.clone();
+                td(W_PATH, co.faint, path.clone(), false)
+                    .id(("stack-path", i))
+                    .when(!path.is_empty(), |c| {
+                        c.tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
+                    })
+            })
     }));
 
     // Horizontal-scroll the wide table without the vertical wheel hijacking it
