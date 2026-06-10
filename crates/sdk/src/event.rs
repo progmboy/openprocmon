@@ -1,18 +1,74 @@
 //! A parsed event: a lightweight, owned handle to one operation.
 //!
-//! Per Design B, a minifilter [`Event`] owns the few bytes of its PRE record (and
-//! POST record, once correlated) in compacted `Box<[u8]>` buffers, so reads are
-//! over a stable contiguous slice and the event has no lifetime tie to the receive
-//! batch. Network events (from ETW) instead hold a small owned [`NetworkEvent`]
-//! behind an `Arc`. Either way an `Event` is cheap to move across channels and is
-//! `Send`. Path/detail for minifilter events are produced lazily through the
-//! [`OperationView`] trait and dispatched statically by class.
+//! A minifilter [`Event`] holds its PRE record (and POST record, once
+//! correlated) as a [`Record`] — an offset into an `Arc`-shared buffer. On the
+//! live path that buffer is the receive batch itself, so building an event is a
+//! refcount bump, never a per-record copy; offline paths (PML, tests) wrap their
+//! own synthesized bytes the same way. Network events (from ETW) instead hold a
+//! small owned [`NetworkEvent`] behind an `Arc`. Either way an `Event` is cheap
+//! to move across channels and is `Send`. Path/detail for minifilter events are
+//! produced lazily through the [`OperationView`] trait and dispatched statically
+//! by class.
 
 use crate::kernel_types::{LogEntry, MonitorType, StackFrame};
 use crate::network::NetworkEvent;
 use crate::parse::OperationView;
 use crate::process::{ProcessInfo, ProcessRecord};
 use std::sync::Arc;
+
+/// One kernel record (header + frame chain + data) inside an `Arc`-shared
+/// buffer. Construction validates that the buffer holds the *complete* record at
+/// `off`, which is the invariant every accessor (including the `unsafe`
+/// data/frame views) relies on; cloning is a refcount bump.
+#[derive(Clone)]
+pub(crate) struct Record {
+    buf: Arc<[u8]>,
+    off: u32,
+}
+
+impl Record {
+    /// Wraps the record at `buf[off..]`, or `None` if the header doesn't fit,
+    /// reports a zero size, or the full record extends past the buffer.
+    pub(crate) fn new(buf: Arc<[u8]>, off: usize) -> Option<Self> {
+        let entry = LogEntry::view(&buf, off)?;
+        let size = entry.entry_size();
+        if size == 0 || off.checked_add(size)? > buf.len() {
+            return None;
+        }
+        u32::try_from(off).ok().map(|off| Self { buf, off })
+    }
+
+    /// Wraps a buffer holding exactly one record at offset 0 (test paths).
+    /// Note: `Box`/`Vec` → `Arc<[u8]>` re-copies the bytes (the `Arc` refcount
+    /// header precedes the data); hot paths build the `Arc` directly instead.
+    #[cfg(test)]
+    pub(crate) fn from_owned(bytes: impl Into<Arc<[u8]>>) -> Option<Self> {
+        Self::new(bytes.into(), 0)
+    }
+
+    /// The record header.
+    pub(crate) fn entry(&self) -> &LogEntry {
+        LogEntry::view(&self.buf, self.off as usize).expect("validated at construction")
+    }
+
+    /// The operation-specific data region.
+    pub(crate) fn data(&self) -> &[u8] {
+        // SAFETY: construction validated that the buffer holds the full record
+        // (header + frames + data), so the data region is in bounds.
+        unsafe { self.entry().event_data() }
+    }
+
+    /// The call-stack frame chain.
+    pub(crate) fn frames(&self) -> &[StackFrame] {
+        // SAFETY: as `data` — the full record is in bounds.
+        unsafe { self.entry().frame_chain() }
+    }
+
+    /// The record's size in bytes (header + frames + data).
+    pub(crate) fn byte_len(&self) -> usize {
+        self.entry().entry_size()
+    }
+}
 
 /// High-level category of an event. The single category type for both live
 /// events and PML (its `event_class` u32 maps here via [`from_u32`](Self::from_u32)).
@@ -71,13 +127,13 @@ impl EventClass {
 }
 
 /// Where an event's bytes come from. miniFilter events (process/file/registry,
-/// live or PML) own their compacted kernel-record bytes; network events own a
-/// small decoded ETW/PML structure. `mode` selects the detail-string encoding
-/// (live driver vs PML re-serialization).
+/// live or PML) reference their kernel-record bytes in shared buffers; network
+/// events own a small decoded ETW/PML structure. `mode` selects the
+/// detail-string encoding (live driver vs PML re-serialization).
 pub(crate) enum Backing {
     KernelRecord {
-        pre: Box<[u8]>,
-        post: Option<Box<[u8]>>,
+        pre: Record,
+        post: Option<Record>,
         mode: crate::parse::DetailMode,
     },
     Network(Arc<NetworkEvent>),
@@ -100,24 +156,20 @@ pub struct Event {
     duration: Option<i64>,
 }
 
-// SAFETY: `Event` owns its bytes (`Box<[u8]>`) / `Arc<NetworkEvent>` and its
-// process source (`Arc<ProcessRecord>` / `Arc<PmlReader>`); all fields are `Send`
-// and there is no interior mutability.
+// SAFETY: `Event` holds shared immutable bytes (`Record`'s `Arc<[u8]>`) /
+// `Arc<NetworkEvent>` and its process source (`Arc<ProcessRecord>` /
+// `Arc<PmlReader>`); all fields are `Send` and there is no interior mutability.
 unsafe impl Send for Event {}
 
 impl Event {
-    /// Builds a minifilter event from compacted PRE (and optional POST) bytes.
-    /// Returns `None` if either buffer lacks a full record header.
-    pub(crate) fn from_filter(
-        pre: Box<[u8]>,
-        post: Option<Box<[u8]>>,
+    /// Builds a minifilter event from already-validated [`Record`]s — the live
+    /// hot path (no copy, no re-validation).
+    pub(crate) fn from_records(
+        pre: Record,
+        post: Option<Record>,
         proc: Option<Arc<ProcessRecord>>,
-    ) -> Option<Self> {
-        LogEntry::view(&pre, 0)?;
-        if let Some(p) = &post {
-            LogEntry::view(p, 0)?;
-        }
-        Some(Event {
+    ) -> Self {
+        Event {
             backing: Backing::KernelRecord {
                 pre,
                 post,
@@ -125,7 +177,25 @@ impl Event {
             },
             proc: ProcessSource::Live(proc),
             duration: None,
-        })
+        }
+    }
+
+    /// Builds a minifilter event from owned PRE (and optional POST) record
+    /// bytes. Returns `None` if either buffer lacks a full record. The live
+    /// pipeline uses [`from_records`](Self::from_records); this constructor
+    /// serves tests that assemble records as raw bytes.
+    #[cfg(test)]
+    pub(crate) fn from_filter(
+        pre: Box<[u8]>,
+        post: Option<Box<[u8]>>,
+        proc: Option<Arc<ProcessRecord>>,
+    ) -> Option<Self> {
+        let pre = Record::from_owned(pre)?;
+        let post = match post {
+            Some(p) => Some(Record::from_owned(p)?),
+            None => None,
+        };
+        Some(Self::from_records(pre, post, proc))
     }
 
     /// Builds an event whose detail bytes are in PML form (see [`crate::parse::DetailMode`]).
@@ -133,15 +203,16 @@ impl Event {
     /// reader; `duration` is the event's recorded duration in 100-ns ticks (`None`
     /// when absent), used directly instead of a synthetic POST.
     pub(crate) fn from_pml_with(
-        pre: Box<[u8]>,
-        post: Option<Box<[u8]>>,
+        pre: Arc<[u8]>,
+        post: Option<Arc<[u8]>>,
         proc: ProcessSource,
         duration: Option<i64>,
     ) -> Option<Self> {
-        LogEntry::view(&pre, 0)?;
-        if let Some(p) = &post {
-            LogEntry::view(p, 0)?;
-        }
+        let pre = Record::new(pre, 0)?;
+        let post = match post {
+            Some(p) => Some(Record::new(p, 0)?),
+            None => None,
+        };
         Some(Event {
             backing: Backing::KernelRecord {
                 pre,
@@ -157,7 +228,12 @@ impl Event {
     /// Used by the PML detail decode path (round-trip / comparison tests).
     #[allow(dead_code)]
     pub(crate) fn from_pml(pre: Box<[u8]>, post: Option<Box<[u8]>>) -> Option<Self> {
-        Self::from_pml_with(pre, post, ProcessSource::Live(None), None)
+        Self::from_pml_with(
+            pre.into(),
+            post.map(Into::into),
+            ProcessSource::Live(None),
+            None,
+        )
     }
 
     /// The detail-byte encoding of this event.
@@ -180,10 +256,7 @@ impl Event {
     /// The PRE record header for a minifilter event, else `None`.
     fn pre_entry(&self) -> Option<&LogEntry> {
         match &self.backing {
-            // Validated at construction; `expect` documents the invariant.
-            Backing::KernelRecord { pre, .. } => {
-                Some(LogEntry::view(pre, 0).expect("PRE header validated at construction"))
-            }
+            Backing::KernelRecord { pre, .. } => Some(pre.entry()),
             Backing::Network(_) => None,
         }
     }
@@ -191,9 +264,7 @@ impl Event {
     /// The POST record header, if a completion has been correlated.
     fn post_entry(&self) -> Option<&LogEntry> {
         match &self.backing {
-            Backing::KernelRecord { post: Some(p), .. } => {
-                Some(LogEntry::view(p, 0).expect("POST header validated at construction"))
-            }
+            Backing::KernelRecord { post: Some(p), .. } => Some(p.entry()),
             _ => None,
         }
     }
@@ -222,13 +293,14 @@ impl Event {
         }
     }
 
-    /// Approximate retained size in bytes: the PRE + POST record buffers for a
+    /// Approximate retained size in bytes: the PRE + POST record sizes for a
     /// minifilter event, or the decoded struct size for a network event. Used by
-    /// the GUI's history ring buffer to bound memory.
+    /// the GUI's history ring buffer to bound memory. Records share their batch
+    /// buffer, so this is the event's logical share, not its exact footprint.
     pub fn byte_size(&self) -> usize {
         match &self.backing {
             Backing::KernelRecord { pre, post, .. } => {
-                pre.len() + post.as_ref().map_or(0, |p| p.len())
+                pre.byte_len() + post.as_ref().map_or(0, |p| p.byte_len())
             }
             Backing::Network(_) => std::mem::size_of::<NetworkEvent>(),
         }
@@ -570,18 +642,18 @@ impl Event {
 
     /// The PRE record's operation-specific data (empty for network events).
     pub(crate) fn pre_data(&self) -> &[u8] {
-        match self.pre_entry() {
-            // SAFETY: `pre` holds exactly one full record (header + frames +
-            // data), compacted by the parser, so the data region is in bounds.
-            Some(e) => unsafe { e.event_data() },
-            None => &[],
+        match &self.backing {
+            Backing::KernelRecord { pre, .. } => pre.data(),
+            Backing::Network(_) => &[],
         }
     }
 
     /// The POST record's operation-specific data, if a completion is attached.
     pub(crate) fn post_data(&self) -> Option<&[u8]> {
-        // SAFETY: as `pre_data`, `post` holds exactly one full record.
-        self.post_entry().map(|e| unsafe { e.event_data() })
+        match &self.backing {
+            Backing::KernelRecord { post: Some(p), .. } => Some(p.data()),
+            _ => None,
+        }
     }
 
     /// The process record associated with this event, if known.
@@ -592,10 +664,9 @@ impl Event {
     /// The raw call-stack frame addresses (empty for network events; symbol
     /// resolution is a GUI concern, matching the C++ SDK).
     pub fn call_stack(&self) -> &[StackFrame] {
-        match self.pre_entry() {
-            // SAFETY: `pre` holds the full record, so the frame chain is in bounds.
-            Some(e) => unsafe { e.frame_chain() },
-            None => &[],
+        match &self.backing {
+            Backing::KernelRecord { pre, .. } => pre.frames(),
+            Backing::Network(_) => &[],
         }
     }
 

@@ -3,8 +3,9 @@
 //! The flow mirrors the C++ `CEventMgr`: walk a batch record by record, route
 //! POST records to the pending PRE they complete (correlated by `Sequence`), feed
 //! process lifecycle records into the [`ProcessManager`], and emit finished
-//! events. Per Design B every emitted event owns a compacted copy of its record
-//! bytes, so it has no tie to the batch buffer.
+//! events. The batch buffer is `Arc`-shared: every emitted event holds a
+//! [`Record`] (buffer + offset) into it, so ingestion performs no per-record
+//! copies — a batch stays alive exactly as long as some event references it.
 //!
 //! Path/detail formatting is organized with the [`OperationView`] trait, which
 //! `file`/`reg`/`proc` implement and [`Event`] dispatches to statically.
@@ -15,11 +16,12 @@ pub mod proc;
 pub mod reg;
 pub(crate) mod transcode;
 
-use crate::event::Event;
-use crate::kernel_types::{LogEntry, MonitorType, STATUS_PENDING};
+use crate::event::{Event, Record};
+use crate::kernel_types::{MonitorType, STATUS_PENDING};
 use crate::message::entry_offsets;
 use crate::process::ProcessManager;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 /// Produces an operation's path and detail strings from its event bytes
@@ -111,8 +113,9 @@ pub(crate) fn decode_utf16(bytes: &[u8]) -> String {
 /// batches. The pipeline keeps a single long-lived instance (a POST may arrive in
 /// a later batch); offline callers ingest one batch and then [`flush`](Self::flush).
 pub struct Correlator {
-    /// PRE records awaiting completion, keyed by `Sequence`.
-    pending: HashMap<i32, Box<[u8]>>,
+    /// PRE records awaiting completion, keyed by `Sequence`. A pending record
+    /// keeps its batch buffer alive until the POST arrives or `flush` runs.
+    pending: HashMap<i32, Record>,
 }
 
 impl Correlator {
@@ -123,28 +126,48 @@ impl Correlator {
     }
 
     /// Parses every record in `batch`, updating `mgr` and appending finished
-    /// events to `out`. Records that fail validation are skipped (the batch
-    /// iterator already guards against truncation).
+    /// events to `out`. Copies the batch into a shared buffer once; the live
+    /// pipeline avoids even that by calling [`ingest_shared`](Self::ingest_shared)
+    /// with the receive buffer itself.
     pub fn ingest(&mut self, batch: &[u8], mgr: &ProcessManager, out: &mut Vec<Event>) {
+        let buf: Arc<[u8]> = Arc::from(batch);
+        let range = 0..buf.len();
+        self.ingest_shared(&buf, range, mgr, out);
+    }
+
+    /// Parses every record in `buf[range]` without copying: each emitted event
+    /// holds a [`Record`] referencing `buf`. Records that fail validation
+    /// (truncated/corrupt tail) are skipped.
+    pub fn ingest_shared(
+        &mut self,
+        buf: &Arc<[u8]>,
+        range: Range<usize>,
+        mgr: &ProcessManager,
+        out: &mut Vec<Event>,
+    ) {
+        let batch = match buf.get(range.clone()) {
+            Some(b) => b,
+            None => return,
+        };
         for off in entry_offsets(batch) {
-            let Some(entry) = LogEntry::view(batch, off) else {
-                continue;
+            let Some(record) = Record::new(Arc::clone(buf), range.start + off) else {
+                continue; // truncated or corrupt tail
             };
-            let size = entry.entry_size().min(batch.len() - off);
-            let record: Box<[u8]> = batch[off..off + size].into();
+            let entry = record.entry();
 
             // Copy packed header fields to locals (no references into packed data).
             let sequence = entry.sequence;
             let status = entry.status;
+            let monitor = entry.monitor();
 
             // Only process/file/registry (and their POST completions) are
             // surfaced; profiling and any unmodeled categories are dropped, as in
             // C++ `CEventMgr::ProcessEntry`.
-            match entry.monitor() {
+            match monitor {
                 MonitorType::Post => {
                     // Completion: pair it with the PRE it finishes, if we have it.
                     if let Some(pre) = self.pending.remove(&sequence) {
-                        self.emit(pre, Some(record), mgr, out);
+                        emit(pre, Some(record), mgr, out);
                     }
                     continue;
                 }
@@ -153,17 +176,15 @@ impl Correlator {
             }
 
             // PRE record: process lifecycle records update the process table.
-            if entry.monitor() == MonitorType::Process {
-                // SAFETY: `record` holds the full entry, so its data is in bounds.
-                let data = unsafe { entry.event_data() };
-                proc::track(mgr, entry, data);
+            if monitor == MonitorType::Process {
+                proc::track(mgr, record.entry(), record.data());
             }
 
             if status == STATUS_PENDING {
                 // Asynchronous: hold it until the matching POST arrives.
                 self.pending.insert(sequence, record);
             } else {
-                self.emit(record, None, mgr, out);
+                emit(record, None, mgr, out);
             }
         }
     }
@@ -173,20 +194,8 @@ impl Correlator {
     /// silently dropped.
     pub fn flush(&mut self, mgr: &ProcessManager, out: &mut Vec<Event>) {
         for (_, pre) in self.pending.drain() {
-            emit_owned(pre, None, mgr, out);
+            emit(pre, None, mgr, out);
         }
-    }
-
-    /// Builds an event from owned PRE (+ optional POST) bytes, attaching the
-    /// originating process snapshot, and appends it to `out`.
-    fn emit(
-        &self,
-        pre: Box<[u8]>,
-        post: Option<Box<[u8]>>,
-        mgr: &ProcessManager,
-        out: &mut Vec<Event>,
-    ) {
-        emit_owned(pre, post, mgr, out);
     }
 }
 
@@ -196,14 +205,13 @@ impl Default for Correlator {
     }
 }
 
-/// Shared event-construction helper used by both `ingest` and `flush`.
-fn emit_owned(pre: Box<[u8]>, post: Option<Box<[u8]>>, mgr: &ProcessManager, out: &mut Vec<Event>) {
-    let proc: Option<Arc<_>> = LogEntry::view(&pre, 0)
-        .and_then(|e| u32::try_from(e.process_seq).ok())
+/// Builds an event from PRE (+ optional POST) records, attaching the
+/// originating process snapshot, and appends it to `out`.
+fn emit(pre: Record, post: Option<Record>, mgr: &ProcessManager, out: &mut Vec<Event>) {
+    let proc: Option<Arc<_>> = u32::try_from(pre.entry().process_seq)
+        .ok()
         .and_then(|seq| mgr.by_seq(seq));
-    if let Some(ev) = Event::from_filter(pre, post, proc) {
-        out.push(ev);
-    }
+    out.push(Event::from_records(pre, post, proc));
 }
 
 /// Parses a single batch into events using a throwaway process table. Intended

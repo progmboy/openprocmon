@@ -947,7 +947,10 @@ pub(crate) fn synth_record(
 
 /// Builds one complete record (header + frame chain + data) from decoded scalars.
 /// Used by the PML reader to express a `.PML` event as a kernel-record [`Event`],
-/// so it parses through the exact same path as a live record.
+/// so it parses through the exact same path as a live record. Returns an
+/// `Arc<[u8]>` written in place — exactly one allocation per record (an `Arc`
+/// cannot be built from a `Vec`/`Box` without re-copying, since its refcount
+/// header precedes the data).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn synth_record_full(
     monitor_type: u16,
@@ -957,7 +960,9 @@ pub(crate) fn synth_record_full(
     time: i64,
     frames: &[u64],
     data: &[u8],
-) -> Vec<u8> {
+) -> std::sync::Arc<[u8]> {
+    use core::mem::MaybeUninit;
+
     // SAFETY: `LogEntry` is a packed struct of integers; all-zero is valid.
     let mut h: LogEntry = unsafe { core::mem::zeroed() };
     h.monitor_type = monitor_type;
@@ -967,16 +972,33 @@ pub(crate) fn synth_record_full(
     h.time = time;
     h.n_frame_chain = frames.len() as u16;
     h.data_length = data.len() as u32;
-    let ptr = &h as *const LogEntry as *const u8;
-    // Allocate the whole record once (header + frame chain + data) to avoid reallocs.
-    let mut bytes = Vec::with_capacity(LOG_ENTRY_SIZE + frames.len() * PTR_SIZE + data.len());
+
+    let len = LOG_ENTRY_SIZE + frames.len() * PTR_SIZE + data.len();
+    let mut arc = std::sync::Arc::<[u8]>::new_uninit_slice(len);
+    let dst: &mut [MaybeUninit<u8>] =
+        std::sync::Arc::get_mut(&mut arc).expect("freshly allocated, no other refs");
+    let mut off = 0usize;
+    let mut put = |bytes: &[u8]| {
+        // SAFETY: `MaybeUninit<u8>` is layout-identical to `u8`; the parts sum to
+        // `len` (asserted below), so the writes stay in bounds.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                dst.as_mut_ptr().add(off) as *mut u8,
+                bytes.len(),
+            );
+        }
+        off += bytes.len();
+    };
     // SAFETY: reading `LOG_ENTRY_SIZE` bytes from a valid `LogEntry`.
-    bytes.extend_from_slice(unsafe { core::slice::from_raw_parts(ptr, LOG_ENTRY_SIZE) });
+    put(unsafe { core::slice::from_raw_parts(&h as *const LogEntry as *const u8, LOG_ENTRY_SIZE) });
     for f in frames {
-        bytes.extend_from_slice(&f.to_le_bytes()[..PTR_SIZE]);
+        put(&f.to_le_bytes()[..PTR_SIZE]);
     }
-    bytes.extend_from_slice(data);
-    bytes
+    put(data);
+    assert_eq!(off, len);
+    // SAFETY: every byte was written by `put` (off == len).
+    unsafe { arc.assume_init() }
 }
 
 // ---------------------------------------------------------------------------

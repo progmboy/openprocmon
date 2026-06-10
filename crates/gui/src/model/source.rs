@@ -12,6 +12,10 @@ use crate::model::domain::{CapturedEvent, CategoryCounts, EventDetail, ModuleRow
 use crate::model::filter::FilterModel;
 
 /// A message from the source to the UI.
+// In practice nearly every message is a `Row`, so the size skew vs the rare
+// counts/error variants wastes nothing; boxing `Row` (clippy's suggestion)
+// would instead cost a heap allocation per captured event.
+#[allow(clippy::large_enum_variant)]
 pub enum SourceEvent {
     /// A newly captured event row.
     Row(CapturedEvent),

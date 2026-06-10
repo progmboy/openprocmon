@@ -239,10 +239,9 @@ impl PmlReader {
                 &[],
                 e,
             )
-            .into_boxed_slice()
         });
         crate::event::Event::from_pml_with(
-            pre.into_boxed_slice(),
+            pre,
             post,
             crate::event::ProcessSource::Pml(Arc::clone(self), process_index),
             duration_ticks,

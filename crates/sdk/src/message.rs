@@ -1,11 +1,10 @@
 //! Walking a received batch of records.
 //!
 //! `FilterGetMessage` delivers many variable-length records back-to-back in one
-//! buffer. The receive thread compacts that buffer into a `Box<[u8]>` and hands
-//! it to the parse thread, which uses [`entry_offsets`] to find each record's
-//! start. Per Design B, individual events later copy the few bytes they need into
-//! their own owned buffer, so the batch is dropped as soon as parsing finishes —
-//! nothing downstream borrows it.
+//! buffer. The receive thread hands that buffer to the parse thread as an
+//! `Arc<[u8]>`, which uses [`entry_offsets`] to find each record's start and
+//! wraps each one as a `Record` (buffer + offset) — no per-record copies. The
+//! batch buffer is freed once no event references it any longer.
 
 use crate::kernel_types::LogEntry;
 

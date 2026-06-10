@@ -1,9 +1,10 @@
 //! The receive/parse pipeline (cf. design §3, C++ `CRecvThread` + `COPtThread`).
 //!
 //! Two threads, mirroring real Procmon's split:
-//! - the **receive** thread blocks in `FilterGetMessage` on a reused scratch
-//!   buffer, compacts each delivered batch into a `Box<[u8]>`, and pushes it onto
-//!   a bounded channel (channel A) — its only job, kept minimal;
+//! - the **receive** thread blocks in `FilterGetMessage` on a per-batch buffer
+//!   and hands the buffer itself (as `Arc<[u8]>` + record range) onto a bounded
+//!   channel (channel A) — no compaction copy; events later reference slices of
+//!   this same allocation;
 //! - the **parse** thread drains channel A, correlates PRE/POST records, updates
 //!   the process table, requests metadata, and emits [`Event`]s onto channel B,
 //!   also merging network events from the ETW consumer.
@@ -19,12 +20,25 @@ use crate::parse::Correlator;
 use crate::port::{FilterPort, MESSAGE_BUFFER_LEN};
 use crate::process::ProcessManager;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
 /// Default capacity of channel A (raw batches in flight).
 const CHANNEL_A_CAP: usize = 256;
+
+/// Batches smaller than this are compacted into an exact-size buffer instead of
+/// sharing the full receive buffer, so a trickle of tiny batches (idle system)
+/// does not pin a `MESSAGE_BUFFER_LEN` allocation each per surviving event.
+const COMPACT_THRESHOLD: usize = 16 * 1024;
+
+/// One received batch: the shared receive buffer and the byte range of its
+/// records within it.
+struct RawBatch {
+    buf: Arc<[u8]>,
+    records: Range<usize>,
+}
 
 /// Shared state the parse thread needs to enrich events.
 pub(crate) struct Enrichment {
@@ -49,7 +63,7 @@ impl Pipeline {
         net_rx: Option<Receiver<NetworkEvent>>,
     ) -> (Self, Receiver<Event>) {
         let stop = Arc::new(AtomicBool::new(false));
-        let (tx_a, rx_a) = bounded::<Box<[u8]>>(CHANNEL_A_CAP);
+        let (tx_a, rx_a) = bounded::<RawBatch>(CHANNEL_A_CAP);
         let (tx_b, rx_b) = unbounded::<Event>();
 
         let recv_stop = Arc::clone(&stop);
@@ -92,21 +106,34 @@ impl Drop for Pipeline {
     }
 }
 
-/// Receive thread body: pull batches from the driver into channel A.
-fn receive_loop(port: Arc<FilterPort>, tx_a: Sender<Box<[u8]>>, stop: Arc<AtomicBool>) {
-    let mut scratch = vec![0u8; MESSAGE_BUFFER_LEN];
+/// Receive thread body: pull batches from the driver into channel A. Each batch
+/// gets its own buffer, handed off whole (`Box` → `Arc` is a move, not a copy);
+/// only near-empty batches are compacted, per [`COMPACT_THRESHOLD`].
+fn receive_loop(port: Arc<FilterPort>, tx_a: Sender<RawBatch>, stop: Arc<AtomicBool>) {
     loop {
-        match port.recv(&mut scratch, &stop) {
+        let mut buf = vec![0u8; MESSAGE_BUFFER_LEN].into_boxed_slice();
+        match port.recv(&mut buf, &stop) {
             Ok(Some(len)) => {
                 let start = ProcmonMessageHeader::BATCH_OFFSET;
-                let end = (start + len).min(scratch.len());
-                if end > start {
-                    let batch: Box<[u8]> = scratch[start..end].into();
-                    // Back-pressure: blocks if the parser is behind. Stops if the
-                    // channel is disconnected (parser gone) or stop was requested.
-                    if tx_a.send(batch).is_err() || stop.load(Ordering::Relaxed) {
-                        break;
+                let end = (start + len).min(buf.len());
+                if end <= start {
+                    continue;
+                }
+                let batch = if end - start < COMPACT_THRESHOLD {
+                    RawBatch {
+                        buf: Arc::from(&buf[start..end]),
+                        records: 0..end - start,
                     }
+                } else {
+                    RawBatch {
+                        buf: Arc::from(buf),
+                        records: start..end,
+                    }
+                };
+                // Back-pressure: blocks if the parser is behind. Stops if the
+                // channel is disconnected (parser gone) or stop was requested.
+                if tx_a.send(batch).is_err() || stop.load(Ordering::Relaxed) {
+                    break;
                 }
             }
             Ok(None) => break, // stop requested during the receive wait
@@ -120,12 +147,14 @@ fn receive_loop(port: Arc<FilterPort>, tx_a: Sender<Box<[u8]>>, stop: Arc<Atomic
 
 /// Parse thread body: correlate records and emit events, merging network events.
 fn parse_loop(
-    rx_a: Receiver<Box<[u8]>>,
+    rx_a: Receiver<RawBatch>,
     net_rx: Option<Receiver<NetworkEvent>>,
     enrich: Enrichment,
     tx_b: Sender<Event>,
 ) {
     let mut correlator = Correlator::new();
+    // Reused across batches so a steady event stream doesn't regrow it each time.
+    let mut events: Vec<Event> = Vec::new();
     // A "parked" channel whose sender we keep alive: selecting on it blocks
     // forever (never ready, never disconnected). We swap the network branch to it
     // once the real network source ends, so a disconnected `net_rx` cannot busy-
@@ -137,7 +166,7 @@ fn parse_loop(
         crossbeam_channel::select! {
             recv(rx_a) -> msg => match msg {
                 // The filter source is the lifeline: when it closes, shut down.
-                Ok(batch) => handle_batch(&batch, &mut correlator, &enrich, &tx_b),
+                Ok(batch) => handle_batch(batch, &mut correlator, &mut events, &enrich, &tx_b),
                 Err(_) => break,
             },
             recv(net_rx) -> msg => match msg {
@@ -157,16 +186,17 @@ fn parse_loop(
     }
 }
 
-/// Parses one batch into events, enriches them, and forwards them.
+/// Parses one batch into events, enriches them, and forwards them. `events` is
+/// a reusable scratch vector (drained, not dropped).
 fn handle_batch(
-    batch: &[u8],
+    batch: RawBatch,
     correlator: &mut Correlator,
+    events: &mut Vec<Event>,
     enrich: &Enrichment,
     tx_b: &Sender<Event>,
 ) {
-    let mut events = Vec::new();
-    correlator.ingest(batch, &enrich.mgr, &mut events);
-    for ev in events {
+    correlator.ingest_shared(&batch.buf, batch.records, &enrich.mgr, events);
+    for ev in events.drain(..) {
         // Drop events whose originating process is not tracked, matching C++
         // `CEventMgr::Process` (which emits a view only when the process is
         // known). Process create/exit/image-load always carry their process.
