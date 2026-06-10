@@ -154,7 +154,9 @@ impl TableDelegate for EventTableDelegate {
             // Operation, colored by category. Honors the Event ▸ "Advanced Display"
             // toggle: friendly detail names when on, raw IRP_MJ_*/FASTIO_* when off.
             4 => {
-                let advance = crate::model::filter::advanced_display_on(&app.filter);
+                // Cached on filter change — recomputing per cell rebuilt the
+                // 23-rule default set every visible row, every frame.
+                let advance = app.advanced_display;
                 div()
                     .text_color(row.category().color(&pal))
                     .child(row.operation_display(advance))

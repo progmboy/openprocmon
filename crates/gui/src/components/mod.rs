@@ -42,34 +42,45 @@ pub(crate) fn brand_icon(size: f32) -> impl IntoElement {
     .flex_shrink_0()
 }
 
-/// Renders a process app-icon: the extracted `.ico` bytes via `img` when present,
-/// else the shell's default `.exe` icon (cf. C++ `UtilGetDefaultIcon`), and only
-/// if even that is unavailable a colored rounded square with the name's first
-/// letter. `size` is the square's edge in px. Process icons are raster `.ico` data,
-/// so `Icon` (SVG) can't render them; `Image::from_bytes` ids by content hash, so
-/// the decode is cached.
-pub(crate) fn app_icon(icon: Option<&Arc<[u8]>>, name: &str, color: Hsla, size: f32) -> AnyElement {
+/// Wraps raw process-icon bytes (`RT_ICON`/`ICONIMAGE` or a full `.ico`) as a
+/// renderable [`gpui::Image`]. Do this ONCE per icon and reuse the `Arc`:
+/// assembling the `.ico` and content-hashing it on every frame is what the
+/// per-row caches exist to avoid.
+pub(crate) fn app_image(bytes: &[u8]) -> Arc<Image> {
+    Arc::new(Image::from_bytes(ImageFormat::Ico, ico_bytes(bytes)))
+}
+
+/// The shell's default `.exe` icon as a prepared [`gpui::Image`], resolved and
+/// wrapped once per process lifetime.
+fn default_app_image() -> Option<Arc<Image>> {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Option<Arc<Image>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| crate::sysicon::default_app_icon().map(|b| app_image(&b)))
+        .clone()
+}
+
+/// Renders a process app-icon: the prepared image when present, else the shell's
+/// default `.exe` icon (cf. C++ `UtilGetDefaultIcon`), and only if even that is
+/// unavailable a colored rounded square with the name's first letter. `size` is
+/// the square's edge in px. Callers pass an already-wrapped [`app_image`] (cached
+/// per row/node), so rendering a frame never re-assembles or re-hashes icon bytes.
+pub(crate) fn app_icon(
+    icon: Option<&Arc<Image>>,
+    name: &str,
+    color: Hsla,
+    size: f32,
+) -> AnyElement {
     let edge = px(size);
     let radius = px((size * 0.25).clamp(3., 6.));
     // Fall back to the system default `.exe` icon when the process carries none
     // (a render-time overlay — it is never persisted to a PML).
-    let default;
-    let bytes = match icon {
-        Some(b) => Some(b),
-        None => {
-            default = crate::sysicon::default_app_icon();
-            default.as_ref()
-        }
-    };
-    match bytes {
-        Some(bytes) => img(Arc::new(Image::from_bytes(
-            ImageFormat::Ico,
-            ico_bytes(bytes),
-        )))
-        .size(edge)
-        .rounded(radius)
-        .flex_shrink_0()
-        .into_any_element(),
+    match icon.cloned().or_else(default_app_image) {
+        Some(image) => img(image)
+            .size(edge)
+            .rounded(radius)
+            .flex_shrink_0()
+            .into_any_element(),
         None => {
             let letter = name
                 .chars()

@@ -122,6 +122,10 @@ pub struct AppState {
     pub selected: Option<usize>,
     /// Current applied filter (kept so the Filter dialog can edit it).
     pub filter: FilterModel,
+    /// Whether `filter` contains the full Advanced Display rule set — cached on
+    /// every filter change because the table's Operation cell reads it per row
+    /// per frame (recomputing it there rebuilt the 23-rule default set each time).
+    pub advanced_display: bool,
     /// Highlight rule set — same shape as `filter`; matching rows are tinted.
     pub highlight: FilterModel,
     /// Settings-dialog configuration (highlight color, hex display, symbols, …).
@@ -163,6 +167,7 @@ impl AppState {
             search: String::new(),
             selected: None,
             filter: FilterModel::default(),
+            advanced_display: false,
             highlight: FilterModel::default(),
             config,
             source: make_source(),
@@ -306,6 +311,7 @@ impl AppState {
     }
 
     fn set_filter(&mut self, filter: FilterModel) {
+        self.advanced_display = advanced_display_on(&filter);
         self.filter = filter.clone();
         self.source.set_filter(filter.clone());
         self.buffer.set_filter(filter);
@@ -344,16 +350,15 @@ impl AppState {
     /// Drains pending events into the buffer. Returns whether anything changed,
     /// so the caller can avoid refreshing the table when idle.
     fn drain(&mut self) -> bool {
-        let events: Vec<SourceEvent> = match &self.rx {
-            // Bounded per-tick to keep a fast producer from starving the UI.
-            Some(rx) => rx.try_iter().take(4096).collect(),
-            None => return false,
-        };
-        if events.is_empty() {
+        // Clone the receiver (an `Arc` handle) so rows stream straight into the
+        // buffer — no intermediate `Vec<SourceEvent>` per tick (at ~250 bytes an
+        // event, a full batch collected to ~1 MB of scratch).
+        let Some(rx) = self.rx.clone() else {
             return false;
-        }
+        };
         let mut added = false;
-        for event in events {
+        // Bounded per-tick to keep a fast producer from starving the UI.
+        for event in rx.try_iter().take(4096) {
             match event {
                 SourceEvent::Row(row) => {
                     self.buffer.push(row);
@@ -1017,7 +1022,7 @@ impl AppView {
             let Some(row) = s.selected.and_then(|ix| s.buffer.visible(ix)) else {
                 return;
             };
-            let advance = crate::model::filter::advanced_display_on(&s.filter);
+            let advance = s.advanced_display;
             format!(
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 row.seq(),

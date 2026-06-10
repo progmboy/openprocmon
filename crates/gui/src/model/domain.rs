@@ -131,12 +131,23 @@ impl EventBackend {
         self.ev.detail().into()
     }
 
-    /// Read live (not cached) so async SDK metadata appears on the next frame.
-    fn icon(&self) -> Option<Arc<[u8]>> {
+    /// The process icon as a prepared render image (assembled + wrapped once;
+    /// see [`crate::components::app_image`]).
+    fn icon_image(&self) -> Option<Arc<gpui::Image>> {
         self.ev
             .icon_small()
             .or_else(|| self.ev.icon_large())
-            .map(Arc::<[u8]>::from)
+            .map(crate::components::app_image)
+    }
+
+    /// Whether the icon source can still change: only a live process record
+    /// whose async metadata has not arrived yet may grow an icon later. PML
+    /// events carry their icons immediately and network events never have one.
+    fn icon_final(&self) -> bool {
+        match self.ev.process() {
+            Some(rec) => rec.meta().is_some(),
+            None => true,
+        }
     }
 }
 
@@ -182,6 +193,10 @@ pub struct CapturedEvent {
     cells: std::cell::OnceCell<RenderCells>,
     /// Lazy detail column (cached separately from `cells`).
     detail_cell: std::cell::OnceCell<SharedString>,
+    /// Prepared icon image, cached once the icon source is final (live metadata
+    /// resolved, or a source that cannot change). Until then it is re-read each
+    /// render so an async-arriving icon appears on the next frame.
+    icon_cell: std::cell::OnceCell<Option<Arc<gpui::Image>>>,
 }
 
 impl CapturedEvent {
@@ -200,6 +215,7 @@ impl CapturedEvent {
             backend: EventBackend { ev },
             cells: std::cell::OnceCell::new(),
             detail_cell: std::cell::OnceCell::new(),
+            icon_cell: std::cell::OnceCell::new(),
         }
     }
 
@@ -251,10 +267,12 @@ impl CapturedEvent {
         self.backend.event()
     }
 
-    /// Approximate retained size in bytes (PRE+POST record bytes), for the history
-    /// ring buffer's memory accounting.
+    /// Approximate retained size in bytes for the history ring buffer's memory
+    /// accounting: the row struct itself plus the event's share of its (shared)
+    /// record buffer. Lazy caches and batch-sharing overhead are not counted —
+    /// the total is an estimate that trends with real usage, not an exact RSS.
     pub fn byte_size(&self) -> usize {
-        self.backend.event().byte_size()
+        std::mem::size_of::<Self>() + self.backend.event().byte_size()
     }
 
     /// The event's raw timestamp (100-ns ticks) for the history age window.
@@ -282,15 +300,35 @@ impl CapturedEvent {
     pub fn path(&self) -> SharedString {
         self.render_cells().path.clone()
     }
+    /// Borrowed cached path (forces the lazy cells once). Lets filter/search
+    /// evaluation share the render cache instead of re-deriving the path.
+    pub(crate) fn path_str(&self) -> &str {
+        self.render_cells().path.as_ref()
+    }
+    /// Borrowed cached detail (forces the lazy detail cell once).
+    pub(crate) fn detail_str(&self) -> &str {
+        self.detail_cell
+            .get_or_init(|| self.backend.detail())
+            .as_ref()
+    }
     pub fn result(&self) -> SharedString {
         self.render_cells().result.clone()
     }
     pub fn detail(&self) -> SharedString {
         self.detail_column()
     }
-    /// Process icon — read live (not cached) so async SDK metadata appears next frame.
-    pub fn icon(&self) -> Option<Arc<[u8]>> {
-        self.backend.icon()
+    /// Process icon as a prepared render image. Cached once the icon source is
+    /// final; while live metadata is still pending it is re-read each render so
+    /// the icon appears on the next frame after the async resolve.
+    pub fn icon(&self) -> Option<Arc<gpui::Image>> {
+        if let Some(cached) = self.icon_cell.get() {
+            return cached.clone();
+        }
+        let image = self.backend.icon_image();
+        if image.is_some() || self.backend.icon_final() {
+            let _ = self.icon_cell.set(image.clone());
+        }
+        image
     }
 
     /// An owned, cloneable projection for analytics dialogs (forces the lazy cells).
@@ -317,7 +355,7 @@ pub struct EventSummaryRow {
     pub operation: SharedString,
     pub path: SharedString,
     pub result: SharedString,
-    pub icon: Option<Arc<[u8]>>,
+    pub icon: Option<Arc<gpui::Image>>,
 }
 
 /// Kernel vs user frame, for call-stack coloring.
@@ -380,7 +418,7 @@ pub struct ProcessNode {
     pub start_time: SharedString,
     pub image_path: SharedString,
     pub command_line: SharedString,
-    pub icon: Option<Arc<[u8]>>,
+    pub icon: Option<Arc<gpui::Image>>,
     pub children: Vec<ProcessNode>,
 }
 

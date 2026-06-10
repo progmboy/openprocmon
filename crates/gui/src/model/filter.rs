@@ -20,11 +20,27 @@ pub use procmon_sdk::filter::{
 };
 
 /// Lets the SDK's `FilterSet` evaluate rules against a GUI row. The row carries the
-/// unified `procmon_sdk::Event` (live or PML), which supports every column, so we
-/// delegate straight to it.
+/// unified `procmon_sdk::Event` (live or PML), which supports every column. The
+/// expensive derived columns (Path, Detail) are served from the row's lazy render
+/// caches, so a rule evaluation and the later table render derive them once
+/// between them; everything else delegates straight to the event.
 impl FilterFields for CapturedEvent {
     fn filter_field(&self, column: Column) -> Option<std::borrow::Cow<'_, str>> {
-        self.event().filter_field(column)
+        use std::borrow::Cow;
+        match column {
+            Column::Path => {
+                let p = self.path_str();
+                if p.is_empty() {
+                    // The cell stores "" for a missing path; preserve the SDK's
+                    // `None` semantics by re-asking the event in that case.
+                    self.event().filter_field(column)
+                } else {
+                    Some(Cow::Borrowed(p))
+                }
+            }
+            Column::Detail => Some(Cow::Borrowed(self.detail_str())),
+            _ => self.event().filter_field(column),
+        }
     }
 
     fn filter_number(&self, column: Column) -> Option<i64> {

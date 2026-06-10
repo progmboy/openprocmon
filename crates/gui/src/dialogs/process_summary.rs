@@ -40,7 +40,7 @@ const W_TOTAL: f32 = 74.;
 struct ProcRow {
     name: SharedString,
     pid: u32,
-    icon: Option<Arc<[u8]>>,
+    icon: Option<Arc<gpui::Image>>,
     file: usize,
     registry: usize,
     network: usize,

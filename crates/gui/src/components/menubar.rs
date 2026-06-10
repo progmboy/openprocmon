@@ -173,7 +173,7 @@ impl MenuBar {
                     s.autoscroll,
                     bookmarked,
                     s.always_on_top,
-                    crate::model::filter::advanced_display_on(&s.filter),
+                    s.advanced_display,
                 )
             })
             .unwrap_or((false, false, false, false))

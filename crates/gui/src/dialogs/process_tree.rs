@@ -36,7 +36,7 @@ pub(crate) struct ProcessTreeDialog {
     /// PID → description (company, falling back to user) for the right column.
     meta: HashMap<SharedString, SharedString>,
     /// PID → app-icon bytes (only for processes that have one).
-    icons: HashMap<SharedString, Arc<[u8]>>,
+    icons: HashMap<SharedString, Arc<gpui::Image>>,
 }
 
 impl ProcessTreeDialog {
@@ -240,9 +240,9 @@ fn meta_map(nodes: &[ProcessNode]) -> HashMap<SharedString, SharedString> {
     map
 }
 
-fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<[u8]>> {
+fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<gpui::Image>> {
     let mut map = HashMap::new();
-    fn walk(node: &ProcessNode, map: &mut HashMap<SharedString, Arc<[u8]>>) {
+    fn walk(node: &ProcessNode, map: &mut HashMap<SharedString, Arc<gpui::Image>>) {
         if let Some(icon) = &node.icon {
             map.insert(SharedString::from(node.pid.to_string()), icon.clone());
         }

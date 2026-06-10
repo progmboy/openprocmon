@@ -289,7 +289,7 @@ fn sdk_process_node(ev: &procmon_sdk::Event) -> ProcessNode {
         start_time: "".into(),
         image_path: ev.image_path().unwrap_or("").to_string().into(),
         command_line: ev.command_line().unwrap_or("").to_string().into(),
-        icon: ev.icon_large().map(Arc::<[u8]>::from),
+        icon: ev.icon_large().map(crate::components::app_image),
         children: Vec::new(),
     }
 }
@@ -411,7 +411,7 @@ fn record_node(rec: &ProcessRecord) -> ProcessNode {
         command_line: info.command_line.clone().into(),
         icon: meta
             .and_then(|m| m.icon_large.as_ref())
-            .map(|b| Arc::<[u8]>::from(b.as_slice())),
+            .map(|b| crate::components::app_image(b)),
         children: Vec::new(),
     }
 }
@@ -530,7 +530,7 @@ fn pml_process_node(p: &procmon_sdk::PmlProcess, reader: &procmon_sdk::PmlReader
         icon: reader
             .icon(p.icon_big)
             .or_else(|| reader.icon(p.icon_small))
-            .map(|i| i.data.clone()),
+            .map(|i| crate::components::app_image(&i.data)),
         children: Vec::new(),
     }
 }

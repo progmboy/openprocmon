@@ -25,9 +25,9 @@ use crate::theme::{palette, ProcmonPalette};
 const BINS: usize = 24;
 
 /// A "top process" aggregate row: name, event count and (optional) app icon.
-type TopProc = (SharedString, usize, Option<Arc<[u8]>>);
+type TopProc = (SharedString, usize, Option<Arc<gpui::Image>>);
 /// Per-process accumulator value: running count and first-seen icon.
-type ProcStat = (usize, Option<Arc<[u8]>>);
+type ProcStat = (usize, Option<Arc<gpui::Image>>);
 
 /// One sparkline point (`AreaChart` needs an `Into<SharedString>` x label).
 #[derive(Clone)]

@@ -244,17 +244,47 @@ impl EventBuffer {
     }
 }
 
-/// Case-insensitive search across the most useful columns.
+/// Case-insensitive search across the most useful columns. Compares in place
+/// (ASCII case folding, the same the previous lowercase-copies performed) — no
+/// per-row allocations.
 fn search_matches(row: &CapturedEvent, search: &str) -> bool {
     if search.is_empty() {
         return true;
     }
-    let q = search.to_ascii_lowercase();
-    row.process_name().to_ascii_lowercase().contains(&q)
-        || row.operation().to_ascii_lowercase().contains(&q)
-        || row.path().to_ascii_lowercase().contains(&q)
-        || row.result().to_ascii_lowercase().contains(&q)
-        || row.pid().to_string().contains(&q)
+    let q = search.as_bytes();
+    let mut pid_buf = itoa_buf();
+    contains_ci(row.process_name().as_ref(), q)
+        || contains_ci(row.operation().as_ref(), q)
+        || contains_ci(row.path_str(), q)
+        || contains_ci(row.result().as_ref(), q)
+        || contains_ci(fmt_u32(row.pid(), &mut pid_buf), q)
+}
+
+/// ASCII-case-insensitive substring test (byte windows; correct on UTF-8 since
+/// multi-byte sequences are self-synchronizing and only ASCII bytes fold).
+fn contains_ci(haystack: &str, needle: &[u8]) -> bool {
+    let h = haystack.as_bytes();
+    h.len() >= needle.len()
+        && h.windows(needle.len())
+            .any(|w| w.eq_ignore_ascii_case(needle))
+}
+
+/// Stack buffer + formatter for a `u32` (avoids a `to_string` per searched row).
+fn itoa_buf() -> [u8; 10] {
+    [0; 10]
+}
+fn fmt_u32(mut v: u32, buf: &mut [u8; 10]) -> &str {
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    // SAFETY-free: the written range is pure ASCII digits.
+    std::str::from_utf8(&buf[i..]).expect("ascii digits")
 }
 
 #[cfg(test)]
