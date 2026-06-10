@@ -9,10 +9,13 @@ use gpui::{
     InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
+use std::rc::Rc;
+
 use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement,
     tooltip::Tooltip,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt,
@@ -21,8 +24,51 @@ use rust_i18n::t;
 
 use crate::app::AppView;
 use crate::icons::PmIcon;
-use crate::model::domain::{EventDetail, ProcessNode};
+use crate::model::domain::{EventDetail, ModuleRow, ProcessNode, StackRow};
 use crate::theme::{palette, ProcmonPalette};
+
+/// One module row as clipboard text (TSV: name, base, size, path).
+fn module_line(m: &ModuleRow) -> String {
+    format!("{}\t0x{:x}\t0x{:x}\t{}", m.name, m.base, m.size, m.path)
+}
+
+/// One stack frame as clipboard text (TSV: frame, K/U, module, location,
+/// address, path — the table's columns).
+fn stack_line(f: &StackRow) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t0x{:x}\t{}",
+        f.frame,
+        f.kind.tag(),
+        f.module,
+        f.location,
+        f.address,
+        f.path
+    )
+}
+
+/// The Copy / Copy All context menu shared by the panel's list rows (cf. the
+/// event table's row menu): Copy puts row `i`'s line on the clipboard, Copy All
+/// the whole list. Text is built only when an item is clicked.
+fn copy_menu<T: 'static>(
+    menu: PopupMenu,
+    rows: &Rc<Vec<T>>,
+    i: usize,
+    line: fn(&T) -> String,
+) -> PopupMenu {
+    let one = line(&rows[i]);
+    let all = Rc::clone(rows);
+    menu.item(
+        PopupMenuItem::new(t!("cm.copy").to_string()).on_click(move |_, _, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(one.clone()));
+        }),
+    )
+    .item(
+        PopupMenuItem::new(t!("cm.copy_all").to_string()).on_click(move |_, _, cx| {
+            let text: Vec<String> = all.iter().map(line).collect();
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.join("\n")));
+        }),
+    )
+}
 
 /// Resolved colors for the panel, derived once per render from theme + palette.
 #[derive(Clone, Copy)]
@@ -747,8 +793,10 @@ fn process_tab(
                             }),
                     ),
                 )
-                .child(
-                    v_flex().gap_0p5().children(
+                .child({
+                    // The visible (filtered) modules, shared with the row context
+                    // menus so Copy All reflects exactly what the list shows.
+                    let visible: Rc<Vec<ModuleRow>> = Rc::new(
                         d.modules
                             .iter()
                             .filter(|m| {
@@ -756,42 +804,43 @@ fn process_tab(
                                     || m.name.to_ascii_lowercase().contains(&q)
                                     || m.path.to_ascii_lowercase().contains(&q)
                             })
-                            .enumerate()
-                            .map(|(i, m)| {
-                                // `.mod-row` with hover highlight.
-                                div()
-                                    .id(("mod", i))
-                                    .px(px(10.))
-                                    .py(px(7.))
-                                    .rounded(px(6.))
-                                    .hover(|s| s.bg(co.row_hover))
-                                    .child(
-                                        h_flex()
-                                            .justify_between()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .text_color(co.fg)
-                                                    .text_sm()
-                                                    .child(m.name.clone()),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_color(co.muted)
-                                                    .text_xs()
-                                                    .child(format!("0x{:x}", m.base)),
-                                            ),
-                                    )
+                            .cloned()
+                            .collect(),
+                    );
+                    v_flex().gap_0p5().children((0..visible.len()).map(|i| {
+                        let m = &visible[i];
+                        // `.mod-row` with hover highlight.
+                        div()
+                            .id(("mod", i))
+                            .px(px(10.))
+                            .py(px(7.))
+                            .rounded(px(6.))
+                            .hover(|s| s.bg(co.row_hover))
+                            .child(
+                                h_flex()
+                                    .justify_between()
+                                    .gap_2()
+                                    .child(div().text_color(co.fg).text_sm().child(m.name.clone()))
                                     .child(
                                         div()
-                                            .text_color(co.faint)
+                                            .text_color(co.muted)
                                             .text_xs()
-                                            .truncate()
-                                            .child(m.path.clone()),
-                                    )
-                            }),
-                    ),
-                ),
+                                            .child(format!("0x{:x}", m.base)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_color(co.faint)
+                                    .text_xs()
+                                    .truncate()
+                                    .child(m.path.clone()),
+                            )
+                            .context_menu({
+                                let rows = Rc::clone(&visible);
+                                move |menu, _, _| copy_menu(menu, &rows, i, module_line)
+                            })
+                    }))
+                }),
         ))
         .into_any_element()
 }
@@ -863,7 +912,10 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
         }
         c
     };
-    let rows = v_flex().children(d.stack.iter().enumerate().map(|(i, f)| {
+    // Shared with the row context menus so Copy All emits every frame's line.
+    let frames: Rc<Vec<StackRow>> = Rc::new(d.stack.clone());
+    let rows = v_flex().children((0..frames.len()).map(|i| {
+        let f = &frames[i];
         let kind_color = f.kind.color(&co.pal);
         let mod_color = if f.kind == crate::model::domain::FrameKind::Kernel {
             co.pal.op_registry
@@ -896,6 +948,10 @@ fn stack_tab(d: &EventDetail, co: &Co, scroll: &ScrollHandle) -> gpui::AnyElemen
                     .when(!path.is_empty(), |c| {
                         c.tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
                     })
+            })
+            .context_menu({
+                let rows = Rc::clone(&frames);
+                move |menu, _, _| copy_menu(menu, &rows, i, stack_line)
             })
     }));
 
