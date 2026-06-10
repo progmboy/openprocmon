@@ -89,3 +89,32 @@ vs the previous run:
   Advanced Display set has ~13 Path rules, so it would gain the most).
 - Other phases unchanged within noise.
 
+## 2026-06-10 — after streaming UTF-16 decode (#5) + new live/columns phase
+
+`decode_utf16` streams units through `char::decode_utf16` into a
+pre-sized `String` — the old intermediate `Vec<u16>` (whose `take_while`
+erased the size hint, forcing doubling reallocs per string) is gone. The
+bench gains a **live/columns** phase: column extraction over live-mode
+events, which (unlike the mostly-ASCII PML strings) exercises this wire
+decode plus `nt_to_dos`.
+
+```
+phase             med(ms)    min(ms)        kev/s         allocs    allocMB     retainMB    peakMB
+live/ingest          11.9       11.4        10718             24       22.0          0.0      11.0
+live/columns         94.4       90.2         1351        956,172       28.2          0.0       0.0
+pml/open              0.7        0.6            -          3,888        0.8          0.6       0.7
+pml/parse            37.7       34.9         2454        214,360       76.9       48.5       48.5
+pml/columns          49.4       48.6         1875        429,376       16.5          0.0       0.0
+pml/filter           31.2       29.2         2972        185,024        9.6          0.0       0.0
+```
+
+A/B for this change alone (same bench, decode change stashed):
+
+- `live/columns`: 141.9 → 94.4 ms (**1.5×**), 1,753,378 → 956,172 allocs
+  (−45%), 70.1 → 28.2 MB allocated (−60%).
+- `pml/open`: 1.5 → 0.7 ms, 13,895 → 3,888 allocs (the PML strings table
+  decodes through the same helper).
+- `pml/columns` unchanged: PML detail strings carry the ASCII flag and
+  never hit the UTF-16 decode; their remaining allocations are the
+  `format!` detail composition.
+

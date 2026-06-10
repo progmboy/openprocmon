@@ -68,10 +68,12 @@ pub(crate) fn read_detail_str(
     raw: u16,
     mode: DetailMode,
 ) -> (String, usize) {
-    let (_, bytes) = str_field_len(raw, mode);
+    let (count, bytes) = str_field_len(raw, mode);
     let s = match data.get(off..off + bytes) {
         Some(b) if mode == DetailMode::Pml && raw >> 15 == 1 => {
-            b.iter().map(|&c| c as char).collect()
+            let mut out = String::with_capacity(count);
+            out.extend(b.iter().map(|&c| c as char));
+            out
         }
         Some(b) => decode_utf16(b),
         None => String::new(),
@@ -99,14 +101,19 @@ pub(crate) fn pml_serialize(ev: &Event) -> (u16, Option<Vec<u8>>) {
 }
 
 /// Decodes a little-endian UTF-16 byte slice into a `String`, stopping at the
-/// first NUL if present. Lossy on unpaired surrogates.
+/// first NUL if present. Lossy on unpaired surrogates. Decodes by streaming the
+/// units — one allocation (the `String`), no intermediate `Vec<u16>`; the
+/// capacity covers ASCII-only content exactly (1 UTF-8 byte per unit).
 pub(crate) fn decode_utf16(bytes: &[u8]) -> String {
-    let units: Vec<u16> = bytes
+    let units = bytes
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .take_while(|&u| u != 0)
-        .collect();
-    String::from_utf16_lossy(&units)
+        .take_while(|&u| u != 0);
+    let mut out = String::with_capacity(bytes.len() / 2);
+    for c in char::decode_utf16(units) {
+        out.push(c.unwrap_or(char::REPLACEMENT_CHARACTER));
+    }
+    out
 }
 
 /// Correlates pending PRE records with their POST completions across one or more

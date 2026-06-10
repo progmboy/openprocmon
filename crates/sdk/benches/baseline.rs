@@ -399,8 +399,8 @@ fn build_live_batches(n_batches: usize, batch_target: usize) -> (Vec<Arc<[u8]>>,
 }
 
 /// Ingests every batch through a fresh correlator/process table, returning the
-/// number of emitted events (the timed unit of the live/ingest phase).
-fn ingest_all(batches: &[Arc<[u8]>]) -> usize {
+/// emitted events (their count is the timed unit of the live/ingest phase).
+fn ingest_events(batches: &[Arc<[u8]>]) -> Vec<Event> {
     let mgr = ProcessManager::new();
     let mut correlator = Correlator::new();
     let mut out: Vec<Event> = Vec::new();
@@ -408,7 +408,27 @@ fn ingest_all(batches: &[Arc<[u8]>]) -> usize {
         correlator.ingest_shared(b, 0..b.len(), &mgr, &mut out);
     }
     correlator.flush(&mgr, &mut out);
-    out.len()
+    out
+}
+
+/// Ingest wrapper for the timed phase: events are dropped so the phase's memory
+/// numbers stay comparable across BASELINE.md entries.
+fn ingest_all(batches: &[Arc<[u8]>]) -> usize {
+    ingest_events(batches).len()
+}
+
+/// Sums the display columns of `events` (the shared body of the live/pml
+/// columns phases): path, detail, operation, result, time-of-day.
+fn sum_columns(events: &[Event]) -> usize {
+    let mut sink = 0usize;
+    for ev in events {
+        sink += ev.path().map_or(0, |p| p.len());
+        sink += ev.detail().len();
+        sink += ev.operation_name().len();
+        sink += ev.result().len();
+        sink += ev.time_of_day().len();
+    }
+    sink
 }
 
 // ---------------------------------------------------------------------------
@@ -484,6 +504,15 @@ fn main() {
     );
     results.push(r);
 
+    // Column extraction over live-mode events: unlike the PML phases (whose
+    // strings are mostly PML-ASCII), this exercises the UTF-16 wire decode.
+    let live_events = ingest_events(&batches);
+    let (r, _) = phase("live/columns", iters, expected_events, || {
+        sum_columns(&live_events)
+    });
+    results.push(r);
+    drop(live_events);
+
     // --- PML phases --------------------------------------------------------
     let path = fixture_path();
     if path.exists() {
@@ -505,17 +534,7 @@ fn main() {
             fmt_count(events.len() as u64)
         );
 
-        let (r, _) = phase("pml/columns", iters, n_events, || {
-            let mut sink = 0usize;
-            for ev in &events {
-                sink += ev.path().map_or(0, |p| p.len());
-                sink += ev.detail().len();
-                sink += ev.operation_name().len();
-                sink += ev.result().len();
-                sink += ev.time_of_day().len();
-            }
-            sink
-        });
+        let (r, _) = phase("pml/columns", iters, n_events, || sum_columns(&events));
         results.push(r);
 
         let filter = bench_filter();
