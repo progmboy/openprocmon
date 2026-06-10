@@ -47,8 +47,7 @@ openprocmon/
 │   └── example/           #   procmon-example: console SDK demo (capture/save/replay)
 ├── docs/
 │   └── design/             # GUI design mockups (React/Figma prototypes, reference only)
-│       ├── gui-design-v1/
-│       └── gui-design-v2/
+│       └── gui-design-v1/
 └── cpp-backup/             # Original C++ implementation (kept for reference)
     ├── CMakeLists.txt
     ├── cmake/             # CMake build modules
