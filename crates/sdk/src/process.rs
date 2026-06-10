@@ -6,7 +6,7 @@
 //! copy of its module list (the per-event copy the C++ SDK paid for).
 
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::{Arc, OnceLock};
 
 /// A loaded module (image) within a process.
@@ -133,15 +133,17 @@ impl ProcessRecord {
 /// The sequence id is the stable key (PIDs are reused), while the PID index maps
 /// to the most recent sequence for that PID, mirroring the C++ manager.
 pub struct ProcessManager {
-    by_seq: RwLock<HashMap<u32, Arc<ProcessRecord>>>,
-    by_pid: RwLock<HashMap<u32, u32>>,
+    // FxHashMap: looked up once per emitted event; the integer keys are
+    // kernel-assigned, so the default hasher's DoS resistance is not needed.
+    by_seq: RwLock<FxHashMap<u32, Arc<ProcessRecord>>>,
+    by_pid: RwLock<FxHashMap<u32, u32>>,
 }
 
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
-            by_seq: RwLock::new(HashMap::new()),
-            by_pid: RwLock::new(HashMap::new()),
+            by_seq: RwLock::new(FxHashMap::default()),
+            by_pid: RwLock::new(FxHashMap::default()),
         }
     }
 

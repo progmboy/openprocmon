@@ -19,8 +19,8 @@ pub(crate) mod transcode;
 use crate::event::{Event, Record};
 use crate::kernel_types::{MonitorType, STATUS_PENDING};
 use crate::message::entry_offsets;
-use crate::process::ProcessManager;
-use std::collections::HashMap;
+use crate::process::{ProcessManager, ProcessRecord};
+use rustc_hash::FxHashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -122,13 +122,22 @@ pub(crate) fn decode_utf16(bytes: &[u8]) -> String {
 pub struct Correlator {
     /// PRE records awaiting completion, keyed by `Sequence`. A pending record
     /// keeps its batch buffer alive until the POST arrives or `flush` runs.
-    pending: HashMap<i32, Record>,
+    /// FxHashMap: one insert + remove per asynchronous operation.
+    pending: FxHashMap<i32, Record>,
+    /// Single-entry cache for the per-event process lookup: events arrive in
+    /// bursts from one process, so consecutive events usually share a record —
+    /// a hit skips the process table's lock + hash entirely. Only positive
+    /// lookups are cached: a process tracked *after* its first events
+    /// (startup INIT races) must not be masked by a stale miss, and a seq's
+    /// record never changes once inserted, so a hit cannot go stale.
+    last_proc: Option<(i32, Arc<ProcessRecord>)>,
 }
 
 impl Correlator {
     pub fn new() -> Self {
         Self {
-            pending: HashMap::new(),
+            pending: FxHashMap::default(),
+            last_proc: None,
         }
     }
 
@@ -174,7 +183,7 @@ impl Correlator {
                 MonitorType::Post => {
                     // Completion: pair it with the PRE it finishes, if we have it.
                     if let Some(pre) = self.pending.remove(&sequence) {
-                        emit(pre, Some(record), mgr, out);
+                        self.emit(pre, Some(record), mgr, out);
                     }
                     continue;
                 }
@@ -191,7 +200,7 @@ impl Correlator {
                 // Asynchronous: hold it until the matching POST arrives.
                 self.pending.insert(sequence, record);
             } else {
-                emit(record, None, mgr, out);
+                self.emit(record, None, mgr, out);
             }
         }
     }
@@ -200,9 +209,33 @@ impl Correlator {
     /// after the final batch (or in single-batch offline parsing) so nothing is
     /// silently dropped.
     pub fn flush(&mut self, mgr: &ProcessManager, out: &mut Vec<Event>) {
-        for (_, pre) in self.pending.drain() {
-            emit(pre, None, mgr, out);
+        for (_, pre) in std::mem::take(&mut self.pending) {
+            self.emit(pre, None, mgr, out);
         }
+    }
+
+    /// Builds an event from PRE (+ optional POST) records, attaching the
+    /// originating process snapshot (via the single-entry cache), and appends
+    /// it to `out`.
+    fn emit(
+        &mut self,
+        pre: Record,
+        post: Option<Record>,
+        mgr: &ProcessManager,
+        out: &mut Vec<Event>,
+    ) {
+        let seq = pre.entry().process_seq;
+        let proc = match &self.last_proc {
+            Some((cached_seq, rec)) if *cached_seq == seq => Some(Arc::clone(rec)),
+            _ => {
+                let found = u32::try_from(seq).ok().and_then(|s| mgr.by_seq(s));
+                if let Some(rec) = &found {
+                    self.last_proc = Some((seq, Arc::clone(rec)));
+                }
+                found
+            }
+        };
+        out.push(Event::from_records(pre, post, proc));
     }
 }
 
@@ -210,15 +243,6 @@ impl Default for Correlator {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Builds an event from PRE (+ optional POST) records, attaching the
-/// originating process snapshot, and appends it to `out`.
-fn emit(pre: Record, post: Option<Record>, mgr: &ProcessManager, out: &mut Vec<Event>) {
-    let proc: Option<Arc<_>> = u32::try_from(pre.entry().process_seq)
-        .ok()
-        .and_then(|seq| mgr.by_seq(seq));
-    out.push(Event::from_records(pre, post, proc));
 }
 
 /// Parses a single batch into events using a throwaway process table. Intended

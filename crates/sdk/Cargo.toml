@@ -42,6 +42,10 @@ widestring = "1"
 parking_lot = "0.12"
 arc-swap = "1"
 memmap2 = "0.9"
+# Fast non-DoS-resistant hasher for the per-event hot maps (process table,
+# PRE/POST correlation) — their keys are kernel-assigned integers, not
+# attacker-controlled input, so SipHash's flooding resistance buys nothing.
+rustc-hash = "2"
 
 [dev-dependencies]
 # Test PML fixtures (crates/sdk/tests/resources) are zlib-compressed;

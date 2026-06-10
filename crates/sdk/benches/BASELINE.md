@@ -118,3 +118,28 @@ A/B for this change alone (same bench, decode change stashed):
   never hit the UTF-16 decode; their remaining allocations are the
   `format!` detail composition.
 
+## 2026-06-10 — after process-lookup tuning (#7)
+
+The per-event hot maps (`ProcessManager::{by_seq,by_pid}`,
+`Correlator::pending`) use `FxHashMap` (kernel-assigned integer keys need no
+SipHash flooding resistance), and `Correlator` keeps a single-entry
+`(process_seq, Arc<ProcessRecord>)` cache — consecutive events from the same
+process skip the table's lock + hash entirely (positive hits only, so a
+late-tracked process is never masked).
+
+```
+phase             med(ms)    min(ms)        kev/s         allocs    allocMB     retainMB    peakMB
+live/ingest           8.5        8.3        14928             24       22.0          0.0      11.0
+live/columns         91.2       87.8         1399        956,172       28.2          0.0       0.0
+pml/open              0.7        0.6            -          3,888        0.8          0.6       0.7
+pml/parse            35.6       35.2         2603        214,360       76.9       48.5       48.5
+pml/columns          51.3       46.9         1806        429,376       16.5          0.0       0.0
+pml/filter           27.4       27.1         3379        185,024        9.6          0.0       0.0
+```
+
+- `live/ingest`: 11.9 → 8.5 ms (**1.4×**; cumulatively 33.8 → 8.5 ms = **4×**
+  over the original baseline). Caveat: the synthetic batches use a single
+  process, so the cache hit rate here is ~100% — real captures interleave
+  processes and will see less, though bursts dominate in practice.
+- Other phases unchanged within noise.
+
