@@ -143,3 +143,28 @@ pml/filter           27.4       27.1         3379        185,024        9.6     
   processes and will see less, though bursts dominate in practice.
 - Other phases unchanged within noise.
 
+## 2026-06-10 — after per-evaluation column memo
+
+`matches()`/`highlights()` keep a per-call [`ColumnMemo`]: each referenced
+column is materialized at most once per event evaluation, however many rules
+target it and in whatever order. Rule evaluation order and the exclude
+short-circuit are unchanged, so columns past an early exclude hit are still
+never derived.
+
+```
+phase             med(ms)    min(ms)        kev/s         allocs    allocMB     retainMB    peakMB
+live/ingest           9.4        8.5        13563             24       22.0          0.0      11.0
+live/columns         94.6       88.4         1348        956,172       28.2          0.0       0.0
+pml/open              0.7        0.6            -          3,888        0.8          0.6       0.7
+pml/parse            37.2       35.3         2491        214,360       76.9       48.5       48.5
+pml/columns          49.5       48.3         1872        429,376       16.5          0.0       0.0
+pml/filter           20.0       19.8         4629         92,512        4.8          0.0       0.0
+```
+
+- `pml/filter`: 27.4 → 20.0 ms, allocations exactly halved (185,024 →
+  92,512 — the bench set's two `Path` rules now derive the path once).
+  Cumulatively vs the original baseline: **82.6 → 20.0 ms (4.1×), 1,110,660 →
+  92,512 allocations (−92%)**. Real-world GUI sets gain more: Procmon's
+  default noise filter has 13 `Path` rules.
+- Other phases unchanged within noise.
+

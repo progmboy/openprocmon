@@ -317,14 +317,16 @@ impl FilterSet {
     /// event; if any enabled **include** rule exists and none match, the event is
     /// hidden; otherwise it is shown. With no rules everything is visible.
     ///
-    /// Only the columns referenced by enabled rules are materialized, keeping the
-    /// common (empty/short) filter cheap on the hot path.
+    /// Only the columns referenced by enabled rules are materialized — at most
+    /// once each per call (see [`ColumnMemo`]) — keeping both the common
+    /// (empty/short) filter and many-rules-per-column sets cheap.
     pub fn matches<E: FilterFields>(&self, ev: &E) -> bool {
         let mut has_include = false;
         let mut include_hit = false;
+        let mut memo = ColumnMemo::new();
 
         for rule in self.rules.iter().filter(|r| r.enabled) {
-            let hit = rule_hits(ev, rule);
+            let hit = rule_hits(ev, rule, &mut memo);
             match rule.action {
                 Action::Exclude => {
                     if hit {
@@ -347,8 +349,9 @@ impl FilterSet {
     /// rule and no enabled Exclude rule. An empty set highlights nothing.
     pub fn highlights<E: FilterFields>(&self, ev: &E) -> bool {
         let mut included = false;
+        let mut memo = ColumnMemo::new();
         for rule in self.rules.iter().filter(|r| r.enabled) {
-            let hit = rule_hits(ev, rule);
+            let hit = rule_hits(ev, rule, &mut memo);
             match rule.action {
                 Action::Exclude => {
                     if hit {
@@ -362,8 +365,35 @@ impl FilterSet {
     }
 }
 
+/// Per-evaluation memo of column values: within one `matches()`/`highlights()`
+/// call, each referenced column is materialized at most once, however many
+/// rules target it and in whatever order (Procmon's default noise filter alone
+/// has 13 `Path` rules). Rules are still evaluated in list order with the
+/// existing exclude short-circuit, so columns past an early exclude hit are
+/// never materialized at all.
+struct ColumnMemo<'e> {
+    /// `slots[column as usize]`: `None` = not derived yet; `Some(v)` = the
+    /// memoized `filter_field` result (which may itself be `None`).
+    slots: [Option<Option<std::borrow::Cow<'e, str>>>; Column::ALL.len()],
+}
+
+impl<'e> ColumnMemo<'e> {
+    fn new() -> Self {
+        Self {
+            slots: std::array::from_fn(|_| None),
+        }
+    }
+
+    /// The memoized column value, deriving it on first use.
+    fn get<E: FilterFields>(&mut self, ev: &'e E, column: Column) -> Option<&str> {
+        self.slots[column as usize]
+            .get_or_insert_with(|| ev.filter_field(column))
+            .as_deref()
+    }
+}
+
 /// Whether `rule`'s relation matches `ev`'s value for the rule's column.
-fn rule_hits<E: FilterFields>(ev: &E, rule: &Rule) -> bool {
+fn rule_hits<'e, E: FilterFields>(ev: &'e E, rule: &Rule, memo: &mut ColumnMemo<'e>) -> bool {
     // Numeric fast path: equality/ordering on integer columns compares the
     // numbers directly (no per-evaluation to_string). Substring relations are
     // inherently textual, and a non-numeric rule value falls back to the
@@ -384,8 +414,8 @@ fn rule_hits<E: FilterFields>(ev: &E, rule: &Rule) -> bool {
             };
         }
     }
-    ev.filter_field(rule.column)
-        .map(|actual| relation_matches(rule.relation, &actual, &rule.value))
+    memo.get(ev, rule.column)
+        .map(|actual| relation_matches(rule.relation, actual, &rule.value))
         .unwrap_or(false)
 }
 
@@ -606,6 +636,29 @@ mod tests {
             Action::Include,
         )]);
         assert!(!fs2.matches(&ev)); // 4321 is not > 9999
+    }
+
+    #[test]
+    fn scattered_same_column_rules_evaluate_via_memo() {
+        // Two Operation rules separated by a Class rule: the per-call memo must
+        // serve both correctly regardless of rule order.
+        let fs = FilterSet::new(vec![
+            Rule::new(
+                Column::Operation,
+                Relation::BeginsWith,
+                "Create",
+                Action::Include,
+            ),
+            Rule::new(Column::Class, Relation::Is, "Process", Action::Exclude),
+            Rule::new(
+                Column::Operation,
+                Relation::EndsWith,
+                "Pipe",
+                Action::Include,
+            ),
+        ]);
+        assert!(fs.matches(&file_event(21))); // CreateNamedPipe: both includes hit
+        assert!(!fs.matches(&file_event(23))); // ReadFile: no include hits
     }
 
     #[test]
