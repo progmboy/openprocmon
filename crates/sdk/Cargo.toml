@@ -47,3 +47,9 @@ memmap2 = "0.9"
 # Test PML fixtures (crates/sdk/tests/resources) are zlib-compressed;
 # real PML is uncompressed. flate2 decompresses them for the reader tests.
 flate2 = "1"
+
+# CPU + memory baseline for the hot ingest/parse/filter paths. Custom harness:
+# a counting global allocator reports allocations alongside wall time.
+[[bench]]
+name = "baseline"
+harness = false

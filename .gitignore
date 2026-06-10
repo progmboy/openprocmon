@@ -44,3 +44,6 @@
 # Brainstorming / planning artifacts (local only)
 /docs/superpowers/
 /ref-code
+
+# Large local-only benchmark fixture (benches/baseline.rs skips it when absent)
+/crates/sdk/tests/resources/Logfile.PML
