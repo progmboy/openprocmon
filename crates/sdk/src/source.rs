@@ -92,7 +92,9 @@ impl EventSource {
 mod tests {
     use super::*;
 
-    fn test_pml_path() -> std::path::PathBuf {
+    /// Decompresses the fixture to a self-deleting temp file. Bind the returned
+    /// guard for the whole test so it outlives the reader's mmap.
+    fn test_pml_path() -> tempfile::TempPath {
         use std::io::Read;
         let raw = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -104,15 +106,17 @@ mod tests {
         flate2::read::ZlibDecoder::new(&raw[..])
             .read_to_end(&mut buf)
             .expect("zlib");
-        let tmp =
-            std::env::temp_dir().join(format!("openprocmon-source-{}.pml", std::process::id()));
-        std::fs::write(&tmp, &buf).expect("write temp pml");
-        tmp
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &buf).expect("write temp pml");
+        tmp.into_temp_path()
     }
 
     #[test]
     fn from_pml_iterates_and_downcasts() {
-        let src = EventSource::from_pml(test_pml_path()).expect("open");
+        // The guard must outlive `src` (declared first => dropped last), so the
+        // delete runs after the reader's mmap is gone.
+        let path = test_pml_path();
+        let src = EventSource::from_pml(&path).expect("open");
         assert!(src.events().count() > 0);
         assert!(src.as_pml().is_some());
         assert!(src.as_driver().is_none());

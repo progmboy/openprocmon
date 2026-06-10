@@ -590,9 +590,9 @@ mod tests {
         }
 
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-roundtrip.pml");
-        std::fs::write(&tmp, &bytes).expect("write temp");
-        let r = PmlReader::open(&tmp).expect("read back");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write temp");
+        let r = PmlReader::open(tmp.path()).expect("read back");
 
         assert!(r.header().is_64bit);
         assert_eq!(r.len(), 3);
@@ -639,9 +639,9 @@ mod tests {
         let mut w = PmlWriter::new(true);
         w.push_event(&ev);
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-pushevent.pml");
-        std::fs::write(&tmp, &bytes).expect("write temp");
-        let r = PmlReader::open(&tmp).expect("read back");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write temp");
+        let r = PmlReader::open(tmp.path()).expect("read back");
 
         assert_eq!(r.len(), 1);
         let read = r.event(0).expect("event");
@@ -679,9 +679,9 @@ mod tests {
         let mut w = PmlWriter::new(true);
         w.push_event(&ev);
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-regdetail.pml");
-        std::fs::write(&tmp, &bytes).expect("write temp");
-        let r = PmlReader::open(&tmp).expect("read back");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write temp");
+        let r = PmlReader::open(tmp.path()).expect("read back");
 
         let read = r.event(0).expect("event");
         assert_eq!(&*read.path, "HKLM\\SOFTWARE\\X");
@@ -741,9 +741,9 @@ mod tests {
         let mut w = PmlWriter::new(true);
         w.push_event(&ev);
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-filedetail.pml");
-        std::fs::write(&tmp, &bytes).expect("write temp");
-        let r = PmlReader::open(&tmp).expect("read back");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write temp");
+        let r = PmlReader::open(tmp.path()).expect("read back");
 
         let read = r.event(0).expect("event");
         assert_eq!(&*read.path, path.as_str(), "path preserved through PML");
@@ -784,9 +784,9 @@ mod tests {
         let mut w = PmlWriter::new(true);
         w.push_event(&ev);
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-net.pml");
-        std::fs::write(&tmp, &bytes).expect("write temp");
-        let r = PmlReader::open(&tmp).expect("read back");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write temp");
+        let r = PmlReader::open(tmp.path()).expect("read back");
 
         let read = r.event(0).expect("event");
         assert_eq!(read.class, EventClass::Network);
@@ -847,9 +847,9 @@ mod tests {
         let mut w = PmlWriter::new(true);
         w.push_event(&ev);
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = std::env::temp_dir().join("openprocmon-procmeta.pml");
-        std::fs::write(&tmp, &bytes).expect("write");
-        let r = PmlReader::open(&tmp).expect("read");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
 
         let e = r.event(0).expect("event");
         let p = r.process(e.process_index).expect("process");

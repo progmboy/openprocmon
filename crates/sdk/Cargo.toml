@@ -51,6 +51,9 @@ rustc-hash = "2"
 # Test PML fixtures (crates/sdk/tests/resources) are zlib-compressed;
 # real PML is uncompressed. flate2 decompresses them for the reader tests.
 flate2 = "1"
+# Self-deleting temp files for the decompressed fixtures (the reader mmaps a
+# file, so tests materialize them on disk; tempfile cleans them up on drop).
+tempfile = "3"
 
 # CPU + memory baseline for the hot ingest/parse/filter paths. Custom harness:
 # a counting global allocator reports allocations alongside wall time.

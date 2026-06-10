@@ -50,6 +50,8 @@ windows-sys = { version = "0.59", features = [
 
 [dev-dependencies]
 flate2 = "1"
+# Self-deleting temp files for decompressed PML fixtures / export outputs.
+tempfile = "3"
 # Decodes the assembled ICO in the default-icon test (same format gpui renders).
 image = { version = "0.25", default-features = false, features = ["ico", "bmp", "png"] }
 

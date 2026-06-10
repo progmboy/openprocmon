@@ -799,7 +799,23 @@ mod tests {
     use super::*;
     use std::io::Read;
 
-    fn open_fixture() -> Arc<procmon_sdk::PmlReader> {
+    /// A decompressed fixture: the reader plus the temp file's delete-on-drop
+    /// guard. Field order matters — the reader (and its mmap) drops first, so
+    /// the guard's delete actually succeeds on Windows. Anything holding the
+    /// reader (rows, events) must be declared after the fixture.
+    struct Fixture {
+        reader: Arc<procmon_sdk::PmlReader>,
+        _path: tempfile::TempPath,
+    }
+
+    impl std::ops::Deref for Fixture {
+        type Target = Arc<procmon_sdk::PmlReader>;
+        fn deref(&self) -> &Self::Target {
+            &self.reader
+        }
+    }
+
+    fn open_fixture() -> Fixture {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../sdk/tests/resources/CompressedLogFileUTC64FilesystemPML");
         let raw = std::fs::read(path).expect("fixture");
@@ -807,17 +823,14 @@ mod tests {
         flate2::read::ZlibDecoder::new(&raw[..])
             .read_to_end(&mut buf)
             .expect("unzip");
-        // Unique temp name per call: tests run in parallel and the reader mmaps the
-        // file, so a shared name races (one writes while another holds the map).
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "gui-pml-test-{}-{}.pml",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::write(&tmp, &buf).expect("write");
-        Arc::new(procmon_sdk::PmlReader::open(tmp).expect("open"))
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &buf).expect("write");
+        let path = tmp.into_temp_path();
+        let reader = Arc::new(procmon_sdk::PmlReader::open(&path).expect("open"));
+        Fixture {
+            reader,
+            _path: path,
+        }
     }
 
     #[test]
@@ -843,16 +856,21 @@ mod tests {
         let refs: Vec<&CapturedEvent> = evs.iter().collect();
         assert!(refs.len() > 1);
 
-        let dir = std::env::temp_dir();
-        let csv_path = dir.join(format!("gui-export-{}.csv", std::process::id()));
-        export_csv(&refs, csv_path.to_str().unwrap()).expect("csv");
-        let csv = std::fs::read_to_string(&csv_path).expect("read csv");
+        let csv_file = tempfile::Builder::new()
+            .suffix(".csv")
+            .tempfile()
+            .expect("csv temp");
+        export_csv(&refs, csv_file.path().to_str().unwrap()).expect("csv");
+        let csv = std::fs::read_to_string(csv_file.path()).expect("read csv");
         assert!(csv.contains("\"Time of Day\",\"Process Name\",\"PID\""));
         assert!(csv.lines().count() > 1);
 
-        let xml_path = dir.join(format!("gui-export-{}.xml", std::process::id()));
-        export_xml(&refs, true, &[], None, xml_path.to_str().unwrap()).expect("xml");
-        let xml = std::fs::read_to_string(&xml_path).expect("read xml");
+        let xml_file = tempfile::Builder::new()
+            .suffix(".xml")
+            .tempfile()
+            .expect("xml temp");
+        export_xml(&refs, true, &[], None, xml_file.path().to_str().unwrap()).expect("xml");
+        let xml = std::fs::read_to_string(xml_file.path()).expect("read xml");
         assert!(xml.contains("<procmon><processlist>"));
         assert!(xml.contains("</processlist><eventlist>"));
         assert!(xml.contains("<event>"));

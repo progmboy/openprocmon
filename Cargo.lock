@@ -4785,6 +4785,7 @@ dependencies = [
  "rust-i18n 3.1.5",
  "serde",
  "serde_json",
+ "tempfile",
  "windows-sys 0.59.0",
  "winresource",
 ]
@@ -4800,6 +4801,7 @@ dependencies = [
  "memmap2",
  "parking_lot",
  "rustc-hash 2.1.2",
+ "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "widestring",

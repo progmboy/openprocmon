@@ -665,27 +665,38 @@ mod tests {
             .join(name)
     }
 
-    /// A process-unique temp path (tests run in parallel and the reader mmaps the
-    /// file, so a shared name races: a write fails while another test holds the map).
-    fn unique_temp(name: &str) -> std::path::PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("openprocmon-{}-{n}-{name}.pml", std::process::id()))
+    /// A decompressed fixture: the reader plus the temp file's delete-on-drop
+    /// guard. Field order matters — the reader (and its mmap) drops first, so
+    /// the guard's delete actually succeeds on Windows.
+    struct Fixture {
+        reader: std::sync::Arc<PmlReader>,
+        _path: tempfile::TempPath,
     }
 
-    /// The fixtures are zlib-compressed; decompress to a temp file (the reader
-    /// mmaps a file) and open that.
-    fn open_resource(name: &str) -> PmlReader {
+    impl std::ops::Deref for Fixture {
+        type Target = std::sync::Arc<PmlReader>;
+        fn deref(&self) -> &Self::Target {
+            &self.reader
+        }
+    }
+
+    /// The fixtures are zlib-compressed; decompress to a self-deleting temp
+    /// file (the reader mmaps a file) and open that.
+    fn open_resource(name: &str) -> Fixture {
         use std::io::Read;
         let raw = std::fs::read(resource(name)).expect("read fixture");
         let mut buf = Vec::new();
         flate2::read::ZlibDecoder::new(&raw[..])
             .read_to_end(&mut buf)
             .expect("zlib decompress");
-        let tmp = unique_temp(name);
-        std::fs::write(&tmp, &buf).expect("write temp pml");
-        PmlReader::open(tmp).expect("open PML")
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &buf).expect("write temp pml");
+        let path = tmp.into_temp_path();
+        let reader = std::sync::Arc::new(PmlReader::open(&path).expect("open PML"));
+        Fixture {
+            reader,
+            _path: path,
+        }
     }
 
     #[test]
@@ -697,7 +708,7 @@ mod tests {
             "CompressedLogFileUTC64FilesystemPML",
             "CompressedLogfileTests64bitUTCPML",
         ] {
-            let reader = std::sync::Arc::new(open_resource(name));
+            let reader = open_resource(name);
             for i in 0..reader.len() {
                 let old = reader.event(i).expect("old");
                 if old.class != crate::EventClass::Network {
@@ -719,7 +730,7 @@ mod tests {
     fn events_resolve_varied_pids() {
         // A file-system capture (no network events) — exercises the non-network
         // pid path, which a network-bearing fixture would mask.
-        let reader = std::sync::Arc::new(open_resource("CompressedLogFileUTC64FilesystemPML"));
+        let reader = open_resource("CompressedLogFileUTC64FilesystemPML");
         let mut pids = std::collections::HashSet::new();
         for ev in reader.events() {
             pids.insert(ev.pid());
@@ -733,7 +744,7 @@ mod tests {
     #[test]
     fn event_as_event_matches_pmlevent_columns() {
         use crate::filter::{Column, FilterFields};
-        let reader = std::sync::Arc::new(open_resource("CompressedLogFileUTC64FilesystemPML"));
+        let reader = open_resource("CompressedLogFileUTC64FilesystemPML");
         assert!(!reader.is_empty());
         for i in 0..reader.len() {
             let old = reader.event(i).expect("old");
@@ -814,9 +825,9 @@ mod tests {
         flate2::read::ZlibDecoder::new(&raw[..])
             .read_to_end(&mut buf)
             .expect("unzip");
-        let tmp = unique_temp("reject32");
-        std::fs::write(&tmp, &buf).expect("write");
-        let result = PmlReader::open(&tmp);
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &buf).expect("write");
+        let result = PmlReader::open(tmp.path());
         assert!(result.is_err(), "32-bit PML must be rejected");
         let err = result.err().unwrap();
         assert!(
@@ -848,9 +859,9 @@ mod tests {
             w.add_event(e.clone());
         }
         let bytes = w.to_bytes().expect("serialize");
-        let tmp = unique_temp("lossless");
-        std::fs::write(&tmp, &bytes).expect("write");
-        let r2 = PmlReader::open(&tmp).expect("reopen");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r2 = PmlReader::open(tmp.path()).expect("reopen");
 
         assert_eq!(r2.len(), originals.len());
         for (i, a) in originals.iter().enumerate() {

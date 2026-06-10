@@ -436,9 +436,11 @@ fn sum_columns(events: &[Event]) -> usize {
 // ---------------------------------------------------------------------------
 
 /// The committed PML fixture, zlib-compressed like its siblings (real PML is
-/// uncompressed). Decompressed to a temp file for the mmap-based reader; `None`
-/// if the fixture is missing or can't be unpacked (the PML phases then skip).
-fn fixture_path() -> Option<std::path::PathBuf> {
+/// uncompressed). Decompressed to a self-deleting temp file for the mmap-based
+/// reader — the returned guard must stay alive (and drop after the reader) for
+/// the whole PML block. `None` if the fixture is missing or can't be unpacked
+/// (the PML phases then skip).
+fn fixture_path() -> Option<tempfile::TempPath> {
     use std::io::Read;
     let compressed = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/resources")
@@ -448,9 +450,9 @@ fn fixture_path() -> Option<std::path::PathBuf> {
     flate2::read::ZlibDecoder::new(&raw[..])
         .read_to_end(&mut buf)
         .ok()?;
-    let tmp = std::env::temp_dir().join(format!("openprocmon-bench-{}.pml", std::process::id()));
-    std::fs::write(&tmp, &buf).ok()?;
-    Some(tmp)
+    let tmp = tempfile::NamedTempFile::new().ok()?;
+    std::fs::write(tmp.path(), &buf).ok()?;
+    Some(tmp.into_temp_path())
 }
 
 /// A representative mixed rule set (case-folded relations over hot columns).

@@ -295,11 +295,13 @@ mod tests {
         category_enabled, FilterAction, FilterColumn, FilterModel, FilterRelation, FilterRule,
     };
     use std::io::Read;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Loads the filesystem PML fixture and maps it to real `CapturedEvent`s — the
     /// same data path the live/PML sources use (the GUI has no synthetic rows).
-    fn fixture_rows() -> Vec<CapturedEvent> {
+    /// The rows keep the reader's mmap alive, so the temp file's delete-on-drop
+    /// guard is returned FIRST: bind it first in the destructuring so it drops
+    /// last (after the rows).
+    fn fixture_rows() -> (tempfile::TempPath, Vec<CapturedEvent>) {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../sdk/tests/resources/CompressedLogFileUTC64FilesystemPML");
         let raw = std::fs::read(path).expect("fixture");
@@ -307,34 +309,31 @@ mod tests {
         flate2::read::ZlibDecoder::new(&raw[..])
             .read_to_end(&mut buf)
             .expect("unzip");
-        // Unique temp name per call (tests run in parallel; the reader mmaps the file).
-        static N: AtomicU64 = AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "gui-buf-test-{}-{}.pml",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::write(&tmp, &buf).expect("write");
-        let reader = std::sync::Arc::new(procmon_sdk::PmlReader::open(&tmp).expect("open"));
-        reader
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &buf).expect("write");
+        let guard = tmp.into_temp_path();
+        let reader = std::sync::Arc::new(procmon_sdk::PmlReader::open(&guard).expect("open"));
+        let rows = reader
             .events()
             .enumerate()
             .map(|(i, ev)| CapturedEvent::from_event(ev, i as u64 + 1))
-            .collect()
+            .collect();
+        (guard, rows)
     }
 
-    fn filled() -> EventBuffer {
+    fn filled() -> (tempfile::TempPath, EventBuffer) {
+        let (guard, rows) = fixture_rows();
         let mut buf = EventBuffer::new();
-        for r in fixture_rows() {
+        for r in rows {
             buf.push(r);
         }
         assert!(buf.total() > 0, "empty fixture");
-        buf
+        (guard, buf)
     }
 
     #[test]
     fn monitor_toggle_gates_view() {
-        let mut buf = filled();
+        let (_guard, mut buf) = filled();
         let total = buf.total();
         assert_eq!(
             buf.visible_len(),
@@ -368,7 +367,7 @@ mod tests {
 
     #[test]
     fn exclude_filter_hides_matches() {
-        let mut buf = filled();
+        let (_guard, mut buf) = filled();
         let total = buf.total();
         // Exclude one process name; the view drops exactly its rows.
         let name = buf.visible(0).unwrap().process_name().to_string();
@@ -389,7 +388,7 @@ mod tests {
 
     #[test]
     fn search_filters_view() {
-        let mut buf = filled();
+        let (_guard, mut buf) = filled();
         // Search a substring present in some row; every visible row matches it.
         let op = buf.visible(0).unwrap().operation().to_string();
         assert!(!op.is_empty());
@@ -403,7 +402,8 @@ mod tests {
 
     #[test]
     fn retention_trims_oldest_by_bytes() {
-        let rows: Vec<CapturedEvent> = fixture_rows().into_iter().take(60).collect();
+        let (_guard, all_rows) = fixture_rows();
+        let rows: Vec<CapturedEvent> = all_rows.into_iter().take(60).collect();
         let n = rows.len();
         assert!(n >= 4, "fixture too small");
         // Budget a quarter of the sample's bytes, so pushing them all overshoots the
