@@ -119,6 +119,32 @@ impl PmlReader {
         (0..self.len()).filter_map(move |i| reader.event_as_event(i).ok())
     }
 
+    /// Writes a filtered subset of this capture to a new Procmon-compatible
+    /// `.PML` at `path`: every event index `i` for which `keep(i)` returns true,
+    /// with its raw detail and process linkage preserved (the full process table
+    /// is carried so `process_index` references stay valid). Returns the number
+    /// of events written. This is the "save the matching events" / Wireshark
+    /// `filter_save` primitive; callers decide `keep` (e.g. from a filter).
+    pub fn write_subset<P: AsRef<Path>>(
+        &self,
+        path: P,
+        mut keep: impl FnMut(usize) -> bool,
+    ) -> Result<usize> {
+        let mut w = crate::pml::PmlWriter::new(self.header.is_64bit);
+        for p in self.processes.values() {
+            w.add_process(p.clone());
+        }
+        let mut written = 0usize;
+        for i in 0..self.len() {
+            if keep(i) {
+                w.add_event(self.event_with_raw(i)?);
+                written += 1;
+            }
+        }
+        w.write_to_path(path)?;
+        Ok(written)
+    }
+
     /// All known processes (unordered).
     pub fn processes(&self) -> impl Iterator<Item = &PmlProcess> {
         self.processes.values()

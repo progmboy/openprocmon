@@ -157,6 +157,95 @@ fn summary_matches_pml_total() {
 }
 
 #[test]
+fn exclude_noise_drops_metadata_and_self() {
+    let f = fixture();
+    let all = query(&f.reader, &[], &[], None, 0, 1, false).total_matched;
+    let clean = query(
+        &f.reader,
+        &[],
+        &procmon_core::default_noise(),
+        None,
+        0,
+        1,
+        false,
+    )
+    .total_matched;
+    assert!(clean <= all, "noise filter never adds events");
+    // No surviving event is an NTFS-metadata path or a monitoring-tool process.
+    let sample = query(
+        &f.reader,
+        &[],
+        &procmon_core::default_noise(),
+        None,
+        0,
+        500,
+        false,
+    );
+    for ev in &sample.events {
+        assert!(!ev.path.ends_with("$Mft"), "Mft leaked: {}", ev.path);
+        assert_ne!(ev.process_name, "Procmon.exe");
+        assert_ne!(ev.process_name, "procmon-cli.exe");
+    }
+}
+
+#[test]
+fn export_csv_and_xml_and_pml_roundtrip() {
+    use procmon_core::{export, Format};
+    let f = fixture();
+    let clauses = vec![parse_clause_str("Category is File System").unwrap()];
+
+    let dir = tempfile::tempdir().unwrap();
+    let csv = dir.path().join("out.csv");
+    let n = export(
+        &f.reader,
+        Format::Csv,
+        &clauses,
+        &[],
+        false,
+        csv.to_str().unwrap(),
+    )
+    .unwrap();
+    let csv_text = std::fs::read_to_string(&csv).unwrap();
+    assert!(csv_text.starts_with('\u{feff}'), "CSV has UTF-8 BOM");
+    assert!(csv_text.contains("\"Time of Day\",\"Process Name\",\"PID\""));
+    assert_eq!(
+        csv_text.matches("\r\n").count(),
+        n + 1,
+        "header + n CRLF rows"
+    );
+
+    let xml = dir.path().join("out.xml");
+    export(
+        &f.reader,
+        Format::Xml,
+        &clauses,
+        &[],
+        true,
+        xml.to_str().unwrap(),
+    )
+    .unwrap();
+    let xml_text = std::fs::read_to_string(&xml).unwrap();
+    assert!(xml_text.contains("<procmon><processlist>"));
+    assert!(xml_text.contains("</processlist><eventlist>"));
+    assert!(xml_text.contains("<Operation>"));
+
+    // PML subset export re-opens and has only the filtered (File) events.
+    let pml = dir.path().join("out.pml");
+    let written = export(
+        &f.reader,
+        Format::Pml,
+        &clauses,
+        &[],
+        false,
+        pml.to_str().unwrap(),
+    )
+    .unwrap();
+    let sub = PmlReader::open(&pml).expect("reopen subset");
+    assert_eq!(sub.len(), written, "subset event count round-trips");
+    assert!(written > 0);
+}
+
+#[test]
 fn vocab_lists_real_operations() {
     let v = filter_vocab();
     assert!(v.columns.iter().any(|c| c == "Process Name"));

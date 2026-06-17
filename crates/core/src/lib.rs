@@ -14,6 +14,8 @@
 //! extraction.
 
 pub mod analyze;
+pub mod export;
+pub mod noise;
 pub mod query;
 pub mod record;
 pub mod summary;
@@ -23,6 +25,8 @@ pub use analyze::{
     get_event, get_process, list_processes, open_pml, pml_info, process_tree, query, EventDetail,
     PmlInfo, QueryResult,
 };
+pub use export::{export, Format};
+pub use noise::default_noise;
 pub use query::{
     matches_all, parse_clause_str, parse_column, parse_relation, resolve_clauses, Clause, GroupRow,
     RawClause,
