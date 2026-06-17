@@ -90,7 +90,13 @@ mod tests {
         let a: Option<ChildMsg> = read_msg(&mut r).unwrap();
         assert!(matches!(a, Some(ChildMsg::Started { .. })));
         let b: Option<ChildMsg> = read_msg(&mut r).unwrap();
-        assert!(matches!(b, Some(ChildMsg::Done { events_written: 42, .. })));
+        assert!(matches!(
+            b,
+            Some(ChildMsg::Done {
+                events_written: 42,
+                ..
+            })
+        ));
         // No more lines -> clean EOF.
         let c: Option<ChildMsg> = read_msg(&mut r).unwrap();
         assert_eq!(c, None);

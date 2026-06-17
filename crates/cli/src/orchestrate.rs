@@ -31,7 +31,9 @@ pub struct WorkerLink {
 /// elevated `procmon-cli capture ... --control-pipe <name>` invocation.
 #[cfg(windows)]
 pub fn launch_worker(name: &str, worker_args: Vec<String>) -> Result<WorkerLink> {
-    let ns = name.to_ns_name::<GenericNamespaced>().context("pipe name")?;
+    let ns = name
+        .to_ns_name::<GenericNamespaced>()
+        .context("pipe name")?;
     let listener = ListenerOptions::new()
         .name(ns)
         .create_sync()
@@ -54,7 +56,9 @@ pub fn launch_worker(name: &str, worker_args: Vec<String>) -> Result<WorkerLink>
 
 /// Connects to the parent's pipe as the worker (client side). Used in worker mode.
 pub fn connect_worker(name: &str) -> Result<(BufReader<RecvHalf>, SendHalf)> {
-    let ns = name.to_ns_name::<GenericNamespaced>().context("pipe name")?;
+    let ns = name
+        .to_ns_name::<GenericNamespaced>()
+        .context("pipe name")?;
     let conn = Stream::connect(ns).context("connect to parent pipe")?;
     let (rh, sh) = conn.split();
     Ok((BufReader::new(rh), sh))
@@ -100,6 +104,9 @@ mod tests {
         drop(listener);
 
         let got = worker.join().unwrap();
-        assert_eq!(got, None, "worker observes clean EOF when parent/server drops");
+        assert_eq!(
+            got, None,
+            "worker observes clean EOF when parent/server drops"
+        );
     }
 }

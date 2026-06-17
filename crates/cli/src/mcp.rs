@@ -267,7 +267,11 @@ impl ProcmonServer {
                     };
                     let o = core::capture(crate::make_loader(), spec, limits, &out2)
                         .map_err(|e| crate::loader::describe_error(&e))?;
-                    Ok((o.pml_path, o.events_written, format!("{:?}", o.stopped_reason)))
+                    Ok((
+                        o.pml_path,
+                        o.events_written,
+                        format!("{:?}", o.stopped_reason),
+                    ))
                 } else {
                     #[cfg(windows)]
                     {
@@ -313,7 +317,15 @@ impl ProcmonServer {
         let body = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
             let reader = core::open_pml(&pml).map_err(|e| e.to_string())?;
             let summary = core::summary(&reader, 10);
-            let events = core::query(&reader, None, &core::default_noise(), None, 0, sample, false);
+            let events = core::query(
+                &reader,
+                None,
+                &core::default_noise(),
+                None,
+                0,
+                sample,
+                false,
+            );
             Ok(serde_json::json!({
                 "summary": summary,
                 "sample_events": events.events,
@@ -356,8 +368,8 @@ impl ProcmonServer {
             max_mb,
         } = a;
         let max_bytes = max_mb * 1024 * 1024;
-        let (backend, pml) = tokio::task::spawn_blocking(
-            move || -> Result<(Backend, String), String> {
+        let (backend, pml) =
+            tokio::task::spawn_blocking(move || -> Result<(Backend, String), String> {
                 if elevated {
                     let spec = core::TargetSpec {
                         process_names: process_names.clone(),
@@ -408,11 +420,10 @@ impl ProcmonServer {
                     #[cfg(not(windows))]
                     Err("self-elevation is only supported on Windows".into())
                 }
-            },
-        )
-        .await
-        .map_err(internal)?
-        .map_err(internal)?;
+            })
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
 
         let id = self.next_id();
         self.sessions.lock().unwrap().insert(
@@ -440,8 +451,8 @@ impl ProcmonServer {
         let Some(backend) = backend else {
             return json(&serde_json::json!({ "stopped": false, "note": "already stopped" }));
         };
-        let body: Result<serde_json::Value, String> = tokio::task::spawn_blocking(move || {
-            match backend {
+        let body: Result<serde_json::Value, String> =
+            tokio::task::spawn_blocking(move || match backend {
                 Backend::InProcess(s) => {
                     let o = s.stop().map_err(|e| e.to_string())?;
                     Ok(serde_json::json!({
@@ -468,10 +479,9 @@ impl ProcmonServer {
                         _ => Err("unexpected worker message".into()),
                     }
                 }
-            }
-        })
-        .await
-        .map_err(internal)?;
+            })
+            .await
+            .map_err(internal)?;
         let body = body.map_err(internal)?;
         json(&serde_json::json!({
             "stopped": true,
