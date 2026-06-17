@@ -31,14 +31,10 @@ pub fn run_worker<R: BufRead, W: Write>(
         },
     )?;
 
-    // Block on parent messages. A clean EOF (None) means the parent exited —
-    // finalize anyway. A ParentMsg::Stop also finalizes.
-    loop {
-        match read_msg::<ParentMsg, _>(reader)? {
-            Some(ParentMsg::Stop) => break,
-            None => break, // pipe EOF: parent gone -> graceful stop
-        }
-    }
+    // Block for the next parent message. Either a `Stop` or a clean EOF (None —
+    // the parent exited) finalizes the capture; there are no other variants, so
+    // a single read suffices.
+    let _ = read_msg::<ParentMsg, _>(reader)?;
 
     let outcome = capturer.stop()?;
     write_msg(
@@ -59,7 +55,7 @@ impl Capturer for procmon_core::CaptureSession {
     fn stop(self: Box<Self>) -> std::io::Result<CaptureOutcome> {
         (*self)
             .stop()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
 
@@ -116,7 +112,10 @@ mod tests {
         let mut reader = std::io::BufReader::new(&input[..]);
         let mut out: Vec<u8> = Vec::new();
         let outcome = run_worker(cap, &mut reader, &mut out).unwrap();
-        assert!(stopped.load(Ordering::SeqCst), "EOF still finalizes the PML");
+        assert!(
+            stopped.load(Ordering::SeqCst),
+            "EOF still finalizes the PML"
+        );
         assert_eq!(format!("{:?}", outcome.stopped_reason), "Manual");
     }
 }

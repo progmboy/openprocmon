@@ -202,8 +202,7 @@ pub fn relaunch_elevated(args: &[String]) -> std::io::Result<ElevatedChild> {
         return Err(std::io::Error::last_os_error());
     }
     if sei.hProcess.is_invalid() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(std::io::Error::other(
             "elevation returned no process handle",
         ));
     }
