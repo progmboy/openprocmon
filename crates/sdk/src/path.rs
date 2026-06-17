@@ -141,9 +141,14 @@ fn reg_normalize(path: &str, current_sid: Option<&str>) -> String {
     path.to_string()
 }
 
-/// Case-insensitive prefix strip (NT paths are case-insensitive).
+/// Case-insensitive prefix strip (NT paths are case-insensitive). The prefixes
+/// are ASCII, so this compares raw bytes — `s` may contain multi-byte UTF-8 and
+/// `prefix.len()` need not fall on a char boundary. Since the prefix is ASCII,
+/// a byte-length match also lands on a char boundary in `s`, so the `str` slice
+/// of the remainder is valid.
 fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+    let head = s.as_bytes().get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix.as_bytes()) {
         Some(&s[prefix.len()..])
     } else {
         None
@@ -241,6 +246,25 @@ mod tests {
             convert_with("\\Device\\Mup\\server\\share\\f", &[], "C:\\Windows"),
             Some("\\\\server\\share\\f".to_string())
         );
+    }
+
+    #[test]
+    fn multibyte_path_does_not_panic_on_prefix_boundary() {
+        // A path whose multi-byte char straddles a prefix length must not panic
+        // (regression: byte-indexed slicing inside `strip_prefix_ci`). 🌏 is 4
+        // bytes; place it so it crosses the `\Device\Mup\` / volume prefix lengths.
+        // A `\Device\` path with no matching volume legitimately returns None
+        // (the caller then refreshes); the point is it doesn't panic.
+        assert_eq!(
+            convert_with("\\Device\\🌏weird\\path", &[], "C:\\Windows"),
+            None
+        );
+        // A non-\Device path with an emoji passes through unchanged.
+        let q = "🌏\\some\\path";
+        assert_eq!(convert_with(q, &[], "C:\\Windows"), Some(q.to_string()));
+        // And the registry side, with the emoji crossing the `\REGISTRY\` length.
+        assert_eq!(reg_normalize("\\REGISTR🌏nope", None), "\\REGISTR🌏nope");
+        assert_eq!(reg_normalize("🌏", None), "🌏");
     }
 
     #[test]
