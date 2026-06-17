@@ -14,6 +14,7 @@ use procmon_core as core;
 use procmon_sdk::{DriverLoader, PmlReader};
 
 mod loader;
+mod mcp;
 
 #[derive(Parser)]
 #[command(name = "procmon-cli", version, about, long_about = None)]
@@ -141,6 +142,8 @@ enum Command {
     Vocab,
     /// Whether the driver is reachable / capture is possible.
     DriverStatus,
+    /// Serve the Model Context Protocol over stdio (for AI agents).
+    Mcp,
 }
 
 /// The `--pml <path>` source shared by the analysis commands.
@@ -247,6 +250,7 @@ fn run() -> Result<()> {
         }
         Command::Vocab => print(&core::filter_vocab()),
         Command::DriverStatus => print(&driver_status()),
+        Command::Mcp => mcp::serve(),
     }
 }
 
@@ -334,7 +338,7 @@ fn print<T: serde::Serialize>(value: &T) -> Result<()> {
 const DRIVER_NAME: &str = "OpenProcmon24";
 
 #[cfg(feature = "embedded-driver")]
-fn make_loader() -> DriverLoader {
+pub(crate) fn make_loader() -> DriverLoader {
     const DRIVER_IMAGE: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../bin/PROCMON24.SYS"
@@ -343,7 +347,7 @@ fn make_loader() -> DriverLoader {
 }
 
 #[cfg(not(feature = "embedded-driver"))]
-fn make_loader() -> DriverLoader {
+pub(crate) fn make_loader() -> DriverLoader {
     let sys = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("procmon.sys")))
