@@ -31,7 +31,7 @@ pub mod time;
 pub use driver::{extract_to_system32, DriverLoader};
 pub use error::{Error, Result};
 pub use event::{Event, EventClass};
-pub use filter::{Action, Column, FilterFields, FilterSet, Relation, Rule};
+pub use filter::{clause_matches, Action, Column, FilterFields, FilterSet, Relation, Rule};
 pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};

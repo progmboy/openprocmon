@@ -419,6 +419,37 @@ fn rule_hits<'e, E: FilterFields>(ev: &'e E, rule: &Rule, memo: &mut ColumnMemo<
         .unwrap_or(false)
 }
 
+/// Whether a single `(column, relation, value)` clause matches `ev` — the
+/// public building block for custom query predicates (e.g. an AND-of-clauses
+/// query engine) over the same column/relation vocabulary and matching
+/// semantics (numeric fast path + ASCII case-insensitive relations) the GUI
+/// filter uses. This is [`rule_hits`] without the per-evaluation column memo;
+/// callers that evaluate many rows should still derive each column value once.
+pub fn clause_matches<E: FilterFields>(
+    ev: &E,
+    column: Column,
+    relation: Relation,
+    value: &str,
+) -> bool {
+    if matches!(
+        relation,
+        Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
+    ) {
+        if let (Some(actual), Ok(expected)) = (ev.filter_number(column), value.parse::<i64>()) {
+            return match relation {
+                Relation::Is => actual == expected,
+                Relation::IsNot => actual != expected,
+                Relation::LessThan => actual < expected,
+                Relation::MoreThan => actual > expected,
+                _ => unreachable!("guarded by the relation match above"),
+            };
+        }
+    }
+    ev.filter_field(column)
+        .map(|actual| relation_matches(relation, &actual, value))
+        .unwrap_or(false)
+}
+
 /// Extracts the comparison string for a column, or `None` if the event has none.
 ///
 /// Delegates to the [`Event`] accessors, which return `None` when no process is
