@@ -109,6 +109,101 @@ pub fn capability_matrix() -> Vec<ToolCap> {
     ]
 }
 
+/// A handle to an elevated child process started via `relaunch_elevated`. The
+/// parent can wait on it but cannot terminate it (lower integrity level), which
+/// is why control flows over the pipe instead.
+#[cfg(windows)]
+pub struct ElevatedChild {
+    handle: windows::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl ElevatedChild {
+    /// Blocks until the child exits.
+    pub fn wait(&self) -> std::io::Result<()> {
+        use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+        // SAFETY: handle is a valid process handle owned by self until Drop.
+        let r = unsafe { WaitForSingleObject(self.handle, INFINITE) };
+        if r.0 == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ElevatedChild {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::CloseHandle;
+        // SAFETY: closing our own handle; the child keeps running independently.
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
+/// UTF-16, NUL-terminated.
+#[cfg(windows)]
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Relaunches the current exe elevated (UAC prompt) with `args`, returning a
+/// handle to the elevated process. `Err` with kind `PermissionDenied` if the
+/// user declined the UAC prompt (`ERROR_CANCELLED`).
+#[cfg(windows)]
+pub fn relaunch_elevated(args: &[String]) -> std::io::Result<ElevatedChild> {
+    use std::mem::size_of;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{GetLastError, ERROR_CANCELLED};
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    let exe = std::env::current_exe()?;
+    let exe_w = wide(&exe.to_string_lossy());
+    // Quote each arg so paths with spaces survive; join with spaces.
+    let params = args
+        .iter()
+        .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let params_w = wide(&params);
+    let verb_w = wide("runas");
+
+    let mut sei = SHELLEXECUTEINFOW {
+        cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: PCWSTR(verb_w.as_ptr()),
+        lpFile: PCWSTR(exe_w.as_ptr()),
+        lpParameters: PCWSTR(params_w.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+
+    // SAFETY: sei is fully initialized; string buffers outlive the call.
+    let res = unsafe { ShellExecuteExW(&mut sei) };
+    if res.is_err() {
+        let code = unsafe { GetLastError() };
+        if code == ERROR_CANCELLED {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "UAC elevation was declined",
+            ));
+        }
+        return Err(std::io::Error::last_os_error());
+    }
+    if sei.hProcess.is_invalid() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "elevation returned no process handle",
+        ));
+    }
+    Ok(ElevatedChild {
+        handle: sei.hProcess,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
