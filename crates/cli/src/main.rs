@@ -17,6 +17,7 @@ mod elevate;
 mod ipc;
 mod loader;
 mod mcp;
+mod worker;
 
 #[derive(Parser)]
 #[command(name = "procmon-cli", version, about, long_about = None)]
