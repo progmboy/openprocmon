@@ -203,6 +203,42 @@ cargo run -p procmon-example -- --pml out.pml
 
 在 GUI 中，使用 **文件 ▸ 打开** 加载 `.PML`。
 
+## AI / MCP
+
+`procmon-cli` 是一个命令行 + **MCP** 前端，让 AI agent 驱动 OpenProcMon——"Process Monitor
+版的 Wireshark"：捕获写出一个 `.PML`，所有分析都读这个文件。一个万能的 `query` 原语（过滤 +
+分组聚合）就能回答常见问题（"X 写了哪些文件？""注册表持久化？""连了哪些外网？"），而不会用海量原始
+事件淹没模型。
+
+```bash
+cargo build -p procmon-cli --release
+
+# 捕获某程序及其子进程 10 秒（实时捕获需要管理员权限）：
+procmon-cli capture --name app.exe --launch "app.exe" --duration 10
+
+# 分析任意 .PML（无需提权）：
+procmon-cli query --pml cap.pml \
+  --filter "Category is File System" --filter "Operation is WriteFile" --group-by Path
+procmon-cli vocab            # 精确的列/关系/操作名
+procmon-cli --help           # 全部子命令
+```
+
+两种接入 agent 的方式：
+
+- **MCP 服务器**：`procmon-cli mcp` 通过 stdio 把这些操作作为 MCP 工具提供。任意 MCP 客户端
+  指向它即可，例如 Claude Code：
+
+  ```bash
+  claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp
+  ```
+
+  服务器的 `instructions` 和 `list_filter_columns` 工具会教 agent 过滤词汇与配方，无需额外设置。
+
+- **Skill（给用 CLI 的 agent）**：把 [`skills/procmon/`](../skills/procmon/) 复制进你自己的
+  `~/.claude/skills/`——它教 agent 用 `procmon-cli` 命令和过滤器菜谱。
+
+实时捕获需要管理员权限（要加载驱动）；分析 `.PML` 不需要。
+
 ## 驱动兼容性
 
 你不需要自己的代码签名证书：SDK 与原版 Process Monitor 驱动 100% 兼容，因此可以直接用原版 Procmon 驱动来驱动它。反过来，本驱动也可以替换原版，用于研究 Process Monitor 的工作原理，或作为你自己 EDR 类工具的起点。
@@ -231,7 +267,7 @@ Rust 重写正在积极开发中。
 - [x] GUI：事件表格、详情面板、过滤/高亮、进程树、汇总
 - [x] 带模块解析的调用栈
 - [x] 从 GUI 保存当前捕获
-- [ ] AI Mcp服务器和skills
+- [x] AI MCP 服务器和 skills（`procmon-cli` + `procmon-cli mcp`）
 - [x] 性能优化
 - [ ] 开机日志捕获
 

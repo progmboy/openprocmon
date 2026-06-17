@@ -207,6 +207,46 @@ cargo run -p procmon-example -- --pml out.pml
 
 In the GUI, use **File ▸ Open** to load a `.PML`.
 
+## AI / MCP
+
+`procmon-cli` is a command-line and **MCP** front-end that lets an AI agent drive
+OpenProcMon — "Process Monitor as Wireshark": a capture writes a `.PML`, and every
+analysis reads one. The single `query` primitive (filter + group-by) answers the
+common questions ("what files did X write?", "registry persistence?", "network
+endpoints?") without flooding the model with raw events.
+
+```bash
+cargo build -p procmon-cli --release
+
+# Capture a program + its children for 10s (live capture needs Administrator):
+procmon-cli capture --name app.exe --launch "app.exe" --duration 10
+
+# Analyze any .PML (no elevation needed):
+procmon-cli query --pml cap.pml \
+  --filter "Category is File System" --filter "Operation is WriteFile" --group-by Path
+procmon-cli vocab            # exact column/relation/operation names
+procmon-cli --help           # all subcommands
+```
+
+Two ways to wire it to an agent:
+
+- **MCP server.** `procmon-cli mcp` serves the operations as MCP tools over stdio.
+  Point any MCP client at it, e.g. Claude Code:
+
+  ```bash
+  claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp
+  ```
+
+  The server's `instructions` and the `list_filter_columns` tool teach the agent
+  the filter vocabulary and recipes, so no extra setup is needed.
+
+- **Skill (for CLI-driving agents).** Copy [`skills/procmon/`](skills/procmon/)
+  into your own `~/.claude/skills/` — it teaches an agent the `procmon-cli`
+  commands and the filter cookbook.
+
+Live capture requires Administrator (it loads the driver); analyzing a `.PML`
+does not.
+
 ## Driver compatibility
 
 You don't need your own code-signing certificate: the SDK is 100% compatible with
@@ -239,7 +279,7 @@ The Rust rewrite is under active development.
 - [x] GUI: event table, detail panel, filter/highlight, process tree, summaries
 - [x] Call stack with module resolution
 - [x] Save the current capture from the GUI
-- [ ] AI Mcp server and skills
+- [x] AI MCP server and skills (`procmon-cli` + `procmon-cli mcp`)
 - [x] Performance optimization
 - [ ] Boot logging capture
 
