@@ -112,18 +112,26 @@ pub fn capability_matrix() -> Vec<ToolCap> {
 /// A handle to an elevated child process started via `relaunch_elevated`. The
 /// parent can wait on it but cannot terminate it (lower integrity level), which
 /// is why control flows over the pipe instead.
+///
+/// The raw handle value is stored as `isize` (not `HANDLE`) so the struct is
+/// `Send` — a process handle is process-wide and safe to use from any thread,
+/// and the MCP server holds this inside a shared, `Send`-required session map.
 #[cfg(windows)]
 pub struct ElevatedChild {
-    handle: windows::Win32::Foundation::HANDLE,
+    handle: isize,
 }
 
 #[cfg(windows)]
 impl ElevatedChild {
+    fn raw(&self) -> windows::Win32::Foundation::HANDLE {
+        windows::Win32::Foundation::HANDLE(self.handle as *mut core::ffi::c_void)
+    }
+
     /// Blocks until the child exits.
     pub fn wait(&self) -> std::io::Result<()> {
         use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
         // SAFETY: handle is a valid process handle owned by self until Drop.
-        let r = unsafe { WaitForSingleObject(self.handle, INFINITE) };
+        let r = unsafe { WaitForSingleObject(self.raw(), INFINITE) };
         if r.0 == 0 {
             Ok(())
         } else {
@@ -138,7 +146,7 @@ impl Drop for ElevatedChild {
         use windows::Win32::Foundation::CloseHandle;
         // SAFETY: closing our own handle; the child keeps running independently.
         unsafe {
-            let _ = CloseHandle(self.handle);
+            let _ = CloseHandle(self.raw());
         }
     }
 }
@@ -200,7 +208,7 @@ pub fn relaunch_elevated(args: &[String]) -> std::io::Result<ElevatedChild> {
         ));
     }
     Ok(ElevatedChild {
-        handle: sei.hProcess,
+        handle: sei.hProcess.0 as isize,
     })
 }
 

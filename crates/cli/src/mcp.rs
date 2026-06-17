@@ -22,10 +22,18 @@ use rmcp::schemars::{self, JsonSchema};
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServiceExt};
 use serde::Deserialize;
 
-/// A capture session: its output PML path, and the live handle while running.
+/// A capture session's output PML path and (while running) its backend.
 struct Session {
     pml_path: String,
-    running: Option<core::CaptureSession>,
+    backend: Option<Backend>,
+}
+
+/// Background capture implementation: in-process when the server is elevated, or
+/// an elevated worker driven over a pipe when it is not.
+enum Backend {
+    InProcess(core::CaptureSession),
+    #[cfg(windows)]
+    Elevated(crate::orchestrate::WorkerLink),
 }
 
 #[derive(Clone)]
@@ -223,45 +231,89 @@ impl ProcmonServer {
         &self,
         Parameters(a): Parameters<CaptureArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let spec = core::TargetSpec {
-            process_names: a.process_names,
-            pids: a.pids,
-            include_children: a.include_children,
-            launch: a
-                .launch
-                .map(|s| s.split_whitespace().map(str::to_string).collect()),
-            monitors: core::parse_monitors(&a.monitors),
-            filter: parse_filter_opt(&a.filter)?,
-        };
-        let limits = core::CaptureLimits {
-            max_bytes: a.max_mb * 1024 * 1024,
-            duration: Some(std::time::Duration::from_secs(a.duration_seconds)),
-        };
+        // Validate the filter before any UAC prompt.
+        parse_filter_opt(&a.filter)?;
+        let elevated = crate::elevate::is_elevated();
         let out = temp_pml();
         let out2 = out.clone();
-        let outcome = tokio::task::spawn_blocking(move || {
-            core::capture(crate::make_loader(), spec, limits, &out2)
-                .map_err(|e| crate::loader::describe_error(&e))
-        })
-        .await
-        .map_err(internal)?
-        .map_err(internal)?;
+        let CaptureArgs {
+            process_names,
+            pids,
+            include_children,
+            launch,
+            monitors,
+            filter,
+            duration_seconds,
+            max_mb,
+            sample,
+        } = a;
+        let max_bytes = max_mb * 1024 * 1024;
+        let (pml_path, events_written, stopped_reason) =
+            tokio::task::spawn_blocking(move || -> Result<(String, usize, String), String> {
+                if elevated {
+                    let spec = core::TargetSpec {
+                        process_names: process_names.clone(),
+                        pids: pids.clone(),
+                        include_children,
+                        launch: launch
+                            .clone()
+                            .map(|s| s.split_whitespace().map(str::to_string).collect()),
+                        monitors: core::parse_monitors(&monitors),
+                        filter: filter.as_deref().map(core::parse_filter).transpose()?,
+                    };
+                    let limits = core::CaptureLimits {
+                        max_bytes,
+                        duration: Some(std::time::Duration::from_secs(duration_seconds)),
+                    };
+                    let o = core::capture(crate::make_loader(), spec, limits, &out2)
+                        .map_err(|e| crate::loader::describe_error(&e))?;
+                    Ok((o.pml_path, o.events_written, format!("{:?}", o.stopped_reason)))
+                } else {
+                    #[cfg(windows)]
+                    {
+                        let args = crate::build_worker_args(
+                            &process_names,
+                            &pids,
+                            include_children,
+                            launch.as_deref(),
+                            &monitors,
+                            duration_seconds,
+                            max_mb,
+                            std::path::Path::new(&out2),
+                            filter.as_deref(),
+                            false,
+                        );
+                        let mut link = crate::orchestrate::launch_worker(
+                            &crate::orchestrate::pipe_name(0),
+                            args,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let done = crate::orchestrate::drive_to_done(&mut link, false)
+                            .map_err(|e| e.to_string())?;
+                        link.child.wait().ok();
+                        match done {
+                            crate::ipc::ChildMsg::Done {
+                                events_written,
+                                stopped_reason,
+                                pml_path,
+                            } => Ok((pml_path, events_written as usize, stopped_reason)),
+                            _ => Err("unexpected worker message".into()),
+                        }
+                    }
+                    #[cfg(not(windows))]
+                    Err("self-elevation is only supported on Windows".into())
+                }
+            })
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
 
-        let id = self.store_finished(outcome.pml_path.clone());
-        let sample = a.sample;
-        let pml = outcome.pml_path.clone();
+        let id = self.store_finished(pml_path.clone());
+        let pml = pml_path.clone();
         let body = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
             let reader = core::open_pml(&pml).map_err(|e| e.to_string())?;
             let summary = core::summary(&reader, 10);
-            let events = core::query(
-                &reader,
-                None,
-                &core::default_noise(),
-                None,
-                0,
-                sample,
-                false,
-            );
+            let events = core::query(&reader, None, &core::default_noise(), None, 0, sample, false);
             Ok(serde_json::json!({
                 "summary": summary,
                 "sample_events": events.events,
@@ -273,9 +325,9 @@ impl ProcmonServer {
 
         json(&serde_json::json!({
             "session_id": id,
-            "pml_path": outcome.pml_path,
-            "events_written": outcome.events_written,
-            "stopped_reason": outcome.stopped_reason,
+            "pml_path": pml_path,
+            "events_written": events_written,
+            "stopped_reason": stopped_reason,
             "summary": body["summary"],
             "sample_events": body["sample_events"],
         }))
@@ -289,26 +341,75 @@ impl ProcmonServer {
         &self,
         Parameters(a): Parameters<StartArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let spec = core::TargetSpec {
-            process_names: a.process_names,
-            pids: a.pids,
-            include_children: a.include_children,
-            launch: a
-                .launch
-                .map(|s| s.split_whitespace().map(str::to_string).collect()),
-            monitors: core::parse_monitors(&a.monitors),
-            filter: parse_filter_opt(&a.filter)?,
-        };
-        let limits = core::CaptureLimits {
-            max_bytes: a.max_mb * 1024 * 1024,
-            duration: None,
-        };
+        // Validate the filter before any UAC prompt.
+        parse_filter_opt(&a.filter)?;
         let out = temp_pml();
+        let elevated = crate::elevate::is_elevated();
         let out2 = out.clone();
-        let session = tokio::task::spawn_blocking(move || {
-            core::CaptureSession::start(crate::make_loader(), spec, limits, &out2)
-                .map_err(|e| crate::loader::describe_error(&e))
-        })
+        let StartArgs {
+            process_names,
+            pids,
+            include_children,
+            launch,
+            monitors,
+            filter,
+            max_mb,
+        } = a;
+        let max_bytes = max_mb * 1024 * 1024;
+        let (backend, pml) = tokio::task::spawn_blocking(
+            move || -> Result<(Backend, String), String> {
+                if elevated {
+                    let spec = core::TargetSpec {
+                        process_names: process_names.clone(),
+                        pids: pids.clone(),
+                        include_children,
+                        launch: launch
+                            .clone()
+                            .map(|s| s.split_whitespace().map(str::to_string).collect()),
+                        monitors: core::parse_monitors(&monitors),
+                        filter: filter.as_deref().map(core::parse_filter).transpose()?,
+                    };
+                    let limits = core::CaptureLimits {
+                        max_bytes,
+                        duration: None,
+                    };
+                    let s = core::CaptureSession::start(crate::make_loader(), spec, limits, &out2)
+                        .map_err(|e| crate::loader::describe_error(&e))?;
+                    let p = s.pml_path().to_string_lossy().into_owned();
+                    Ok((Backend::InProcess(s), p))
+                } else {
+                    #[cfg(windows)]
+                    {
+                        let args = crate::background_worker_args(
+                            &process_names,
+                            &pids,
+                            include_children,
+                            launch.as_deref(),
+                            &monitors,
+                            max_mb,
+                            std::path::Path::new(&out2),
+                            filter.as_deref(),
+                        );
+                        let mut link = crate::orchestrate::launch_worker(
+                            &crate::orchestrate::pipe_name(0),
+                            args,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        // First message tells us the real PML path.
+                        let started =
+                            crate::ipc::read_msg::<crate::ipc::ChildMsg, _>(&mut link.reader)
+                                .map_err(|e| e.to_string())?;
+                        let p = match started {
+                            Some(crate::ipc::ChildMsg::Started { pml_path }) => pml_path,
+                            _ => out2.clone(),
+                        };
+                        Ok((Backend::Elevated(link), p))
+                    }
+                    #[cfg(not(windows))]
+                    Err("self-elevation is only supported on Windows".into())
+                }
+            },
+        )
         .await
         .map_err(internal)?
         .map_err(internal)?;
@@ -317,11 +418,11 @@ impl ProcmonServer {
         self.sessions.lock().unwrap().insert(
             id.clone(),
             Session {
-                pml_path: out.clone(),
-                running: Some(session),
+                pml_path: pml.clone(),
+                backend: Some(backend),
             },
         );
-        json(&serde_json::json!({ "session_id": id, "pml_path": out }))
+        json(&serde_json::json!({ "session_id": id, "pml_path": pml }))
     }
 
     #[tool(description = "Stop a running capture (finalizes its PML) and return the outcome.")]
@@ -329,25 +430,54 @@ impl ProcmonServer {
         &self,
         Parameters(a): Parameters<SessionId>,
     ) -> Result<CallToolResult, McpError> {
-        let running = {
+        let backend = {
             let mut map = self.sessions.lock().unwrap();
             let s = map
                 .get_mut(&a.session_id)
                 .ok_or_else(|| McpError::invalid_params("unknown session_id", None))?;
-            s.running.take()
+            s.backend.take()
         };
-        let Some(session) = running else {
+        let Some(backend) = backend else {
             return json(&serde_json::json!({ "stopped": false, "note": "already stopped" }));
         };
-        let outcome = tokio::task::spawn_blocking(move || session.stop())
-            .await
-            .map_err(internal)?
-            .map_err(internal)?;
+        let body: Result<serde_json::Value, String> = tokio::task::spawn_blocking(move || {
+            match backend {
+                Backend::InProcess(s) => {
+                    let o = s.stop().map_err(|e| e.to_string())?;
+                    Ok(serde_json::json!({
+                        "events_written": o.events_written,
+                        "stopped_reason": format!("{:?}", o.stopped_reason),
+                        "pml_path": o.pml_path,
+                    }))
+                }
+                #[cfg(windows)]
+                Backend::Elevated(mut link) => {
+                    let done = crate::orchestrate::drive_to_done(&mut link, true)
+                        .map_err(|e| e.to_string())?;
+                    link.child.wait().ok();
+                    match done {
+                        crate::ipc::ChildMsg::Done {
+                            events_written,
+                            stopped_reason,
+                            pml_path,
+                        } => Ok(serde_json::json!({
+                            "events_written": events_written,
+                            "stopped_reason": stopped_reason,
+                            "pml_path": pml_path,
+                        })),
+                        _ => Err("unexpected worker message".into()),
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(internal)?;
+        let body = body.map_err(internal)?;
         json(&serde_json::json!({
             "stopped": true,
-            "events_written": outcome.events_written,
-            "stopped_reason": outcome.stopped_reason,
-            "pml_path": outcome.pml_path,
+            "events_written": body["events_written"],
+            "stopped_reason": body["stopped_reason"],
+            "pml_path": body["pml_path"],
         }))
     }
 
@@ -360,7 +490,8 @@ impl ProcmonServer {
         let s = map
             .get(&a.session_id)
             .ok_or_else(|| McpError::invalid_params("unknown session_id", None))?;
-        let running = s.running.as_ref().is_some_and(|c| c.is_running());
+        // A session counts as running until stop_capture takes its backend.
+        let running = s.backend.is_some();
         json(&serde_json::json!({ "running": running, "pml_path": s.pml_path }))
     }
 
@@ -496,15 +627,17 @@ impl ProcmonServer {
         json(&core::filter_vocab())
     }
 
-    #[tool(description = "Whether the driver is reachable (capture needs Administrator).")]
+    #[tool(description = "Driver reachability + elevation + per-tool capability matrix.")]
     async fn driver_status(&self) -> Result<CallToolResult, McpError> {
         let running =
             tokio::task::spawn_blocking(|| procmon_sdk::MonitorController::connect().is_ok())
                 .await
                 .map_err(internal)?;
         json(&serde_json::json!({
+            "elevated": crate::elevate::is_elevated(),
             "driver_running": running,
-            "note": "Live capture requires Administrator; PML analysis does not.",
+            "tools": crate::elevate::capability_matrix(),
+            "note": "Live capture needs admin; when unelevated the capture tools auto-RunAs (UAC). PML analysis never needs elevation.",
         }))
     }
 }
@@ -520,7 +653,7 @@ impl ProcmonServer {
             id.clone(),
             Session {
                 pml_path,
-                running: None,
+                backend: None,
             },
         );
         id
@@ -535,7 +668,7 @@ impl ProcmonServer {
                 let sess = map
                     .get(id)
                     .ok_or_else(|| McpError::invalid_params("unknown session_id", None))?;
-                if sess.running.as_ref().is_some_and(|c| c.is_running()) {
+                if sess.backend.is_some() {
                     return Err(McpError::invalid_params(
                         "session is still capturing; stop_capture first",
                         None,
