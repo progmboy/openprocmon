@@ -347,7 +347,7 @@ fn cmd_capture(
         filter.as_deref(),
         /*background=*/ false,
     );
-    let outcome = orchestrate_one_shot(args)?;
+    let outcome = orchestrate_one_shot(args, &out_path)?;
     print_capture_result(&outcome.0, outcome.1, &outcome.2, sample)
 }
 
@@ -360,50 +360,60 @@ fn run_capture_worker(
     pipe: &str,
     parent_pid: Option<u32>,
 ) -> Result<()> {
+    // parent_pid is reserved for an optional parent-liveness backup; pipe EOF
+    // already covers parent death, so it is currently unused.
+    let _ = parent_pid;
     let session = core::CaptureSession::start(make_loader(), spec, limits, out_path)
         .map_err(|e| anyhow::anyhow!(loader::describe_error(&e)))?;
-    let (mut reader, mut writer) = orchestrate::connect_worker(pipe)?;
+    let (reader, mut writer) = orchestrate::connect_worker(pipe)?;
 
-    // Backup orphan protection: if the parent dies, exit. (Pipe EOF already
-    // covers the common case; this wait covers a stuck read.)
-    #[cfg(windows)]
-    if let Some(ppid) = parent_pid {
-        elevate::watch_parent(ppid, || std::process::exit(0));
-    }
-    #[cfg(not(windows))]
-    let _ = parent_pid;
-
-    worker::run_worker(Box::new(session), &mut reader, &mut writer)
+    worker::run_worker(Box::new(session), reader, &mut writer)
         .map_err(|e| anyhow::anyhow!("worker loop: {e}"))?;
     Ok(())
 }
 
-/// Unelevated one-shot: launch an elevated worker with the given argv, wait for
-/// it to self-stop at the duration limit, return (pml_path, events_written,
-/// stopped_reason).
-fn orchestrate_one_shot(worker_argv: Vec<String>) -> Result<(String, usize, core::StoppedReason)> {
+/// Unelevated one-shot: launch an elevated worker, then read its terminal `Done`
+/// over the pipe (or a clean EOF when it exits). The worker finalizes the PML
+/// before exiting; the result is the `Done` it reports, falling back to reading
+/// the PML's event count if the `Done` was lost. The child handle is never
+/// waited on (runas hProcess is unreliable).
+fn orchestrate_one_shot(
+    worker_argv: Vec<String>,
+    out_path: &std::path::Path,
+) -> Result<(String, usize, core::StoppedReason)> {
     #[cfg(not(windows))]
     {
-        let _ = worker_argv;
+        let _ = (worker_argv, out_path);
         anyhow::bail!("self-elevation is only supported on Windows");
     }
     #[cfg(windows)]
     {
         let mut link = orchestrate::launch_worker(&orchestrate::pipe_name(0), worker_argv)?;
-        let done = orchestrate::drive_to_done(&mut link, /*stop_first=*/ false)?;
-        link.child.wait().ok();
+        let done = link.read_done()?;
         match done {
-            crate::ipc::ChildMsg::Done {
-                events_written,
-                stopped_reason,
-                pml_path,
-            } => Ok((
-                pml_path,
-                events_written as usize,
-                parse_stopped_reason(&stopped_reason),
-            )),
-            _ => anyhow::bail!("unexpected worker message"),
+            Some((events, reason, pml_path)) => {
+                Ok((pml_path, events as usize, parse_stopped_reason(&reason)))
+            }
+            None => {
+                // Worker exited without a Done; read the finalized PML.
+                let reader = core::open_pml(out_path)?;
+                let count = core::pml_info(&reader).event_count as usize;
+                Ok((
+                    out_path.to_string_lossy().into_owned(),
+                    count,
+                    core::StoppedReason::Duration,
+                ))
+            }
         }
+    }
+}
+
+#[cfg(windows)]
+fn parse_stopped_reason(s: &str) -> core::StoppedReason {
+    match s {
+        "Duration" => core::StoppedReason::Duration,
+        "SizeLimit" => core::StoppedReason::SizeLimit,
+        _ => core::StoppedReason::Manual,
     }
 }
 
@@ -487,15 +497,6 @@ pub(crate) fn background_worker_args(
         filter,
         true,
     )
-}
-
-#[cfg(windows)]
-fn parse_stopped_reason(s: &str) -> core::StoppedReason {
-    match s {
-        "Duration" => core::StoppedReason::Duration,
-        "SizeLimit" => core::StoppedReason::SizeLimit,
-        _ => core::StoppedReason::Manual,
-    }
 }
 
 /// Re-opens the produced PML and prints the standard capture result JSON.

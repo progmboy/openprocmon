@@ -292,16 +292,17 @@ impl ProcmonServer {
                             args,
                         )
                         .map_err(|e| e.to_string())?;
-                        let done = crate::orchestrate::drive_to_done(&mut link, false)
-                            .map_err(|e| e.to_string())?;
-                        link.child.wait().ok();
-                        match done {
-                            crate::ipc::ChildMsg::Done {
-                                events_written,
-                                stopped_reason,
-                                pml_path,
-                            } => Ok((pml_path, events_written as usize, stopped_reason)),
-                            _ => Err("unexpected worker message".into()),
+                        // Read the worker's terminal Done (or EOF on exit); the
+                        // child handle is unreliable to wait on.
+                        match link.read_done().map_err(|e| e.to_string())? {
+                            Some((events, reason, pml_path)) => {
+                                Ok((pml_path, events as usize, reason))
+                            }
+                            None => {
+                                let reader = core::open_pml(&out2).map_err(|e| e.to_string())?;
+                                let count = core::pml_info(&reader).event_count as usize;
+                                Ok((out2.clone(), count, "Duration".to_string()))
+                            }
                         }
                     }
                     #[cfg(not(windows))]
@@ -407,14 +408,12 @@ impl ProcmonServer {
                             args,
                         )
                         .map_err(|e| e.to_string())?;
-                        // First message tells us the real PML path.
-                        let started =
-                            crate::ipc::read_msg::<crate::ipc::ChildMsg, _>(&mut link.reader)
-                                .map_err(|e| e.to_string())?;
-                        let p = match started {
-                            Some(crate::ipc::ChildMsg::Started { pml_path }) => pml_path,
-                            _ => out2.clone(),
-                        };
+                        // The worker's first message (sent while alive) is the
+                        // real PML path.
+                        let p = link
+                            .read_started()
+                            .map_err(|e| e.to_string())?
+                            .unwrap_or_else(|| out2.clone());
                         Ok((Backend::Elevated(link), p))
                     }
                     #[cfg(not(windows))]
@@ -441,12 +440,12 @@ impl ProcmonServer {
         &self,
         Parameters(a): Parameters<SessionId>,
     ) -> Result<CallToolResult, McpError> {
-        let backend = {
+        let (backend, pml_path) = {
             let mut map = self.sessions.lock().unwrap();
             let s = map
                 .get_mut(&a.session_id)
                 .ok_or_else(|| McpError::invalid_params("unknown session_id", None))?;
-            s.backend.take()
+            (s.backend.take(), s.pml_path.clone())
         };
         let Some(backend) = backend else {
             return json(&serde_json::json!({ "stopped": false, "note": "already stopped" }));
@@ -463,20 +462,24 @@ impl ProcmonServer {
                 }
                 #[cfg(windows)]
                 Backend::Elevated(mut link) => {
-                    let done = crate::orchestrate::drive_to_done(&mut link, true)
-                        .map_err(|e| e.to_string())?;
-                    link.child.wait().ok();
-                    match done {
-                        crate::ipc::ChildMsg::Done {
-                            events_written,
-                            stopped_reason,
-                            pml_path,
-                        } => Ok(serde_json::json!({
-                            "events_written": events_written,
-                            "stopped_reason": stopped_reason,
-                            "pml_path": pml_path,
+                    // Signal the worker to finalize, then read its terminal Done
+                    // (or EOF on exit). The child handle is unreliable to wait on.
+                    link.send_stop().ok();
+                    match link.read_done().map_err(|e| e.to_string())? {
+                        Some((events, reason, path)) => Ok(serde_json::json!({
+                            "events_written": events,
+                            "stopped_reason": reason,
+                            "pml_path": path,
                         })),
-                        _ => Err("unexpected worker message".into()),
+                        None => {
+                            let reader = core::open_pml(&pml_path).map_err(|e| e.to_string())?;
+                            let count = core::pml_info(&reader).event_count;
+                            Ok(serde_json::json!({
+                                "events_written": count,
+                                "stopped_reason": "Manual",
+                                "pml_path": pml_path,
+                            }))
+                        }
                     }
                 }
             })

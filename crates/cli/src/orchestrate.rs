@@ -1,7 +1,14 @@
 //! Parent-side (unelevated) orchestration of an elevated capture worker over an
 //! `interprocess` named pipe. The parent is the pipe server; the elevated child
-//! connects as client. The parent can `wait` on the child but not kill it, so it
-//! stops captures by sending `ParentMsg::Stop` over the pipe.
+//! connects as client and is put into worker mode via `--control-pipe`.
+//!
+//! Completion is detected over the pipe, not by waiting on the child process
+//! handle — `ShellExecuteEx`'s `runas` hProcess is unreliable to wait on. The
+//! worker sends `Started{pml_path}` on connect and a terminal `Done{...}` once
+//! it finalizes; a clean EOF (the worker closed the pipe on exit) is an
+//! equivalent "finished" signal. The parent->child direction carries a single
+//! `Stop` for background `stop_capture` (one-shot captures self-stop at their
+//! duration limit and need no message).
 
 use std::io::BufReader;
 
@@ -22,15 +29,58 @@ pub fn pipe_name(seq: u64) -> String {
 pub struct WorkerLink {
     pub reader: BufReader<RecvHalf>,
     pub writer: SendHalf,
+    // Held only to keep the elevated process handle open until the link drops
+    // (RAII close). Completion is detected over the pipe, never by waiting on it.
     #[cfg(windows)]
+    #[allow(dead_code)]
     pub child: crate::elevate::ElevatedChild,
+}
+
+#[cfg(windows)]
+impl WorkerLink {
+    /// Reads the worker's first `Started{pml_path}` message (sent right after it
+    /// connects, while it is still alive — so this read does not block on a dead
+    /// peer). Returns the PML path it reported, or `None` if the stream closed.
+    pub fn read_started(&mut self) -> Result<Option<String>> {
+        match read_msg::<ChildMsg, _>(&mut self.reader)? {
+            Some(ChildMsg::Started { pml_path }) => Ok(Some(pml_path)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Signals the worker to stop and finalize (background `stop_capture`).
+    pub fn send_stop(&mut self) -> std::io::Result<()> {
+        write_msg(&mut self.writer, &ParentMsg::Stop)
+    }
+
+    /// Reads until the worker's terminal `Done` message (its result) or a clean
+    /// EOF — the worker closes the pipe when it exits, so EOF reliably signals
+    /// "worker finished" even if the `Done` write was lost. Returns the Done
+    /// fields `(events_written, stopped_reason, pml_path)`, or `None` on EOF.
+    ///
+    /// We deliberately do NOT `WaitForSingleObject` the child handle:
+    /// `ShellExecuteEx`'s `runas` hProcess is unreliable to wait on for an
+    /// elevated child, so the pipe is the source of truth for completion.
+    pub fn read_done(&mut self) -> Result<Option<(u64, String, String)>> {
+        loop {
+            match read_msg::<ChildMsg, _>(&mut self.reader)? {
+                Some(ChildMsg::Done {
+                    events_written,
+                    stopped_reason,
+                    pml_path,
+                }) => return Ok(Some((events_written, stopped_reason, pml_path))),
+                Some(_) => continue,     // Started / Status
+                None => return Ok(None), // EOF: worker exited
+            }
+        }
+    }
 }
 
 /// Creates the pipe listener, relaunches self elevated with the worker args, and
 /// accepts the worker's connection. `worker_args` is the full argv for the
 /// elevated `procmon-cli capture ... --control-pipe <name>` invocation.
 #[cfg(windows)]
-pub fn launch_worker(name: &str, worker_args: Vec<String>) -> Result<WorkerLink> {
+pub fn launch_worker(name: &str, mut worker_args: Vec<String>) -> Result<WorkerLink> {
     let ns = name
         .to_ns_name::<GenericNamespaced>()
         .context("pipe name")?;
@@ -38,6 +88,12 @@ pub fn launch_worker(name: &str, worker_args: Vec<String>) -> Result<WorkerLink>
         .name(ns)
         .create_sync()
         .context("create pipe listener")?;
+
+    // Tell the elevated child which pipe to connect back on — this is what puts
+    // it into worker mode. Without it the child would just capture in-process
+    // (it is elevated) and never connect, hanging our accept().
+    worker_args.push("--control-pipe".into());
+    worker_args.push(name.to_string());
 
     // Relaunch elevated AFTER the listener exists so the child can connect.
     let child = crate::elevate::relaunch_elevated(&worker_args)
@@ -62,21 +118,6 @@ pub fn connect_worker(name: &str) -> Result<(BufReader<RecvHalf>, SendHalf)> {
     let conn = Stream::connect(ns).context("connect to parent pipe")?;
     let (rh, sh) = conn.split();
     Ok((BufReader::new(rh), sh))
-}
-
-/// Drives a worker for a one-shot or explicit-stop capture: optionally send
-/// `Stop`, then read until the terminal `Done` message and return it.
-pub fn drive_to_done(link: &mut WorkerLink, stop_first: bool) -> Result<ChildMsg> {
-    if stop_first {
-        write_msg(&mut link.writer, &ParentMsg::Stop).context("send stop")?;
-    }
-    while let Some(msg) = read_msg::<ChildMsg, _>(&mut link.reader)? {
-        match msg {
-            ChildMsg::Started { .. } | ChildMsg::Status { .. } => continue,
-            done @ ChildMsg::Done { .. } => return Ok(done),
-        }
-    }
-    Err(anyhow!("worker exited without a Done message"))
 }
 
 #[cfg(test)]
