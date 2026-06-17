@@ -10,7 +10,7 @@ use std::sync::Arc;
 use procmon_sdk::{Column, Event, PmlReader, Result};
 use serde::Serialize;
 
-use crate::query::{matches_all, Clause, GroupRow, Grouper};
+use crate::query::{Clause, Expr, GroupRow, Grouper};
 use crate::record::{EventRecord, ModuleRow, ProcessDetail, ProcessNode, StackFrameRow};
 
 /// Opens (and indexes) a `.PML` file. The reader is shared (`Arc`) because
@@ -32,21 +32,23 @@ pub struct QueryResult {
     pub groups: Vec<GroupRow>,
 }
 
-/// The universal query. `clauses` (cross-clause AND) select events; `noise`
-/// drops events matching ANY noise clause (the `exclude_noise` rule set, empty
-/// to disable). Without `group_by` it returns a page of events; with it, the
-/// distinct values of that column + counts (top `limit`, after `offset`).
+/// The universal query. `filter` (a parsed filter expression, `None` = match
+/// all) selects events; `noise` drops events matching ANY noise clause (the
+/// `exclude_noise` rule set, empty to disable). Without `group_by` it returns a
+/// page of events; with it, the distinct values of that column + counts (top
+/// `limit`, after `offset`).
 #[allow(clippy::too_many_arguments)]
 pub fn query(
     reader: &Arc<PmlReader>,
-    clauses: &[Clause],
+    filter: Option<&Expr>,
     noise: &[Clause],
     group_by: Option<Column>,
     offset: usize,
     limit: usize,
     include_detail: bool,
 ) -> QueryResult {
-    let passes = |ev: &Event| matches_all(ev, clauses) && !noise.iter().any(|c| c.matches(ev));
+    let passes =
+        |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
 
     if let Some(col) = group_by {
         let mut grouper = Grouper::default();

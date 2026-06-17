@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use procmon_sdk::{Event, PmlReader, Result};
 
-use crate::query::{matches_all, Clause};
+use crate::query::Expr;
 use crate::record::{basename, ModuleRow};
 
 /// Output format for [`export`].
@@ -30,18 +30,19 @@ impl Format {
     }
 }
 
-/// Exports the events matching `clauses` (and not `noise`) to `path` in
+/// Exports the events matching `filter` (and not `noise`) to `path` in
 /// `format`. `include_stacks` adds call-stack frames to XML. Returns the number
 /// of events written.
 pub fn export(
     reader: &Arc<PmlReader>,
     format: Format,
-    clauses: &[Clause],
-    noise: &[Clause],
+    filter: Option<&Expr>,
+    noise: &[crate::query::Clause],
     include_stacks: bool,
     path: &str,
 ) -> std::result::Result<usize, String> {
-    let passes = |ev: &Event| matches_all(ev, clauses) && !noise.iter().any(|c| c.matches(ev));
+    let passes =
+        |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
     match format {
         Format::Pml => export_pml(reader, &passes, path).map_err(|e| e.to_string()),
         Format::Csv => {

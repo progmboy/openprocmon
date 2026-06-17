@@ -33,10 +33,7 @@ pub use capture::{
 };
 pub use export::{export, Format};
 pub use noise::default_noise;
-pub use query::{
-    matches_all, parse_clause_str, parse_column, parse_relation, resolve_clauses, Clause, GroupRow,
-    RawClause,
-};
+pub use query::{parse_column, parse_filter, Clause, Expr, GroupRow};
 pub use record::{Category, EventRecord, ModuleRow, ProcessDetail, ProcessNode, StackFrameRow};
 pub use summary::{summary, ProcCount, Summary};
 pub use vocab::{filter_vocab, FilterVocab};

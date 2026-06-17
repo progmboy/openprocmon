@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use procmon_sdk::{DriverLoader, Event, MonitorController, MonitorFlags, PmlWriter, Result};
 use serde::Serialize;
 
-use crate::query::{matches_all, Clause};
+use crate::query::Expr;
 use crate::scope::PidScope;
 
 /// The capture target ("who" + "what"). `process_names`/`pids`/`include_children`
@@ -29,7 +29,7 @@ pub struct TargetSpec {
     pub include_children: bool,
     pub launch: Option<Vec<String>>,
     pub monitors: MonitorFlags,
-    pub filters: Vec<Clause>,
+    pub filter: Option<Expr>,
 }
 
 impl Default for TargetSpec {
@@ -43,7 +43,7 @@ impl Default for TargetSpec {
                 | MonitorFlags::FILE
                 | MonitorFlags::REGISTRY
                 | MonitorFlags::NETWORK,
-            filters: Vec::new(),
+            filter: None,
         }
     }
 }
@@ -152,7 +152,7 @@ impl CaptureSession {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let thread_out = out_path.clone();
-        let filters = spec.filters;
+        let filter = spec.filter;
         let handle = std::thread::Builder::new()
             .name("procmon-capture".into())
             .spawn(move || {
@@ -160,7 +160,7 @@ impl CaptureSession {
                     controller,
                     rx,
                     scope,
-                    filters,
+                    filter,
                     limits,
                     thread_stop,
                     thread_out,
@@ -235,7 +235,7 @@ fn run_capture(
     mut controller: MonitorController,
     rx: crossbeam_channel::Receiver<Event>,
     mut scope: PidScope,
-    filters: Vec<Clause>,
+    filter: Option<Expr>,
     limits: CaptureLimits,
     stop: Arc<AtomicBool>,
     out_path: PathBuf,
@@ -261,7 +261,10 @@ fn run_capture(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(ev) => {
                 scope.observe(&ev);
-                if ev.pid() != own_pid && scope.contains(&ev) && matches_all(&ev, &filters) {
+                if ev.pid() != own_pid
+                    && scope.contains(&ev)
+                    && filter.as_ref().is_none_or(|f| f.matches(&ev))
+                {
                     writer.push_event(&ev);
                     bytes += ev.byte_size();
                     written += 1;

@@ -221,10 +221,11 @@ cargo build -p procmon-cli --release
 # Capture a program + its children for 10s (live capture needs Administrator):
 procmon-cli capture --name app.exe --launch "app.exe" --duration 10
 
-# Analyze any .PML (no elevation needed):
-procmon-cli query --pml cap.pml \
-  --filter "Category is File System" --filter "Operation is WriteFile" --group-by Path
-procmon-cli vocab            # exact column/relation/operation names
+# Analyze any .PML (no elevation needed). The filter is a Wireshark-style
+# expression (&& / || / ! / in (...)); see `vocab` for the full syntax:
+procmon-cli query --pml cap.pml --group-by Path \
+  --filter 'Category == "File System" && Operation == WriteFile'
+procmon-cli vocab            # exact column/operator/operation names + syntax
 procmon-cli --help           # all subcommands
 ```
 

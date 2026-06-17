@@ -6,16 +6,28 @@ use procmon_sdk::kernel_types::{proc_notify, reg_notify, FILE_NOTIFY_BASE};
 use procmon_sdk::{strings, Column, NetOp, Relation};
 use serde::Serialize;
 
-/// The complete filter vocabulary for building `query_events` clauses.
+/// The complete filter vocabulary for building `query_events` filter
+/// expressions.
 #[derive(Clone, Debug, Serialize)]
 pub struct FilterVocab {
-    /// Column names usable in a clause's `column` field.
+    /// How to write a filter: the expression grammar, with examples.
+    pub syntax: String,
+    /// Symbolic operators usable in a clause (`symbol` -> what it means).
+    pub operators: Vec<Operator>,
+    /// Column names usable on the left of a clause.
     pub columns: Vec<String>,
-    /// Relation names usable in a clause's `relation` field.
+    /// Relation names (the words the operators map to; informational).
     pub relations: Vec<String>,
-    /// Exact `Operation` column values, grouped by category — so the AI filters
-    /// `Operation is WriteFile` with a real name, not a guess.
+    /// Exact `Operation` column values, grouped by category — so a filter says
+    /// `Operation == WriteFile` with a real name, not a guess.
     pub operations: Operations,
+}
+
+/// One filter operator: its symbol and the relation it expresses.
+#[derive(Clone, Debug, Serialize)]
+pub struct Operator {
+    pub symbol: &'static str,
+    pub meaning: &'static str,
 }
 
 /// Operation names per category.
@@ -56,6 +68,8 @@ pub fn filter_vocab() -> FilterVocab {
     let network = distinct((0u16..=9).map(|c| NetOp::from_pml(c).name()));
 
     FilterVocab {
+        syntax: SYNTAX.to_string(),
+        operators: OPERATORS.to_vec(),
         columns,
         relations,
         operations: Operations {
@@ -66,3 +80,55 @@ pub fn filter_vocab() -> FilterVocab {
         },
     }
 }
+
+/// The symbolic operators, in the order they're documented.
+const OPERATORS: &[Operator] = &[
+    Operator {
+        symbol: "==",
+        meaning: "is (equals; = is an alias)",
+    },
+    Operator {
+        symbol: "!=",
+        meaning: "is not (<> is an alias)",
+    },
+    Operator {
+        symbol: "~",
+        meaning: "contains (substring)",
+    },
+    Operator {
+        symbol: "!~",
+        meaning: "excludes (does not contain)",
+    },
+    Operator {
+        symbol: "^=",
+        meaning: "begins with",
+    },
+    Operator {
+        symbol: "$=",
+        meaning: "ends with",
+    },
+    Operator {
+        symbol: "<",
+        meaning: "less than (numeric)",
+    },
+    Operator {
+        symbol: ">",
+        meaning: "more than (numeric)",
+    },
+    Operator {
+        symbol: "in (a, b, c)",
+        meaning: "matches ANY of the listed values (OR)",
+    },
+];
+
+const SYNTAX: &str = concat!(
+    "A filter is a Wireshark-style expression: `Column OP value` clauses joined with ",
+    "&& (and), || (or), ! (not) and parentheses. Quote values that contain spaces or ",
+    "special characters, e.g. \"File System\". Examples:\n",
+    "  Operation == WriteFile\n",
+    "  Category == \"File System\" && Operation == WriteFile\n",
+    "  Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run\n",
+    "  ProcessName == app.exe && (Result != SUCCESS || Path $= .tmp)\n",
+    "Column names and operation values are case-insensitive and accept the compact form ",
+    "(ProcessName) or the label (\"Process Name\").",
+);

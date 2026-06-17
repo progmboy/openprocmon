@@ -64,19 +64,10 @@ struct Source {
     pml_path: Option<String>,
 }
 
-/// One filter clause: a column, a relation (default `is`), and one or more
-/// values (the clause matches if ANY value matches). See `list_filter_columns`.
-#[derive(Deserialize, JsonSchema)]
-struct ClauseArg {
-    column: String,
-    #[serde(default = "default_is")]
-    relation: String,
-    values: Vec<String>,
-}
-
-fn default_is() -> String {
-    "is".into()
-}
+/// A Wireshark-style filter expression (see `list_filter_columns` for the
+/// columns / operators). Example: `Category == "File System" && Operation ==
+/// WriteFile`. Empty / omitted matches everything.
+type FilterExpr = Option<String>;
 
 #[derive(Deserialize, JsonSchema)]
 struct CaptureArgs {
@@ -94,9 +85,9 @@ struct CaptureArgs {
     /// Sources: any of process/file/registry/network (default all).
     #[serde(default)]
     monitors: Vec<String>,
-    /// Optional capture-time filter clauses.
+    /// Optional capture-time filter expression (Wireshark-style).
     #[serde(default)]
-    filters: Vec<ClauseArg>,
+    filter: FilterExpr,
     #[serde(default = "default_duration")]
     duration_seconds: u64,
     #[serde(default = "default_max_mb")]
@@ -118,7 +109,7 @@ struct StartArgs {
     #[serde(default)]
     monitors: Vec<String>,
     #[serde(default)]
-    filters: Vec<ClauseArg>,
+    filter: FilterExpr,
     #[serde(default = "default_max_mb")]
     max_mb: usize,
 }
@@ -140,8 +131,9 @@ struct SummaryArgs {
 struct QueryArgs {
     #[serde(flatten)]
     source: Source,
+    /// Filter expression (Wireshark-style). See list_filter_columns.
     #[serde(default)]
-    filters: Vec<ClauseArg>,
+    filter: FilterExpr,
     #[serde(default)]
     group_by: Option<String>,
     /// Apply the default noise filter (default true).
@@ -185,7 +177,7 @@ struct ExportArgs {
     format: String,
     out_path: String,
     #[serde(default)]
-    filters: Vec<ClauseArg>,
+    filter: FilterExpr,
     #[serde(default)]
     include_stacks: bool,
 }
@@ -239,7 +231,7 @@ impl ProcmonServer {
                 .launch
                 .map(|s| s.split_whitespace().map(str::to_string).collect()),
             monitors: core::parse_monitors(&a.monitors),
-            filters: to_clauses(a.filters)?,
+            filter: parse_filter_opt(&a.filter)?,
         };
         let limits = core::CaptureLimits {
             max_bytes: a.max_mb * 1024 * 1024,
@@ -261,7 +253,15 @@ impl ProcmonServer {
         let body = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
             let reader = core::open_pml(&pml).map_err(|e| e.to_string())?;
             let summary = core::summary(&reader, 10);
-            let events = core::query(&reader, &[], &core::default_noise(), None, 0, sample, false);
+            let events = core::query(
+                &reader,
+                None,
+                &core::default_noise(),
+                None,
+                0,
+                sample,
+                false,
+            );
             Ok(serde_json::json!({
                 "summary": summary,
                 "sample_events": events.events,
@@ -297,7 +297,7 @@ impl ProcmonServer {
                 .launch
                 .map(|s| s.split_whitespace().map(str::to_string).collect()),
             monitors: core::parse_monitors(&a.monitors),
-            filters: to_clauses(a.filters)?,
+            filter: parse_filter_opt(&a.filter)?,
         };
         let limits = core::CaptureLimits {
             max_bytes: a.max_mb * 1024 * 1024,
@@ -377,18 +377,21 @@ impl ProcmonServer {
     }
 
     #[tool(
-        description = "Query events: filter clauses (cross-clause AND, in-clause OR) select \
-        events; with group_by, returns distinct values + counts of that column (e.g. files \
-        written: filter Category=File System, Operation=WriteFile, group_by Path). Without \
-        group_by, a page of events (each with a seq for get_event). exclude_noise (default \
-        true) drops NTFS-metadata / monitoring-tool / bookkeeping noise. Use list_filter_columns \
-        for the exact column/relation/operation names."
+        description = "Query events with a Wireshark-style filter expression. The `filter` is one \
+        string of `Column OP value` clauses joined by && / || / ! and parens, e.g. \
+        'Category == \"File System\" && Operation == WriteFile'. Operators: == != ~ (contains) \
+        !~ (excludes) ^= (begins) $= (ends) < > and `Column in (a, b)` for OR over values. With \
+        group_by, returns distinct values + counts of that column (e.g. files written: \
+        'Category == \"File System\" && Operation == WriteFile' group_by=Path). Without group_by, \
+        a page of events (each with a seq for get_event). exclude_noise (default true) drops \
+        NTFS-metadata / monitoring-tool / bookkeeping noise. Call list_filter_columns for the \
+        exact column / operator / operation names."
     )]
     async fn query_events(
         &self,
         Parameters(a): Parameters<QueryArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let clauses = to_clauses(a.filters)?;
+        let filter = parse_filter_opt(&a.filter)?;
         let group =
             match a.group_by.as_deref() {
                 Some(c) => Some(core::parse_column(c).ok_or_else(|| {
@@ -405,7 +408,13 @@ impl ProcmonServer {
                 Vec::new()
             };
             Ok(core::query(
-                r, &clauses, &noise, group, offset, limit, detail,
+                r,
+                filter.as_ref(),
+                &noise,
+                group,
+                offset,
+                limit,
+                detail,
             ))
         })
         .await
@@ -470,10 +479,10 @@ impl ProcmonServer {
     ) -> Result<CallToolResult, McpError> {
         let fmt = core::Format::parse(&a.format)
             .ok_or_else(|| McpError::invalid_params("format must be pml|csv|xml", None))?;
-        let clauses = to_clauses(a.filters)?;
+        let filter = parse_filter_opt(&a.filter)?;
         let (out, stacks) = (a.out_path, a.include_stacks);
         self.analyze(a.source, move |r| {
-            core::export(r, fmt, &clauses, &[], stacks, &out)
+            core::export(r, fmt, filter.as_ref(), &[], stacks, &out)
                 .map(|n| serde_json::json!({ "out": out, "events_written": n }))
         })
         .await
@@ -573,49 +582,40 @@ impl rmcp::ServerHandler for ProcmonServer {
     }
 }
 
-const INSTRUCTIONS: &str = "\
-OpenProcMon — Process Monitor as Wireshark. capture writes a .PML; every analysis tool reads \
-one. Typical flow: capture (or start_capture/stop_capture) -> query_events with filters -> \
+const INSTRUCTIONS: &str = r#"
+OpenProcMon — Process Monitor as Wireshark. capture writes a .PML; every analysis tool reads
+one. Typical flow: capture (or start_capture/stop_capture) -> query_events with a filter ->
 get_event for a stack. Pass a `source` of either session_id (a finished capture) or pml_path.
 
-query_events is the universal primitive. Filters are clauses combined cross-clause AND, with \
-multiple values in one clause OR'd. group_by returns distinct values + counts (use it to avoid \
-flooding). Recipes:
-- What files did X write?  filters: [Category=File System, ProcessName=X, Operation={WriteFile, \
-  SetEndOfFileInformationFile, DeleteFile}], group_by=Path
-- Registry persistence:   filters: [Category=Registry, Operation={RegSetValue, RegCreateKey}, \
-  Path contains Run], group_by=Path
-- Network endpoints of X:  filters: [Category=Network, ProcessName=X], group_by=Path
-- Failed operations:       filters: [Result is not SUCCESS]
+query_events is the universal primitive. `filter` is a Wireshark-style expression string:
+`Column OP value` clauses joined with && / || / ! and parentheses. Quote values with spaces or
+special characters. Operators:
+  ==  is            !=  is not          ~   contains       !~  excludes
+  ^=  begins with   $=  ends with       <   less than      >   more than
+  Column in (a, b, c)   matches ANY of the listed values (OR)
+group_by returns distinct values + counts of a column (use it to avoid flooding). Recipes:
+- What files did X write?  'Category == "File System" && ProcessName == X
+                            && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)'
+                            group_by=Path
+- Registry persistence:    'Category == Registry && Operation in (RegSetValue, RegCreateKey)
+                            && Path ~ Run'   group_by=Path
+- Network endpoints of X:  'Category == Network && ProcessName == X'   group_by=Path
+- Failed operations:       'Result != SUCCESS'
 
-Call list_filter_columns for the exact column / relation / operation names — do not guess them. \
-Live capture (capture/start_capture) requires Administrator; PML analysis does not.";
+Call list_filter_columns for the exact column / operator / operation names — do not guess them.
+Live capture (capture/start_capture) requires Administrator; PML analysis does not."#;
 
 // --- helpers ----------------------------------------------------------------
 
-/// Converts MCP filter-clause args into resolved core clauses.
-fn to_clauses(args: Vec<ClauseArg>) -> Result<Vec<core::Clause>, McpError> {
-    args.into_iter()
-        .map(|c| {
-            let column = core::parse_column(&c.column).ok_or_else(|| {
-                McpError::invalid_params(format!("unknown column: {}", c.column), None)
-            })?;
-            let relation = core::parse_relation(&c.relation).ok_or_else(|| {
-                McpError::invalid_params(format!("unknown relation: {}", c.relation), None)
-            })?;
-            if c.values.is_empty() {
-                return Err(McpError::invalid_params(
-                    "filter clause has no values",
-                    None,
-                ));
-            }
-            Ok(core::Clause {
-                column,
-                relation,
-                values: c.values,
-            })
-        })
-        .collect()
+/// Parses an optional filter expression (`None`/empty = match all) into an
+/// [`core::Expr`], mapping a parse error to `invalid_params`.
+fn parse_filter_opt(filter: &FilterExpr) -> Result<Option<core::Expr>, McpError> {
+    match filter.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => core::parse_filter(s)
+            .map(Some)
+            .map_err(|e| McpError::invalid_params(e, None)),
+        _ => Ok(None),
+    }
 }
 
 /// Serializes `value` as pretty JSON in a single text content block.

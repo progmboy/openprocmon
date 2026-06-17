@@ -6,8 +6,8 @@ use std::io::Read;
 use std::sync::Arc;
 
 use procmon_core::{
-    filter_vocab, get_event, get_process, list_processes, parse_clause_str, pml_info, process_tree,
-    query, resolve_clauses, summary, Clause, RawClause,
+    filter_vocab, get_event, get_process, list_processes, parse_filter, pml_info, process_tree,
+    query, summary,
 };
 use procmon_sdk::{Column, PmlReader};
 
@@ -66,7 +66,7 @@ fn pml_info_and_processes() {
 fn query_unfiltered_paginates() {
     let f = fixture();
     let total = pml_info(&f.reader).event_count as u64;
-    let r = query(&f.reader, &[], &[], None, 0, 50, false);
+    let r = query(&f.reader, None, &[], None, 0, 50, false);
     assert_eq!(r.total_matched, total, "no filter matches every event");
     assert_eq!(r.events.len(), 50.min(total as usize));
     assert!(r.groups.is_empty());
@@ -77,23 +77,19 @@ fn query_unfiltered_paginates() {
 fn query_filter_and_group_by_path() {
     let f = fixture();
     // "what files were written" — Class=File & Op∈{write ops} grouped by Path.
-    let clauses: Vec<Clause> = resolve_clauses(vec![
-        RawClause {
-            column: "Category".into(),
-            relation: "is".into(),
-            value: procmon_core::query::OneOrMany::One("File System".into()),
-        },
-        RawClause {
-            column: "Operation".into(),
-            relation: "is".into(),
-            value: procmon_core::query::OneOrMany::Many(vec![
-                "WriteFile".into(),
-                "SetEndOfFileInformationFile".into(),
-            ]),
-        },
-    ])
-    .expect("resolve");
-    let grouped = query(&f.reader, &clauses, &[], Some(Column::Path), 0, 20, false);
+    let filter = parse_filter(
+        r#"Category == "File System" && Operation in (WriteFile, SetEndOfFileInformationFile)"#,
+    )
+    .expect("parse");
+    let grouped = query(
+        &f.reader,
+        Some(&filter),
+        &[],
+        Some(Column::Path),
+        0,
+        20,
+        false,
+    );
     // Grouped result: distinct paths with counts, no raw events.
     assert!(grouped.events.is_empty());
     // Every group row's count must not exceed the total matched.
@@ -101,23 +97,23 @@ fn query_filter_and_group_by_path() {
         assert!(g.count <= grouped.total_matched);
     }
     // Raw (ungrouped) of the same filter returns events whose count == total.
-    let raw = query(&f.reader, &clauses, &[], None, 0, 1000, false);
+    let raw = query(&f.reader, Some(&filter), &[], None, 0, 1000, false);
     assert_eq!(raw.total_matched, grouped.total_matched);
 }
 
 #[test]
 fn clause_semantics_and_or() {
-    // Cross-clause AND, in-clause OR, via the public string parser.
+    // Cross-clause AND, in-clause OR, via the expression parser.
     let f = fixture();
-    let a = parse_clause_str("Category is File System").unwrap();
-    let raw = query(&f.reader, std::slice::from_ref(&a), &[], None, 0, 5, false);
+    let a = parse_filter(r#"Category == "File System""#).unwrap();
+    let raw = query(&f.reader, Some(&a), &[], None, 0, 5, false);
     // Every returned event is a File event.
     for ev in &raw.events {
         assert_eq!(ev.category, procmon_core::Category::File);
     }
     // A contradictory AND (File AND Registry) matches nothing.
-    let b = parse_clause_str("Category is Registry").unwrap();
-    let none = query(&f.reader, &[a, b], &[], None, 0, 5, false);
+    let none_expr = parse_filter(r#"Category == "File System" && Category == Registry"#).unwrap();
+    let none = query(&f.reader, Some(&none_expr), &[], None, 0, 5, false);
     assert_eq!(none.total_matched, 0, "File AND Registry is empty");
 }
 
@@ -159,10 +155,10 @@ fn summary_matches_pml_total() {
 #[test]
 fn exclude_noise_drops_metadata_and_self() {
     let f = fixture();
-    let all = query(&f.reader, &[], &[], None, 0, 1, false).total_matched;
+    let all = query(&f.reader, None, &[], None, 0, 1, false).total_matched;
     let clean = query(
         &f.reader,
-        &[],
+        None,
         &procmon_core::default_noise(),
         None,
         0,
@@ -174,7 +170,7 @@ fn exclude_noise_drops_metadata_and_self() {
     // No surviving event is an NTFS-metadata path or a monitoring-tool process.
     let sample = query(
         &f.reader,
-        &[],
+        None,
         &procmon_core::default_noise(),
         None,
         0,
@@ -192,14 +188,14 @@ fn exclude_noise_drops_metadata_and_self() {
 fn export_csv_and_xml_and_pml_roundtrip() {
     use procmon_core::{export, Format};
     let f = fixture();
-    let clauses = vec![parse_clause_str("Category is File System").unwrap()];
+    let filter = parse_filter(r#"Category == "File System""#).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
     let csv = dir.path().join("out.csv");
     let n = export(
         &f.reader,
         Format::Csv,
-        &clauses,
+        Some(&filter),
         &[],
         false,
         csv.to_str().unwrap(),
@@ -218,7 +214,7 @@ fn export_csv_and_xml_and_pml_roundtrip() {
     export(
         &f.reader,
         Format::Xml,
-        &clauses,
+        Some(&filter),
         &[],
         true,
         xml.to_str().unwrap(),
@@ -234,7 +230,7 @@ fn export_csv_and_xml_and_pml_roundtrip() {
     let written = export(
         &f.reader,
         Format::Pml,
-        &clauses,
+        Some(&filter),
         &[],
         false,
         pml.to_str().unwrap(),

@@ -41,8 +41,8 @@ procmon-cli capture --name notepad.exe --launch "notepad.exe" --duration 10
 - `--launch "<cmd>"` starts the program first so startup is captured.
 - `--monitor process,file,registry,network` selects sources (default: all).
 - `--duration <secs>` and `--max-mb <N>` bound the capture; `--out <path>` sets
-  the `.PML` (default: a temp file). `--filter "<clause>"` narrows what's recorded
-  (lossy — prefer narrowing at analysis time).
+  the `.PML` (default: a temp file). `--filter "<expr>"` narrows what's recorded
+  (lossy — prefer narrowing at analysis time; same syntax as query below).
 - Empty `--name`/`--pid` captures the **whole system**. For injection-suspected
   malware (the payload may run inside an existing process, not a child), capture
   system-wide and filter afterward.
@@ -52,11 +52,10 @@ that `.PML` with the commands below.
 
 ### 2. Query — the universal tool
 
-`procmon-cli query --pml <file> [--filter ...]... [--group-by <col>] [--limit N]`
+`procmon-cli query --pml <file> [--filter "<expr>"] [--group-by <col>] [--limit N]`
 
-- **`--filter "Column relation value"`** — repeat for AND across columns. Use
-  `procmon-cli vocab` for the **exact** column / relation / operation names — do
-  not guess them.
+- **`--filter "<expr>"`** — a single Wireshark-style filter expression (see the
+  **Filter syntax** section below). One flag expresses AND, OR, NOT and parens.
 - **`--group-by <Column>`** — return distinct values + counts (de-duplicated),
   instead of raw events. Use it to avoid flooding (e.g. distinct files, not 5000
   WriteFile events).
@@ -67,31 +66,66 @@ that `.PML` with the commands below.
 
 ```bash
 # What files did notepad.exe WRITE? → distinct file paths
-procmon-cli query --pml cap.pml \
-  --filter "Category is File System" --filter "ProcessName is notepad.exe" \
-  --filter "Operation is WriteFile" --group-by Path
+procmon-cli query --pml cap.pml --group-by Path --filter \
+  'Category == "File System" && ProcessName == notepad.exe
+   && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)'
 
 # Registry keys a process SET (persistence often lands under ...\Run)
-procmon-cli query --pml cap.pml \
-  --filter "Category is Registry" --filter "Operation is RegSetValue" \
-  --filter "Path contains Run" --group-by Path
+procmon-cli query --pml cap.pml --group-by Path --filter \
+  'Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run'
 
 # Network endpoints a process talked to
-procmon-cli query --pml cap.pml \
-  --filter "Category is Network" --filter "ProcessName is app.exe" --group-by Path
+procmon-cli query --pml cap.pml --group-by Path --filter \
+  'Category == Network && ProcessName == app.exe'
 
 # Operations that FAILED (probing / blocked)
-procmon-cli query --pml cap.pml --filter "Result is not SUCCESS" --limit 50
+procmon-cli query --pml cap.pml --filter 'Result != SUCCESS' --limit 50
 
 # Which processes are busiest / by category
 procmon-cli query --pml cap.pml --group-by ProcessName
 procmon-cli summary --pml cap.pml
 ```
 
-Repeated `--filter` flags AND together (every clause must match), so they must be
-on **different** columns. To match any of several operations (WriteFile OR
-DeleteFile), run one query per operation, or use the MCP `query_events` tool,
-whose clause `values` is an array (OR within a clause).
+### Filter syntax
+
+A filter is `Column OP value` clauses joined with `&&` (and), `||` (or), `!`
+(not) and parentheses. **Quote** values containing spaces or special characters
+(`"File System"`). Column names and values are case-insensitive. The CLI `vocab`
+subcommand (and the MCP `list_filter_columns` tool) print this same vocabulary.
+
+**Operators:**
+
+| Op   | Meaning            | Op            | Meaning                         |
+|------|--------------------|---------------|---------------------------------|
+| `==` | is (`=` alias)     | `^=`          | begins with                     |
+| `!=` | is not (`<>` alias)| `$=`          | ends with                       |
+| `~`  | contains           | `<` / `>`     | less / more than (numeric)      |
+| `!~` | excludes           | `in (a, b)`   | matches ANY listed value (OR)   |
+
+**Columns:** `Time of Day`, `Process Name` (alias `ProcessName`/`proc`), `PID`,
+`Parent PID` (`ppid`), `TID`, `Category` (`class`: values `Process`,
+`File System`, `Registry`, `Network`, `Profiling`), `Operation` (`op`), `Path`,
+`Detail`, `Result`, `User`, `Duration`, `Relative Time`.
+
+**Operation values** (use exact names; `vocab` lists them all per category):
+- *File:* `CreateFile`, `ReadFile`, `WriteFile`, `CloseFile`, `SetEndOfFileInformationFile`,
+  `QueryDirectory`, `DeviceIoControl`, …
+- *Registry:* `RegOpenKey`, `RegCreateKey`, `RegSetValue`, `RegQueryValue`,
+  `RegDeleteValue`, `RegDeleteKey`, `RegEnumKey`, …
+- *Process:* `Process Create`, `Process Exit`, `Thread Create`, `Load Image`, …
+- *Network:* `TCP Connect`, `TCP Send`, `TCP Receive`, `UDP Send`, `UDP Receive`, …
+
+Examples combining the above:
+
+```bash
+# Files written OR deleted by any non-system process under a temp dir
+procmon-cli query --pml cap.pml --group-by Path --filter \
+  'Operation in (WriteFile, DeleteFile) && Path ~ \Temp\ && ProcessName != System'
+
+# Failed registry or file access (probing / blocked)
+procmon-cli query --pml cap.pml --filter \
+  'Result != SUCCESS && (Category == Registry || Category == "File System")'
+```
 
 ### 3. Drill in
 
@@ -106,7 +140,7 @@ procmon-cli tree --pml cap.pml                       # parent→child process tr
 ### Export / metadata
 
 ```bash
-procmon-cli export --pml cap.pml --format csv --out out.csv --filter "Category is Registry"
+procmon-cli export --pml cap.pml --format csv --out out.csv --filter 'Category == Registry'
 procmon-cli export --pml cap.pml --format xml --out out.xml --stacks
 procmon-cli pml-info --pml cap.pml      # event count, computer, OS
 ```
@@ -126,5 +160,6 @@ procmon-cli pml-info --pml cap.pml      # event count, computer, OS
 (`capture`, `start_capture`/`stop_capture`, `query_events`, `get_event`,
 `get_process`, `list_processes`, `process_tree`, `summary`, `export`,
 `pml_info`, `list_filter_columns`, `driver_status`). Tools take a `source` of a
-finished `session_id` or a `pml_path`. The server's `instructions` carry the same
-recipes as this skill.
+finished `session_id` or a `pml_path`, and `query_events`/`export`/`capture` take
+the same `filter` expression string described above. The server's `instructions`
+and the `list_filter_columns` tool carry the same syntax and recipes as this skill.

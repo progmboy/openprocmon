@@ -54,9 +54,10 @@ enum Command {
         /// Stop once this many MiB have been captured.
         #[arg(long = "max-mb", default_value_t = 512)]
         max_mb: usize,
-        /// Capture-time filter clause, e.g. "Operation is WriteFile" (repeatable, AND).
+        /// Capture-time filter expression, e.g. 'Operation == WriteFile'
+        /// (Wireshark-style; && / || / ! / in (...)). See `vocab`.
         #[arg(long = "filter")]
-        filters: Vec<String>,
+        filter: Option<String>,
         /// Output .PML path (default: a temp file).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -75,9 +76,10 @@ enum Command {
     Query {
         #[command(flatten)]
         src: PmlArg,
-        /// Filter clause "Column relation value" (repeatable, AND).
+        /// Filter expression, e.g. 'Category == "File System" && Operation == WriteFile'
+        /// (Wireshark-style; && / || / ! / in (...)). See `vocab`.
         #[arg(long = "filter")]
-        filters: Vec<String>,
+        filter: Option<String>,
         /// Aggregate: distinct values + counts of this column.
         #[arg(long = "group-by")]
         group_by: Option<String>,
@@ -132,8 +134,9 @@ enum Command {
         format: String,
         #[arg(long)]
         out: PathBuf,
+        /// Filter expression (Wireshark-style; see `vocab`).
         #[arg(long = "filter")]
-        filters: Vec<String>,
+        filter: Option<String>,
         /// Include call-stack frames (XML only).
         #[arg(long)]
         stacks: bool,
@@ -177,7 +180,7 @@ fn run() -> Result<()> {
             monitor,
             duration,
             max_mb,
-            filters,
+            filter,
             out,
             sample,
         } => cmd_capture(
@@ -188,14 +191,14 @@ fn run() -> Result<()> {
             monitor,
             duration,
             max_mb,
-            filters,
+            filter,
             out,
             sample,
         ),
         Command::Summary { src, top } => print(&core::summary(&src.open()?, top)),
         Command::Query {
             src,
-            filters,
+            filter,
             group_by,
             no_noise,
             offset,
@@ -203,7 +206,7 @@ fn run() -> Result<()> {
             detail,
         } => {
             let reader = src.open()?;
-            let clauses = parse_filters(&filters)?;
+            let expr = parse_filter_opt(&filter)?;
             let group = group_by.as_deref().map(parse_group).transpose()?;
             let noise = if no_noise {
                 Vec::new()
@@ -211,7 +214,13 @@ fn run() -> Result<()> {
                 core::default_noise()
             };
             print(&core::query(
-                &reader, &clauses, &noise, group, offset, limit, detail,
+                &reader,
+                expr.as_ref(),
+                &noise,
+                group,
+                offset,
+                limit,
+                detail,
             ))
         }
         Command::GetEvent { src, seq, part } => {
@@ -231,16 +240,16 @@ fn run() -> Result<()> {
             src,
             format,
             out,
-            filters,
+            filter,
             stacks,
         } => {
             let fmt = core::Format::parse(&format)
                 .with_context(|| format!("unknown format {format:?} (pml|csv|xml)"))?;
-            let clauses = parse_filters(&filters)?;
+            let expr = parse_filter_opt(&filter)?;
             let n = core::export(
                 &src.open()?,
                 fmt,
-                &clauses,
+                expr.as_ref(),
                 &[],
                 stacks,
                 out.to_str().context("non-UTF-8 output path")?,
@@ -263,7 +272,7 @@ fn cmd_capture(
     monitor: Vec<String>,
     duration: u64,
     max_mb: usize,
-    filters: Vec<String>,
+    filter: Option<String>,
     out: Option<PathBuf>,
     sample: usize,
 ) -> Result<()> {
@@ -276,7 +285,7 @@ fn cmd_capture(
         include_children: !no_children,
         launch: launch.map(|s| shell_words(&s)),
         monitors: core::parse_monitors(&monitor),
-        filters: parse_filters(&filters)?,
+        filter: parse_filter_opt(&filter)?,
     };
     let limits = core::CaptureLimits {
         max_bytes: max_mb * 1024 * 1024,
@@ -289,7 +298,7 @@ fn cmd_capture(
     let reader = core::open_pml(&out_path)?;
     let noise = core::default_noise();
     let summary = core::summary(&reader, 10);
-    let sample_events = core::query(&reader, &[], &noise, None, 0, sample, false);
+    let sample_events = core::query(&reader, None, &noise, None, 0, sample, false);
     print(&serde_json::json!({
         "pml_path": outcome.pml_path,
         "events_written": outcome.events_written,
@@ -308,12 +317,12 @@ fn driver_status() -> serde_json::Value {
     })
 }
 
-/// Parses `--filter` clause strings into resolved clauses.
-fn parse_filters(filters: &[String]) -> Result<Vec<core::Clause>> {
-    filters
-        .iter()
-        .map(|f| core::parse_clause_str(f).map_err(anyhow::Error::msg))
-        .collect()
+/// Parses an optional `--filter` expression (`None`/empty = match all).
+fn parse_filter_opt(filter: &Option<String>) -> Result<Option<core::Expr>> {
+    match filter.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => core::parse_filter(s).map(Some).map_err(anyhow::Error::msg),
+        _ => Ok(None),
+    }
 }
 
 /// Parses a `--group-by` column name.

@@ -216,10 +216,11 @@ cargo build -p procmon-cli --release
 # 捕获某程序及其子进程 10 秒（实时捕获需要管理员权限）：
 procmon-cli capture --name app.exe --launch "app.exe" --duration 10
 
-# 分析任意 .PML（无需提权）：
-procmon-cli query --pml cap.pml \
-  --filter "Category is File System" --filter "Operation is WriteFile" --group-by Path
-procmon-cli vocab            # 精确的列/关系/操作名
+# 分析任意 .PML（无需提权）。过滤器是 Wireshark 风格的表达式
+# （&& / || / ! / in (...)）；完整语法见 `vocab`：
+procmon-cli query --pml cap.pml --group-by Path \
+  --filter 'Category == "File System" && Operation == WriteFile'
+procmon-cli vocab            # 精确的列/运算符/操作名 + 语法
 procmon-cli --help           # 全部子命令
 ```
 
