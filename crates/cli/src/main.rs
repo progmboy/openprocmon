@@ -68,6 +68,13 @@ enum Command {
         /// Number of sample events to include in the output.
         #[arg(long, default_value_t = 100)]
         sample: usize,
+        /// Internal: when set, run as the elevated capture worker driven over
+        /// this pipe by an unelevated parent. Not for direct use.
+        #[arg(long = "control-pipe", hide = true)]
+        control_pipe: Option<String>,
+        /// Internal: parent pid for orphan-protection wait (worker mode only).
+        #[arg(long = "parent-pid", hide = true)]
+        parent_pid: Option<u32>,
     },
     /// Overview of a capture: totals, by-category, top processes, rate.
     Summary {
@@ -187,6 +194,8 @@ fn run() -> Result<()> {
             filter,
             out,
             sample,
+            control_pipe,
+            parent_pid,
         } => cmd_capture(
             names,
             pids,
@@ -198,6 +207,8 @@ fn run() -> Result<()> {
             filter,
             out,
             sample,
+            control_pipe,
+            parent_pid,
         ),
         Command::Summary { src, top } => print(&core::summary(&src.open()?, top)),
         Command::Query {
@@ -279,45 +290,242 @@ fn cmd_capture(
     filter: Option<String>,
     out: Option<PathBuf>,
     sample: usize,
+    control_pipe: Option<String>,
+    parent_pid: Option<u32>,
 ) -> Result<()> {
     let out_path = out.unwrap_or_else(|| {
         std::env::temp_dir().join(format!("procmon-capture-{}.pml", std::process::id()))
     });
-    let spec = core::TargetSpec {
-        process_names: names,
-        pids,
-        include_children: !no_children,
-        launch: launch.map(|s| shell_words(&s)),
-        monitors: core::parse_monitors(&monitor),
-        filter: parse_filter_opt(&filter)?,
-    };
     let limits = core::CaptureLimits {
         max_bytes: max_mb * 1024 * 1024,
         duration: Some(std::time::Duration::from_secs(duration)),
     };
-    let outcome = core::capture(make_loader(), spec, limits, &out_path)
-        .map_err(|e| anyhow::anyhow!(loader::describe_error(&e)))?;
 
-    // Re-open the produced PML for a summary + sample.
-    let reader = core::open_pml(&out_path)?;
+    // The parsed spec is built ONLY for the paths that capture in-process. The
+    // orchestration path (c) forwards the RAW filter/launch/monitor strings to
+    // the worker, which re-parses them — an Expr has no string form.
+    let build_spec = |filter: &Option<String>| -> Result<core::TargetSpec> {
+        Ok(core::TargetSpec {
+            process_names: names.clone(),
+            pids: pids.clone(),
+            include_children: !no_children,
+            launch: launch.clone().map(|s| shell_words(&s)),
+            monitors: core::parse_monitors(&monitor),
+            filter: parse_filter_opt(filter)?,
+        })
+    };
+
+    // (a) Worker mode: an elevated child driven by an unelevated parent.
+    if let Some(pipe) = control_pipe {
+        return run_capture_worker(build_spec(&filter)?, limits, &out_path, &pipe, parent_pid);
+    }
+
+    // (b) Already elevated: capture in-process (current behavior).
+    if elevate::is_elevated() {
+        let outcome = core::capture(make_loader(), build_spec(&filter)?, limits, &out_path)
+            .map_err(|e| anyhow::anyhow!(loader::describe_error(&e)))?;
+        return print_capture_result(
+            &outcome.pml_path,
+            outcome.events_written,
+            &outcome.stopped_reason,
+            sample,
+        );
+    }
+
+    // (c) Unelevated: validate the filter early (avoid a wasted UAC prompt),
+    // then forward the RAW args to an elevated worker over a pipe.
+    parse_filter_opt(&filter)?; // validation only; the worker re-parses.
+    let args = build_worker_args(
+        &names,
+        &pids,
+        !no_children,
+        launch.as_deref(),
+        &monitor,
+        duration,
+        max_mb,
+        &out_path,
+        filter.as_deref(),
+        /*background=*/ false,
+    );
+    let outcome = orchestrate_one_shot(args)?;
+    print_capture_result(&outcome.0, outcome.1, &outcome.2, sample)
+}
+
+/// Worker mode: connect to the parent pipe, start the capture, run the control
+/// loop (stop / EOF). Orphan protection: pipe EOF in run_worker + parent-pid wait.
+fn run_capture_worker(
+    spec: core::TargetSpec,
+    limits: core::CaptureLimits,
+    out_path: &std::path::Path,
+    pipe: &str,
+    parent_pid: Option<u32>,
+) -> Result<()> {
+    let session = core::CaptureSession::start(make_loader(), spec, limits, out_path)
+        .map_err(|e| anyhow::anyhow!(loader::describe_error(&e)))?;
+    let (mut reader, mut writer) = orchestrate::connect_worker(pipe)?;
+
+    // Backup orphan protection: if the parent dies, exit. (Pipe EOF already
+    // covers the common case; this wait covers a stuck read.)
+    #[cfg(windows)]
+    if let Some(ppid) = parent_pid {
+        elevate::watch_parent(ppid, || std::process::exit(0));
+    }
+    #[cfg(not(windows))]
+    let _ = parent_pid;
+
+    worker::run_worker(Box::new(session), &mut reader, &mut writer)
+        .map_err(|e| anyhow::anyhow!("worker loop: {e}"))?;
+    Ok(())
+}
+
+/// Unelevated one-shot: launch an elevated worker with the given argv, wait for
+/// it to self-stop at the duration limit, return (pml_path, events_written,
+/// stopped_reason).
+fn orchestrate_one_shot(worker_argv: Vec<String>) -> Result<(String, usize, core::StoppedReason)> {
+    #[cfg(not(windows))]
+    {
+        let _ = worker_argv;
+        anyhow::bail!("self-elevation is only supported on Windows");
+    }
+    #[cfg(windows)]
+    {
+        let mut link = orchestrate::launch_worker(&orchestrate::pipe_name(0), worker_argv)?;
+        let done = orchestrate::drive_to_done(&mut link, /*stop_first=*/ false)?;
+        link.child.wait().ok();
+        match done {
+            crate::ipc::ChildMsg::Done {
+                events_written,
+                stopped_reason,
+                pml_path,
+            } => Ok((
+                pml_path,
+                events_written as usize,
+                parse_stopped_reason(&stopped_reason),
+            )),
+            _ => anyhow::bail!("unexpected worker message"),
+        }
+    }
+}
+
+/// Builds the argv for an elevated `procmon-cli capture ... --control-pipe`
+/// child from the RAW capture parameters. Forwards `filter`/`launch`/`monitor`
+/// verbatim so the worker re-parses them identically — nothing is lost. Shared
+/// by the CLI (`cmd_capture` path c) and MCP (`background_worker_args`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_worker_args(
+    names: &[String],
+    pids: &[u32],
+    include_children: bool,
+    launch: Option<&str>,
+    monitor: &[String],
+    duration: u64,
+    max_mb: usize,
+    out_path: &std::path::Path,
+    filter: Option<&str>,
+    background: bool,
+) -> Vec<String> {
+    let mut a = vec!["capture".to_string()];
+    for n in names {
+        a.push("--name".into());
+        a.push(n.clone());
+    }
+    for p in pids {
+        a.push("--pid".into());
+        a.push(p.to_string());
+    }
+    if !include_children {
+        a.push("--no-children".into());
+    }
+    if let Some(cmd) = launch {
+        a.push("--launch".into());
+        a.push(cmd.to_string());
+    }
+    if !monitor.is_empty() {
+        a.push("--monitor".into());
+        a.push(monitor.join(","));
+    }
+    if let Some(f) = filter {
+        a.push("--filter".into());
+        a.push(f.to_string());
+    }
+    // Background mode means "until stopped" — use a very large duration; the
+    // parent stops it via the pipe.
+    let secs = if background { u64::MAX / 2 } else { duration };
+    a.push("--duration".into());
+    a.push(secs.to_string());
+    a.push("--max-mb".into());
+    a.push(max_mb.to_string());
+    a.push("--out".into());
+    a.push(out_path.to_string_lossy().into_owned());
+    a.push("--parent-pid".into());
+    a.push(std::process::id().to_string());
+    a
+}
+
+/// MCP wrapper: build worker argv for a background (`start_capture`) session.
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn background_worker_args(
+    names: &[String],
+    pids: &[u32],
+    include_children: bool,
+    launch: Option<&str>,
+    monitor: &[String],
+    max_mb: usize,
+    out_path: &std::path::Path,
+    filter: Option<&str>,
+) -> Vec<String> {
+    build_worker_args(
+        names,
+        pids,
+        include_children,
+        launch,
+        monitor,
+        /*duration ignored in background*/ 0,
+        max_mb,
+        out_path,
+        filter,
+        true,
+    )
+}
+
+#[cfg(windows)]
+fn parse_stopped_reason(s: &str) -> core::StoppedReason {
+    match s {
+        "Duration" => core::StoppedReason::Duration,
+        "SizeLimit" => core::StoppedReason::SizeLimit,
+        _ => core::StoppedReason::Manual,
+    }
+}
+
+/// Re-opens the produced PML and prints the standard capture result JSON.
+fn print_capture_result(
+    pml_path: &str,
+    events_written: usize,
+    stopped_reason: &core::StoppedReason,
+    sample: usize,
+) -> Result<()> {
+    let reader = core::open_pml(pml_path)?;
     let noise = core::default_noise();
     let summary = core::summary(&reader, 10);
     let sample_events = core::query(&reader, None, &noise, None, 0, sample, false);
     print(&serde_json::json!({
-        "pml_path": outcome.pml_path,
-        "events_written": outcome.events_written,
-        "stopped_reason": outcome.stopped_reason,
+        "pml_path": pml_path,
+        "events_written": events_written,
+        "stopped_reason": stopped_reason,
         "summary": summary,
         "sample_events": sample_events.events,
     }))
 }
 
-/// Driver reachability: try to connect to an already-running driver port.
+/// Driver reachability + elevation + capability matrix.
 fn driver_status() -> serde_json::Value {
     let running = procmon_sdk::MonitorController::connect().is_ok();
     serde_json::json!({
+        "elevated": elevate::is_elevated(),
         "driver_running": running,
-        "note": "Live capture requires Administrator; PML analysis does not.",
+        "tools": elevate::capability_matrix(),
+        "note": "Live capture needs admin; when unelevated `capture` auto-RunAs (UAC). PML analysis never needs elevation.",
     })
 }
 

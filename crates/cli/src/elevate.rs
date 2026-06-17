@@ -204,6 +204,26 @@ pub fn relaunch_elevated(args: &[String]) -> std::io::Result<ElevatedChild> {
     })
 }
 
+/// Spawns a thread that blocks until the parent process (`parent_pid`) exits,
+/// then calls `on_exit`. Backup to pipe-EOF for orphan protection. Windows-only.
+#[cfg(windows)]
+pub fn watch_parent(parent_pid: u32, on_exit: impl FnOnce() + Send + 'static) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    };
+    std::thread::spawn(move || {
+        // SAFETY: PROCESS_SYNCHRONIZE only; handle closed before returning.
+        unsafe {
+            if let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, parent_pid) {
+                let _ = WaitForSingleObject(h, INFINITE);
+                let _ = CloseHandle(h);
+                on_exit();
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
