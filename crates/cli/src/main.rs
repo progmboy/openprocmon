@@ -17,6 +17,7 @@ mod elevate;
 mod ipc;
 mod loader;
 mod mcp;
+mod orchestrate;
 mod worker;
 
 #[derive(Parser)]
