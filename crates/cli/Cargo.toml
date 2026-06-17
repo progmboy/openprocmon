@@ -26,3 +26,14 @@ anyhow = "1"
 # for that subcommand. `schemars` (via rmcp) derives the tool-arg JSON schemas.
 rmcp = { version = "1", features = ["server", "macros", "transport-io", "schemars"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+# Self-elevation orchestration (procmon-cli mcp / capture when unelevated):
+# duplex named pipe between the unelevated parent and the elevated worker.
+interprocess = "2"
+# Win32: ShellExecuteExW (runas), token elevation check, WaitForSingleObject.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    "Win32_Security",
+] }
