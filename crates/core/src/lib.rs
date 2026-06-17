@@ -14,16 +14,22 @@
 //! extraction.
 
 pub mod analyze;
+pub mod capture;
 pub mod export;
 pub mod noise;
 pub mod query;
 pub mod record;
+pub mod scope;
 pub mod summary;
 pub mod vocab;
 
 pub use analyze::{
     get_event, get_process, list_processes, open_pml, pml_info, process_tree, query, EventDetail,
     PmlInfo, QueryResult,
+};
+pub use capture::{
+    capture, parse_monitors, CaptureLimits, CaptureOutcome, CaptureSession, StoppedReason,
+    TargetSpec,
 };
 pub use export::{export, Format};
 pub use noise::default_noise;
