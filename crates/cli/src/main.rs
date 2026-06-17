@@ -13,6 +13,7 @@ use clap::{Parser, Subcommand};
 use procmon_core as core;
 use procmon_sdk::{DriverLoader, PmlReader};
 
+mod elevate;
 mod ipc;
 mod loader;
 mod mcp;
