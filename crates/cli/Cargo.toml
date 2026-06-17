@@ -1,0 +1,24 @@
+[package]
+name = "procmon-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line + MCP front-end for OpenProcMon: capture and analyze process/file/registry/network activity as Procmon-compatible PML"
+
+[[bin]]
+name = "procmon-cli"
+path = "src/main.rs"
+
+[features]
+default = ["embedded-driver"]
+# Embed the signed driver image (repo bin/PROCMON24.SYS) and drop it on demand,
+# so live capture works without a separate procmon.sys next to the exe.
+embedded-driver = []
+
+[dependencies]
+procmon-core = { path = "../core" }
+procmon-sdk = { path = "../sdk" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
