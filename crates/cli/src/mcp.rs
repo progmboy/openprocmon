@@ -553,23 +553,27 @@ impl ProcmonServer {
                 })?),
                 None => None,
             };
-        let (offset, limit, detail, exclude_noise) =
-            (a.offset, a.limit, a.include_detail, a.exclude_noise);
+        let (offset, detail, exclude_noise) = (a.offset, a.include_detail, a.exclude_noise);
+        let limit = a.limit.min(MAX_QUERY_LIMIT);
         self.analyze(a.source, move |r| {
             let noise = if exclude_noise {
                 core::default_noise()
             } else {
                 Vec::new()
             };
-            Ok(core::query(
-                r,
-                filter.as_ref(),
-                &noise,
-                group,
-                offset,
-                limit,
-                detail,
-            ))
+            let mut res = core::query(r, filter.as_ref(), &noise, group, offset, limit, detail);
+            // Clip unbounded per-row strings so a detail-heavy or long-path page
+            // can't trip the response-size guard; full values are in get_event.
+            for e in &mut res.events {
+                clip(&mut e.path, MAX_FIELD);
+                if let Some(d) = e.detail.as_mut() {
+                    clip(d, MAX_FIELD);
+                }
+            }
+            for g in &mut res.groups {
+                clip(&mut g.value, MAX_FIELD);
+            }
+            Ok(res)
         })
         .await
     }
@@ -810,6 +814,12 @@ const MAX_RESPONSE_BYTES: usize = 48 * 1024;
 /// Command lines are clipped to this in list views (a browser/Electron command
 /// line is often 1–2 KB); the full line is available via `get_process`.
 const MAX_CMDLINE: usize = 256;
+/// Hard cap on `query_events` `limit` — the agent can page, but cannot request a
+/// flood of rows in one call.
+const MAX_QUERY_LIMIT: usize = 1000;
+/// Per-field clip for an event's `path` / `detail` and a group's `value`: a
+/// registry value or a long path can be KBs; the full value is in `get_event`.
+const MAX_FIELD: usize = 512;
 
 /// Truncates `s` in place to at most `max` bytes on a char boundary, marking it
 /// with an ellipsis when clipped.
