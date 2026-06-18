@@ -1,68 +1,26 @@
-//! The default noise-suppression rule set, ported verbatim from the GUI / SDK
-//! example `default_display_filter` (`crates/gui/src/model/filter.rs`,
-//! `crates/example/src/main.rs`) plus our own `procmon-cli.exe` exclusion.
+//! The default noise-suppression rule set for the analysis layer.
 //!
 //! These are *exclude* predicates: [`crate::analyze::query`] drops an event when
-//! it matches ANY of these clauses (with `exclude_noise = true`). Each clause
-//! OR-s its own values, so the whole set is one OR-of-exclusions, matching the
-//! GUI's set of Exclude rules.
-
-use procmon_sdk::{Column, Relation};
+//! it matches ANY of these clauses (with `exclude_noise = true`).
+//!
+//! There is one source of truth — `procmon_sdk::default_display_filter` (shared
+//! with the GUI's Advanced Output toggle and the SDK example). We project each
+//! exclude [`Rule`](procmon_sdk::Rule) into a single-value [`Clause`] so the CLI/MCP
+//! `exclude_noise` set can never drift from the GUI's.
 
 use crate::query::Clause;
 
-/// Builds a one-value-or-many exclude clause.
-fn clause(column: Column, relation: Relation, values: &[&str]) -> Clause {
-    Clause {
-        column,
-        relation,
-        values: values.iter().map(|s| s.to_string()).collect(),
-    }
-}
-
-/// The default noise filter: the monitoring tools (including this CLI) and the
-/// System process, the IRP/FastIO bookkeeping operations, and NTFS metadata
-/// files. Mirrors the GUI's `default_display_filter`, plus `procmon-cli.exe`.
+/// The default noise filter: our own tools (`procmon-gui.exe`, `procmon-cli.exe`,
+/// `procmon-example.exe`) and the Sysinternals tools, the System process, the
+/// IRP/FastIO bookkeeping operations, and NTFS metadata files — derived from
+/// `procmon_sdk::default_display_filter` so it stays in lockstep with the GUI.
 pub fn default_noise() -> Vec<Clause> {
-    vec![
-        clause(
-            Column::ProcessName,
-            Relation::Is,
-            &[
-                "OpenProcmon.exe",
-                "Procmon.exe",
-                "Procexp.exe",
-                "Autoruns.exe",
-                "Procmon64.exe",
-                "Procexp64.exe",
-                "procmon-cli.exe",
-                "System",
-            ],
-        ),
-        clause(
-            Column::Operation,
-            Relation::BeginsWith,
-            &["IRP_MJ_", "FASTIO_", "FAST IO"],
-        ),
-        clause(Column::Result, Relation::BeginsWith, &["FAST IO"]),
-        clause(
-            Column::Path,
-            Relation::EndsWith,
-            &[
-                "pagefile.sys",
-                "$Mft",
-                "$MftMirr",
-                "$LogFile",
-                "$Volume",
-                "$AttrDef",
-                "$Root",
-                "$Bitmap",
-                "$Boot",
-                "$BadClus",
-                "$Secure",
-                "$Upcase",
-            ],
-        ),
-        clause(Column::Path, Relation::Contains, &["$Extend"]),
-    ]
+    procmon_sdk::default_display_filter()
+        .into_iter()
+        .map(|r| Clause {
+            column: r.column,
+            relation: r.relation,
+            values: vec![r.value],
+        })
+        .collect()
 }

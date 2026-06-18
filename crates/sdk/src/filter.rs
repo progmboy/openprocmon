@@ -365,6 +365,64 @@ impl FilterSet {
     }
 }
 
+/// Procmon's default display filter — the exclude rules active in the normal
+/// (non-"Advanced Output") view. The single source of truth shared by the GUI's
+/// Advanced Output toggle, the SDK example, and the CLI/MCP `exclude_noise` set.
+///
+/// Hides: our own produced executables (`procmon-gui.exe`, `procmon-cli.exe`,
+/// `procmon-example.exe`) and the Sysinternals tools, the System process, the
+/// IRP/FastIO bookkeeping operations, and NTFS metadata files. Every rule is an
+/// Exclude, so the set is one OR-of-exclusions.
+pub fn default_display_filter() -> Vec<Rule> {
+    let proc = |name: &str| Rule::new(Column::ProcessName, Relation::Is, name, Action::Exclude);
+    let ends = |name: &str| Rule::new(Column::Path, Relation::EndsWith, name, Action::Exclude);
+    let op = |name: &str| {
+        Rule::new(
+            Column::Operation,
+            Relation::BeginsWith,
+            name,
+            Action::Exclude,
+        )
+    };
+    vec![
+        // Our own produced executables.
+        proc("procmon-gui.exe"),
+        proc("procmon-cli.exe"),
+        proc("procmon-example.exe"),
+        // Sysinternals tools commonly running alongside.
+        proc("Procmon.exe"),
+        proc("Procmon64.exe"),
+        proc("Procexp.exe"),
+        proc("Procexp64.exe"),
+        proc("Autoruns.exe"),
+        proc("System"),
+        // Low-level IRP/FastIO bookkeeping operations.
+        op("IRP_MJ_"),
+        op("FASTIO_"),
+        op("FAST IO"),
+        Rule::new(
+            Column::Result,
+            Relation::BeginsWith,
+            "FAST IO",
+            Action::Exclude,
+        ),
+        // NTFS metadata files.
+        ends("pagefile.sys"),
+        ends("$Mft"),
+        ends("$MftMirr"),
+        ends("$LogFile"),
+        ends("$Volume"),
+        ends("$AttrDef"),
+        ends("$Root"),
+        ends("$Bitmap"),
+        ends("$Boot"),
+        ends("$BadClus"),
+        ends("$Secure"),
+        ends("$Upcase"),
+        Rule::new(Column::Path, Relation::Contains, "$Extend", Action::Exclude),
+    ]
+}
+
 /// Per-evaluation memo of column values: within one `matches()`/`highlights()`
 /// call, each referenced column is materialized at most once, however many
 /// rules target it and in whatever order (Procmon's default noise filter alone

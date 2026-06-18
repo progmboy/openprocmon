@@ -19,9 +19,8 @@
 //! capture. Press Ctrl-C to exit live capture.
 
 use clap::Parser;
-use procmon_sdk::Relation::Contains;
 use procmon_sdk::{
-    Action, Column, DriverLoader, EventSource, FilterSet, MonitorFlags, PmlWriter, Relation, Rule,
+    default_display_filter, DriverLoader, EventSource, FilterSet, MonitorFlags, PmlWriter,
 };
 use std::error::Error;
 use std::path::PathBuf;
@@ -61,6 +60,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let filter = if cli.advanced {
         FilterSet::default()
     } else {
+        // Procmon's default display filter (the single source of truth lives in
+        // `procmon_sdk::default_display_filter`, shared with the GUI and CLI).
         FilterSet::new(default_display_filter())
     };
 
@@ -116,43 +117,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-/// Procmon's default display filter (active in the normal, non-advanced view): the
-/// monitoring tools themselves and the System process, the IRP/FastIO bookkeeping
-/// operations, and NTFS metadata files. Always appended at the end of the set.
-fn default_display_filter() -> Vec<Rule> {
-    use Action::Exclude;
-    use Column::{Operation, Path, ProcessName, Result};
-    use Relation::{BeginsWith, EndsWith, Is};
-
-    let proc = |name: &str| Rule::new(ProcessName, Is, name, Exclude);
-    let ends = |name: &str| Rule::new(Path, EndsWith, name, Exclude);
-    let contains = |name: &str| Rule::new(Path, Contains, name, Exclude);
-    vec![
-        proc("OpenProcmon.exe"),
-        proc("Procmon.exe"),
-        proc("Procexp.exe"),
-        proc("Autoruns.exe"),
-        proc("Procmon64.exe"),
-        proc("Procexp64.exe"),
-        proc("System"),
-        Rule::new(Operation, BeginsWith, "IRP_MJ_", Exclude),
-        Rule::new(Operation, BeginsWith, "FASTIO_", Exclude),
-        Rule::new(Operation, BeginsWith, "FAST IO", Exclude),
-        Rule::new(Result, BeginsWith, "FAST IO", Exclude),
-        ends("pagefile.sys"),
-        ends("$Mft"),
-        ends("$MftMirr"),
-        ends("$LogFile"),
-        ends("$Volume"),
-        ends("$AttrDef"),
-        ends("$Root"),
-        ends("$Bitmap"),
-        ends("$Boot"),
-        ends("$BadClus"),
-        ends("$Secure"),
-        ends("$Upcase"),
-        contains("$Extend"),
-    ]
 }

@@ -8,7 +8,6 @@
 //! (monitor-toggle gating, the Advanced Display rule set).
 
 use procmon_sdk::filter::{Column, FilterFields};
-use procmon_sdk::Relation::Contains;
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{CapturedEvent, EventCategory};
@@ -60,46 +59,11 @@ pub fn category_enabled(category: EventCategory, monitor: &MonitorToggles) -> bo
     }
 }
 
-/// Procmon's default display filter — the normal (non-advanced) view's exclude set:
-/// excludes the monitoring tools themselves and the System process, the IRP/FastIO
-/// bookkeeping operations, and NTFS metadata files. Always appended at the end of
-/// the set so they evaluate after any user rules. Enabling Advanced Output (the
-/// Event menu) strips this filter; disabling it re-applies it.
-pub fn default_display_filter() -> Vec<FilterRule> {
-    use FilterAction::Exclude;
-    use FilterColumn::{Operation, Path, ProcessName, Result};
-    use FilterRelation::{BeginsWith, EndsWith, Is};
-
-    let proc = |name: &str| FilterRule::new(ProcessName, Is, name, Exclude);
-    let ends = |name: &str| FilterRule::new(Path, EndsWith, name, Exclude);
-    let contains = |name: &str| FilterRule::new(Path, Contains, name, Exclude);
-    vec![
-        proc("OpenProcmon.exe"),
-        proc("Procmon.exe"),
-        proc("Procexp.exe"),
-        proc("Autoruns.exe"),
-        proc("Procmon64.exe"),
-        proc("Procexp64.exe"),
-        proc("System"),
-        FilterRule::new(Operation, BeginsWith, "IRP_MJ_", Exclude),
-        FilterRule::new(Operation, BeginsWith, "FASTIO_", Exclude),
-        FilterRule::new(Operation, BeginsWith, "FAST IO", Exclude),
-        FilterRule::new(Result, BeginsWith, "FAST IO", Exclude),
-        ends("pagefile.sys"),
-        ends("$Mft"),
-        ends("$MftMirr"),
-        ends("$LogFile"),
-        ends("$Volume"),
-        ends("$AttrDef"),
-        ends("$Root"),
-        ends("$Bitmap"),
-        ends("$Boot"),
-        ends("$BadClus"),
-        ends("$Secure"),
-        ends("$Upcase"),
-        contains("$Extend"),
-    ]
-}
+// Procmon's default display filter — the normal (non-advanced) view's exclude set
+// (our tools, the System process, IRP/FastIO bookkeeping, NTFS metadata). The single
+// source of truth lives in the SDK, shared with the example and the CLI/MCP noise
+// set; the GUI's Advanced Output toggle adds/removes it (see below).
+pub use procmon_sdk::default_display_filter;
 
 /// Whether Advanced Output is on (drives the Event menu's check state): true when
 /// the default display filter is *not* fully present — i.e. the low-level view that
