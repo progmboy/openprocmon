@@ -232,7 +232,9 @@ procmon-cli --help           # all subcommands
 Two ways to wire it to an agent:
 
 - **MCP server.** `procmon-cli mcp` serves the operations as MCP tools over stdio.
-  Point any MCP client at it, e.g. Claude Code:
+  📖 See the **[full MCP guide](docs/mcp-guide.md)** ([中文](docs/mcp-guide_zh.md))
+  for client setup (Claude Code / Claude Desktop / Codex / Cursor …) and a worked
+  malware-`.PML` analysis. Quick start (Claude Code):
 
   ```bash
   claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp

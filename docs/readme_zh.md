@@ -226,8 +226,10 @@ procmon-cli --help           # 全部子命令
 
 两种接入 agent 的方式：
 
-- **MCP 服务器**：`procmon-cli mcp` 通过 stdio 把这些操作作为 MCP 工具提供。任意 MCP 客户端
-  指向它即可，例如 Claude Code：
+- **MCP 服务器**：`procmon-cli mcp` 通过 stdio 把这些操作作为 MCP 工具提供。
+  📖 详见 **[MCP 使用文档](mcp-guide_zh.md)**（[English](mcp-guide.md)）：各客户端
+  接入（Claude Code / Claude Desktop / Codex / Cursor …）+ 一个完整的恶意样本 `.PML`
+  分析实战。快速开始（Claude Code）：
 
   ```bash
   claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp
