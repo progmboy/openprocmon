@@ -4,16 +4,16 @@
 
 `procmon-cli mcp` exposes OpenProcMon as an **MCP server over stdio**, so an AI
 agent (Claude Code, Claude Desktop, Codex, Cursor, …) can capture and analyze
-Windows process / file / registry / network activity for you.
+Windows process / file / registry / network activity for you — **in plain
+English**. You ask questions; the agent picks the tools.
 
 **Model:** a *capture* writes a Procmon-compatible `.PML`; every *analysis* tool
-reads one. You pass a `source` of either a `session_id` (a finished capture) or a
-`pml_path` (any `.PML` on disk — including ones produced by the real Process
-Monitor).
+reads one. The agent works against either a finished capture or any `.PML` on disk
+(including ones produced by the real Process Monitor).
 
-**Elevation:** live capture (`capture` / `start_capture`) needs **Administrator +
-the kernel driver**. **PML analysis needs neither** — pointing the tools at an
-existing `.PML` works from a normal, unelevated client.
+**Elevation:** live capture needs **Administrator + the kernel driver**.
+**Analyzing an existing `.PML` needs neither** — it works from a normal,
+unelevated client.
 
 ---
 
@@ -33,6 +33,10 @@ The server command is always the same: **`procmon-cli mcp`** (stdio transport).
 ---
 
 ## 2. Connect your client
+
+> The blocks below are configuration you copy-paste into your client's config —
+> the only place you touch any JSON/TOML. Everything *after* setup is plain
+> English.
 
 ### Claude Code
 
@@ -56,13 +60,12 @@ Or commit a project-scoped `.mcp.json` to the repo root:
 ```
 
 Verify with `/mcp` inside Claude Code — it should list `openprocmon` as
-connected. The server ships `instructions` and a `list_filter_columns` tool, so
-the agent learns the filter vocabulary automatically (no prompt setup needed).
+connected.
 
 ### Claude Desktop
 
 Edit `claude_desktop_config.json`
-(`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+(`%APPDATA%\Claude\claude_desktop_config.json` on Windows), then restart:
 
 ```json
 {
@@ -74,8 +77,6 @@ Edit `claude_desktop_config.json`
   }
 }
 ```
-
-Restart Claude Desktop.
 
 ### Codex (OpenAI Codex CLI)
 
@@ -89,7 +90,7 @@ args = ["mcp"]
 
 ### Other MCP clients (Cursor, Windsurf, Cline, Continue, …)
 
-They all use the same shape — a stdio server with `command` + `args`:
+Same shape — a stdio server with `command` + `args`:
 
 ```json
 { "command": "C:\\tools\\openprocmon\\procmon-cli.exe", "args": ["mcp"] }
@@ -97,201 +98,125 @@ They all use the same shape — a stdio server with `command` + `args`:
 
 ### Capture vs. analyze, and elevation
 
-- **Analysis only** (read a `.PML`): no Administrator needed. Run the client
-  normally and pass `pml_path`.
-- **Live capture**: the *server process* must run **elevated** and the driver
-  must be installed. Either launch the whole MCP client from an elevated shell,
-  or run `procmon-cli capture …` yourself from an elevated terminal and then hand
-  the resulting `.PML` to the agent via `pml_path` (recommended — keeps the agent
-  side unprivileged).
+- **Analysis only** (read a `.PML`): no Administrator needed — just run your
+  client normally and tell the agent which `.PML` to open.
+- **Live capture**: the *server process* must run **elevated** and the driver must
+  be installed. Either launch the whole client from an elevated shell, or run
+  `procmon-cli capture …` yourself from an elevated terminal and then hand the
+  resulting `.PML` to the agent (recommended — keeps the agent side unprivileged).
 
 ---
 
-## 3. The tools
+## 3. What the agent can do (the tools)
 
-### Read tools (no side effects, no elevation)
+You don't call these by hand — the agent does. This is just so you know what to
+ask for.
 
-Every read tool takes a `source` = `{ "pml_path": "…" }` **or**
-`{ "session_id": "…" }`.
+**Analysis (read-only, no elevation):**
 
-| Tool | What it returns | Key args |
-|---|---|---|
-| `pml_info` | metadata: event count, computer name, OS build, process count | `source` |
-| `summary` | totals, by-category, top-N processes, rate sparkline | `source`, `top=10` |
-| `list_processes` | flat list of every process (identity + command line) | `source` |
-| `process_tree` | parent→child process tree | `source` |
-| `get_process` | one process's identity + **loaded modules** | `source`, `pid` |
-| **`query_events`** | the universal query — events page, or `group_by` distinct values + counts | `source`, `filter?`, `group_by?`, `exclude_noise=true`, `offset=0`, `limit=100`, `include_detail=false` |
-| `get_event` | full detail of one event (event / process / stack) | `source`, `seq`, `parts=["event","process","stack"]` |
-| `list_filter_columns` | exact column / operator / per-category operation names | — |
-| `driver_status` | driver reachability + elevation + per-tool capability matrix | — |
-| `capture_status` | whether a session is still capturing + bytes written | `session_id` |
+- **`query_events`** — the workhorse. Find events, or summarize a column into
+  distinct values + counts (e.g. "what files were written").
+- **`process_tree`** / **`list_processes`** — the parent→child tree / a flat list.
+- **`get_process`** — one process's identity + loaded modules.
+- **`get_event`** — one event's full detail, including its call stack.
+- **`summary`** / **`pml_info`** — quick overview / metadata (event count,
+  computer, OS, process count).
+- **`list_filter_columns`** — the exact filter vocabulary (the agent uses this so
+  it doesn't guess).
 
-### Write tools (side effects; live capture needs Administrator + driver)
+**Capture (needs Administrator + driver):**
 
-| Tool | What it does | Key args |
-|---|---|---|
-| `capture` | one-shot: capture for `duration_seconds`, write a `.PML`, return an overview | `process_names[]`, `pids[]`, `include_children=true`, `launch?`, `monitors[]`, `filter?`, `duration_seconds=10`, `max_mb=512`, `sample=100` |
-| `start_capture` | start a background capture session (stop it later) | same as `capture` minus `duration_seconds`/`sample` |
-| `stop_capture` | stop a running session, finalize its `.PML` | `session_id` |
-| `export` | export a (filtered) capture to **PML / CSV / XML** | `source`, `format`, `out_path`, `filter?`, `include_stacks=false` |
-
-A `capture` with empty `process_names` captures the **whole system**. The capture
-tool always excludes its own driver/IO noise.
+- **`capture`** — one-shot: monitor target processes for a few seconds, write a
+  `.PML`, return an overview.
+- **`start_capture`** / **`stop_capture`** — a background session you start and
+  stop.
+- **`export`** — write a (filtered) capture out as PML / CSV / XML.
+- **`driver_status`** / **`capture_status`** — is the driver/elevation ready; is a
+  session still running.
 
 ---
 
-## 4. The query language
+## 4. How questions become filters (optional reference)
 
-`query_events` is the workhorse. The `filter` is one expression string of
-`Column OP value` clauses joined with `&&` / `||` / `!` and parentheses. Quote
-values that contain spaces, e.g. `"File System"`.
+Over MCP you just ask in plain English and the agent figures out the filter. You
+**don't** need this section to use the tool. It's here for the curious, and
+because the same syntax drives the `procmon-cli` command line.
 
-**Operators**
+Under the hood the agent builds a filter expression — `Column OP value` clauses
+joined with `&&` / `||` / `!` — for example:
 
-| | | | |
-|---|---|---|---|
-| `==` is | `!=` is not | `~` contains | `!~` excludes |
-| `^=` begins with | `$=` ends with | `<` less than | `>` more than |
-| `Column in (a, b, c)` — matches ANY of the listed values (OR) | | | |
+| Your question | The filter the agent builds |
+|---|---|
+| "What files did `app.exe` write?" | `Category == "File System" && ProcessName == app.exe && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)`, grouped by Path |
+| "Any registry persistence?" | `Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run`, grouped by Path |
+| "What did it connect to?" | `Category == Network && ProcessName == app.exe`, grouped by Path |
+| "Show me the failures." | `Result != SUCCESS` |
 
-**`group_by`** turns a flood into a summary: instead of a page of raw events you
-get **distinct values + counts** of one column. Use it whenever a query could
-return thousands of rows (e.g. "what files were written" → `group_by=Path`).
-
-**Other args:** `exclude_noise` (default `true`, drops NTFS-metadata /
-monitoring-tool / bookkeeping noise — set `false` for the raw stream),
-`include_detail` (adds the expensive Detail column), `offset` / `limit` for
-paging raw events (each carries a `seq` for `get_event`).
-
-**Always call `list_filter_columns` for the exact names — don't guess them.**
-
-### Recipes
-
-```text
-What files did X write?
-  Category == "File System" && ProcessName == X
-  && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)
-  group_by = Path
-
-Registry persistence?
-  Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run
-  group_by = Path
-
-Network endpoints of X?
-  Category == Network && ProcessName == X        group_by = Path
-
-Failed operations?
-  Result != SUCCESS
-```
+By default the agent hides bookkeeping noise (NTFS metadata, the monitoring tools
+themselves) — if you want *everything*, just say so ("include the noise").
 
 ---
 
 ## 5. Worked example — triaging a malware `.PML`
 
-This walks an actual defensive triage of a sample capture (`LogfileSample.PML`,
-226k events, computer name `MALWARE`). The agent only reads the `.PML` — no
-elevation.
+> **Try it yourself.** The sample below is **`Logfile.pml`** from
+> [BitravenS/Cloudflare-malware](https://github.com/BitravenS/Cloudflare-malware).
+> Download that `.PML`, save it locally, and ask the agent to open it — analysis
+> needs no Administrator and no driver, so anyone can reproduce this.
 
-### Step 1 — Orient: metadata + which processes exist
+The whole investigation is **plain-English questions** — you never write a filter
+or a tool call. A real triage conversation:
 
-```text
-pml_info { pml_path: "LogfileSample.PML" }
-→ 226,224 events, computer "MALWARE", Win build 26100, 339 processes
-```
+> **You —** *Open `Logfile.pml` and tell me what's in it.*
+>
+> **Agent —** 226k events, computer name **`MALWARE`**, 339 processes. The
+> busiest / oddest are `svchost.exe`, **`decoded_assembly.exe`** (a runtime-decoded
+> .NET payload), `msedge.exe`, plus random-named executables (`BQZIL…exe`,
+> `ADI89…exe`) and `Maui.com`.
 
-339 processes is too many to read raw; summarize by activity instead of dumping:
+> **You —** *Which ones look suspicious, and how were they launched?*
+>
+> **Agent —** `decoded_assembly.exe` (on the Desktop) drops two random-named **Inno
+> Setup** installers into `%TEMP%`; each one checks for **AVG / Quick Heal**
+> antivirus, then runs **`Maui.com`** — a *renamed AutoIt interpreter* — on a
+> `.a3x` script. (The `procdump … decoded_assembly.exe` you'll also notice is the
+> analyst's own unpacking step, not the malware.)
 
-```text
-query_events { pml_path: "…", group_by: "ProcessName" }
-→ svchost.exe 100714, decoded_assembly.exe 18786, msedge.exe 9831, …
-  … random-named exes: BQZIL6PT3ZUBPA9013PEUPVV2R0.exe, ADI89CRSP7AT1ZIE5.exe
-  … Maui.com, procdump.exe, powershell.exe, tasklist.exe, find.exe
-```
+> **You —** *What files did `decoded_assembly.exe` write?*
+>
+> **Agent —** Exactly two — both executables dropped into `%TEMP%` (the two
+> installers above). A clean **dropper**.
 
-`decoded_assembly.exe` (a runtime-decoded .NET payload) and the random-named
-executables stand out as the suspicious set.
+> **You —** *What sensitive files did it touch? Don't only count reads — opens
+> count too.*
+>
+> **Agent —** Looking at file **opens** (not just reads), it probes dozens of
+> credential / wallet targets: crypto wallets (Bitcoin, Ethereum, Ledger, Coinomi,
+> Atomic, Jaxx…), **every Chromium browser's `Local State`**, password managers
+> (1Password, NordPass, Authy), email/FTP clients (The Bat!, Mailbird, FileZilla…),
+> VPNs, AnyDesk, Telegram, and cloud creds (`.aws`, `.azure`, `gcloud`) — and it
+> **reads** the ones that actually exist on this machine (Edge's saved passwords +
+> the `Local State` key that decrypts them + cookies + cards). A **broad-spectrum
+> infostealer**.
 
-### Step 2 — Reconstruct the execution chain
+Every line above was a natural-language question; the agent translated each into
+the right query under the hood.
 
-```text
-process_tree { pml_path: "…" }
-```
-
-The tree (read the suspicious branches) reveals:
-
-```text
-decoded_assembly.exe        (C:\Users\wobol\OneDrive\Desktop\…)
-├─ BQZIL…exe  →  …tmp /SL5=…  →  …exe /VERYSILENT   (Inno Setup droppers, in %TEMP%)
-│     ├─ cmd /C tasklist /FI "IMAGENAME eq avgui.exe" | find "avgui.exe"   (AV check: AVG)
-│     ├─ cmd /C tasklist /FI "IMAGENAME eq opssvc.exe" | find "opssvc.exe" (AV check: Quick Heal)
-│     └─ Maui.com  rabbitweed.a3x   (a renamed AutoIt3 interpreter running a .a3x script)
-└─ ADI89…exe  →  (same Inno Setup pattern)  →  Maui.com  diurnals.a3x
-```
-
-Key insight from the command lines: `Maui.com` is **not** ransomware — it runs
-`*.a3x` (compiled AutoIt scripts), i.e. a **renamed AutoIt3.exe loader**.
-`powershell.exe → procdump.exe -ma -w decoded_assembly.exe` is the analyst's own
-unpacking step, not the malware.
-
-### Step 3 — What did the payload write (drops)?
-
-```text
-query_events {
-  filter: "Category == \"File System\" && ProcessName == decoded_assembly.exe
-           && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)",
-  group_by: "Path"
-}
-→ %TEMP%\ADI89CRSP7AT1ZIE5.exe, %TEMP%\BQZIL6PT3ZUBPA9013PEUPVV2R0.exe
-```
-
-Only two files written, both executables in `%TEMP%` → a clean **dropper**.
-
-### Step 4 — What did it touch? (opens ≫ reads)
-
-A key analyst point: **accessed ≠ read**. Many stealers *open* a file to probe
-existence (and read content via `CreateFileMapping`, which never shows
-`ReadFile`). So look at `CreateFile`, not only `ReadFile`:
-
-```text
-# Only-read view (undercounts):
-query_events { filter: "… && Operation == ReadFile", group_by: "Path" }
-→ Edge\User Data\Default\Login Data, Edge\…\Local State, Web Data, History …
-
-# Open view (the real target surface):
-query_events { filter: "… && Operation == CreateFile && Path ~ \"wobol\"", group_by: "Path" }
-→ crypto wallets: Bitcoin\wallets, Ethereum, Ledger Live, Coinomi, Atomic, Jaxx, Binance, …
-  every Chromium browser's Local State: Chrome, Brave, Edge, CocCoc, Epic, 360Browser, …
-  password managers: 1Password, NordPass, Authy
-  email/FTP: The Bat!, Mailbird, eM Client, FileZilla, SmartFTP
-  VPN/remote: NordVPN, ProtonVPN, OpenVPN, AnyDesk, Telegram
-  cloud creds: .aws, .azure, gcloud
-```
-
-The verdict: a **broad-spectrum infostealer** — it *opens* dozens of credential /
-wallet targets and *reads* the ones that exist on the box (here, Edge's saved
-passwords + the `Local State` key that decrypts them + cookies + cards).
-
-### Takeaways for your own triage
-
-- `pml_info` → `group_by ProcessName` → `process_tree` is the fast orientation
-  loop.
-- Use `group_by` to avoid flooding; reach for raw events + `get_event` only to
-  drill into one operation's stack.
-- To judge "what sensitive data did it touch", look at **`CreateFile`
-  (+`CreateFileMapping`)**, not just `ReadFile`.
-- Procmon records *which* file was touched, never the bytes written — for "what
-  did it exfiltrate", pivot to **`Category == Network`**.
+**One thing worth telling the agent explicitly:** *"check opens (`CreateFile`),
+not just reads."* Stealers often *open* a file to probe it and read its content via
+memory-mapping, which never shows up as a read — so a reads-only view badly
+undercounts what was touched. And remember Procmon records *which* file was
+touched, never the bytes; for "what did it actually steal/send", ask about the
+**network** activity instead.
 
 ---
 
 ## 6. Tips & troubleshooting
 
-- **Large results** are written to a file by the client and must be read back in
-  chunks — prefer `group_by` and tight `filter`s to keep outputs small.
-- **`exclude_noise=true`** (default) hides NTFS-metadata / monitoring-tool /
-  System bookkeeping; set `false` to see everything.
-- **Driver / elevation problems** with capture: call `driver_status` — it reports
-  reachability, elevation, and a per-tool capability matrix.
-- **The same vocabulary** drives capture-time filters and analysis filters; the
-  matching CLI is `procmon-cli vocab` / `procmon-cli --help`.
+- **Ask for summaries, not dumps.** "Group the writes by path", "which processes
+  are busiest" — the agent returns counts instead of thousands of raw rows. Big
+  raw results get truncated to a file anyway.
+- **Capture not working?** Ask the agent to check `driver_status` — it reports
+  driver reachability, whether you're elevated, and what each tool can do.
+- **Same vocabulary on the CLI.** Everything here also works from the terminal:
+  `procmon-cli --help`, `procmon-cli vocab`, `procmon-cli query --pml … --filter …`.
