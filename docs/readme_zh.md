@@ -8,6 +8,8 @@
 
 > **SDK 与 GUI 的全新 Rust 重写版本。** 内核驱动保持不变，原始 C++ 实现保留在 [`cpp-backup/`](../cpp-backup/) 中供参考。Rust SDK 与原版 Process Monitor 驱动二进制兼容，并可读写 Procmon 的 `.PML` 日志。
 
+桌面 GUI 由 [GPUI] 和 [GPUI-Component] 驱动。
+
 ![主窗口](snapshots/main.png)
 
 ## 目录
@@ -24,6 +26,7 @@
 - [已知问题](#已知问题)
 - [状态与路线图](#状态与路线图)
 - [许可证](#许可证)
+- [致谢](#致谢)
 
 ## 架构
 
@@ -271,3 +274,13 @@ Rust 重写正在积极开发中。
 ## 许可证
 
 基于 [MIT 许可证](../LICENSE) 发布。
+
+## 致谢
+
+桌面 GUI 基于以下项目构建：
+
+- [GPUI] —— Zed 的 GPU 加速 Rust UI 框架。
+- [GPUI-Component] —— GPUI 的 UI 组件库。
+
+[GPUI]: https://github.com/zed-industries/zed
+[GPUI-Component]: https://github.com/longbridge/gpui-component

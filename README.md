@@ -9,6 +9,8 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 
 > **This is a ground-up Rust rewrite** of the SDK and GUI. The kernel driver is unchanged, and the original C++ implementation is kept under [`cpp-backup/`](cpp-backup/) for reference. The Rust SDK is wire-compatible with the original Process Monitor driver and can read/write Procmon `.PML` logs.
 
+The desktop GUI is powered by [GPUI] and [GPUI-Component].
+
 ![Main window](docs/snapshots/main.png)
 
 ## Contents
@@ -25,6 +27,7 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 - [Known issues](#known-issues)
 - [Status & roadmap](#status--roadmap)
 - [License](#license)
+- [Acknowledgements](#acknowledgements)
 
 ## Architecture
 
@@ -282,3 +285,13 @@ The Rust rewrite is under active development.
 ## License
 
 Released under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+The desktop GUI is built on:
+
+- [GPUI] — Zed's GPU-accelerated Rust UI framework.
+- [GPUI-Component] — a UI component library for GPUI.
+
+[GPUI]: https://github.com/zed-industries/zed
+[GPUI-Component]: https://github.com/longbridge/gpui-component
