@@ -116,6 +116,34 @@ pub(crate) fn decode_utf16(bytes: &[u8]) -> String {
     out
 }
 
+/// A staged event in the reorder buffer, ordered by `(start_time, ord)`. The
+/// `Ord` is reversed so the max-heap [`BinaryHeap`](std::collections::BinaryHeap)
+/// yields the *smallest* key first — the next event in start-time order. Insert
+/// and pop-min are O(log n) on a cache-friendly `Vec`, with amortized (not
+/// per-node) allocation.
+struct Staged {
+    key: (i64, u64),
+    ev: Event,
+}
+
+impl PartialEq for Staged {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+impl Eq for Staged {}
+impl PartialOrd for Staged {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Staged {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reversed: a smaller key compares "greater", so the max-heap pops it first.
+        other.key.cmp(&self.key)
+    }
+}
+
 /// Correlates pending PRE records with their POST completions across one or more
 /// batches. The pipeline keeps a single long-lived instance (a POST may arrive in
 /// a later batch); offline callers ingest one batch and then [`flush`](Self::flush).
@@ -137,6 +165,19 @@ pub struct Correlator {
     /// *new* process; on CREATE the event itself is attributed to the parent).
     /// `None` for offline parsing, where metadata comes from the PML instead.
     metadata: Option<Arc<crate::metadata::MetadataCache>>,
+    /// Reorder buffer for the watermark: staged (complete) events as a min-heap
+    /// by `(start_time, ord)`, awaiting emission in start-time order. Holds the
+    /// events' Arc records (zero-copy), pinning their batches only until flushed.
+    reorder: std::collections::BinaryHeap<Staged>,
+    /// Monotonic stage counter — the tie-break in the reorder key, so equal
+    /// timestamps keep stage order (stable).
+    ord: u64,
+    /// Latest operation start time ingested — the watermark when nothing is
+    /// pending ("now").
+    max_seen: i64,
+    /// Low-water mark: no event emitted after this has a smaller start time
+    /// (monotonic non-decreasing).
+    watermark: i64,
 }
 
 impl Correlator {
@@ -145,6 +186,10 @@ impl Correlator {
             pending: FxHashMap::default(),
             last_proc: None,
             metadata: None,
+            reorder: std::collections::BinaryHeap::new(),
+            ord: 0,
+            max_seen: i64::MIN,
+            watermark: i64::MIN,
         }
     }
 
@@ -186,6 +231,7 @@ impl Correlator {
             // Copy packed header fields to locals (no references into packed data).
             let sequence = entry.sequence;
             let status = entry.status;
+            let time = entry.time;
             let monitor = entry.monitor();
 
             // Only process/file/registry (and their POST completions) are
@@ -195,7 +241,8 @@ impl Correlator {
                 MonitorType::Post => {
                     // Completion: pair it with the PRE it finishes, if we have it.
                     if let Some(pre) = self.pending.remove(&sequence) {
-                        self.emit(pre, Some(record), mgr, out);
+                        let ev = self.build(pre, Some(record), mgr);
+                        self.emit_or_stage(ev, out);
                     }
                     continue;
                 }
@@ -203,7 +250,9 @@ impl Correlator {
                 MonitorType::Profiling | MonitorType::Unknown(_) => continue,
             }
 
-            // PRE record: process lifecycle records update the process table.
+            // PRE record (operation start): track the latest start time seen for
+            // the watermark, update the process table, then stage it.
+            self.max_seen = self.max_seen.max(time);
             if monitor == MonitorType::Process {
                 proc::track(mgr, self.metadata.as_deref(), record.entry(), record.data());
             }
@@ -212,30 +261,33 @@ impl Correlator {
                 // Asynchronous: hold it until the matching POST arrives.
                 self.pending.insert(sequence, record);
             } else {
-                self.emit(record, None, mgr, out);
+                let ev = self.build(record, None, mgr);
+                self.emit_or_stage(ev, out);
             }
         }
+        // Emit everything now provably in start-time order (below the watermark).
+        self.drain_ready(out);
     }
 
     /// Emits any PRE records still awaiting a completion as PRE-only events. Use
     /// after the final batch (or in single-batch offline parsing) so nothing is
     /// silently dropped.
     pub fn flush(&mut self, mgr: &ProcessManager, out: &mut Vec<Event>) {
-        for (_, pre) in std::mem::take(&mut self.pending) {
-            self.emit(pre, None, mgr, out);
+        // Stage any still-pending PREs as PRE-only events, then emit the whole
+        // reorder buffer in start-time order (no more completions can arrive).
+        let pending: Vec<Record> = std::mem::take(&mut self.pending).into_values().collect();
+        for pre in pending {
+            let ev = self.build(pre, None, mgr);
+            self.push_staged(ev);
+        }
+        while let Some(s) = self.reorder.pop() {
+            out.push(s.ev);
         }
     }
 
     /// Builds an event from PRE (+ optional POST) records, attaching the
-    /// originating process snapshot (via the single-entry cache), and appends
-    /// it to `out`.
-    fn emit(
-        &mut self,
-        pre: Record,
-        post: Option<Record>,
-        mgr: &ProcessManager,
-        out: &mut Vec<Event>,
-    ) {
+    /// originating process snapshot (via the single-entry cache).
+    fn build(&mut self, pre: Record, post: Option<Record>, mgr: &ProcessManager) -> Event {
         let seq = pre.entry().process_seq;
         let proc = match &self.last_proc {
             Some((cached_seq, rec)) if *cached_seq == seq => Some(Arc::clone(rec)),
@@ -247,7 +299,52 @@ impl Correlator {
                 found
             }
         };
-        out.push(Event::from_records(pre, post, proc));
+        Event::from_records(pre, post, proc)
+    }
+
+    /// Stages an event into the reorder buffer (keyed by start time; `ord` breaks
+    /// ties stably).
+    fn push_staged(&mut self, ev: Event) {
+        self.reorder.push(Staged {
+            key: (ev.time_raw(), self.ord),
+            ev,
+        });
+        self.ord += 1;
+    }
+
+    /// Emits a finished event: directly to `out` on the hot path — when nothing
+    /// is pending and the reorder buffer is empty, events already arrive in
+    /// start-time order, so no buffering is needed; otherwise stage it for the
+    /// watermark to release in order.
+    fn emit_or_stage(&mut self, ev: Event, out: &mut Vec<Event>) {
+        if self.pending.is_empty() && self.reorder.is_empty() {
+            out.push(ev);
+        } else {
+            self.push_staged(ev);
+        }
+    }
+
+    /// Moves every staged event whose start time is at/below the watermark — the
+    /// oldest still-pending operation's start time, or the latest start time seen
+    /// when nothing is pending — into `out`, in start-time order. This is the
+    /// Procmon-style "order in place, emit when settled" step. Staged events hold
+    /// their Arc records, so a batch is pinned only until its events flush.
+    fn drain_ready(&mut self, out: &mut Vec<Event>) {
+        let min_pending = self.pending.values().map(|r| r.entry().time).min();
+        let candidate = min_pending.unwrap_or(self.max_seen);
+        // Monotonic: a late out-of-order PRE must not pull the mark back.
+        self.watermark = self.watermark.max(candidate);
+        // Bound the buffer (and batch pinning) if a slow pending op stalls the
+        // mark: force the oldest out once the buffer grows past the cap.
+        const CAP: usize = 1 << 16;
+        while let Some(&Staged { key, .. }) = self.reorder.peek() {
+            if key.0 > self.watermark && self.reorder.len() <= CAP {
+                break;
+            }
+            if let Some(s) = self.reorder.pop() {
+                out.push(s.ev);
+            }
+        }
     }
 }
 
@@ -308,6 +405,31 @@ mod tests {
         let events = parse_block(&pre);
         assert_eq!(events.len(), 1);
         assert!(!events[0].has_post());
+    }
+
+    /// An async op that *completes* first but *started* later must still be
+    /// emitted after the earlier-started op — the watermark reorders by start
+    /// time, not completion order (so the written PML is time-ordered).
+    #[test]
+    fn watermark_emits_in_start_time_order() {
+        // Patch the LOG_ENTRY time field (offset 28, i64 LE) onto a synthetic record.
+        fn timed(monitor: u16, seq: i32, status: i32, time: i64) -> Vec<u8> {
+            let mut b = entry_bytes(monitor, 20, seq, status, &[]); // 20 = CreateFile
+            b[28..36].copy_from_slice(&time.to_le_bytes());
+            b
+        }
+        // A starts at t=100 (seq 1), B starts at t=200 (seq 2); B completes first.
+        let mut batch = timed(3, 1, STATUS_PENDING, 100); // PRE A
+        batch.extend(timed(3, 2, STATUS_PENDING, 200)); // PRE B
+        batch.extend(timed(0, 2, 0, 250)); // POST B (completes first)
+        batch.extend(timed(0, 1, 0, 300)); // POST A (completes later)
+
+        let events = parse_block(&batch);
+        assert_eq!(events.len(), 2);
+        // Emitted in start-time order despite B completing first.
+        assert_eq!(events[0].time_raw(), 100);
+        assert_eq!(events[1].time_raw(), 200);
+        assert!(events[0].has_post() && events[1].has_post());
     }
 
     // --- Realistic record assembly: validates field offsets fully offline. ---
