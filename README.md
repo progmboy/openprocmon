@@ -64,7 +64,7 @@ openprocmon/
 - Live **filtering** and **highlighting** by process name, PID, operation, path, result, or category.
 - **Process tree**, and **activity summaries** for processes, files, registry, network, and cross-references.
 - **Call stack** view with per-frame module resolution.
-- Read and write **Procmon-compatible `.PML`** logs — capture with OpenProcMon and open in Sysinternals Process Monitor, or vice versa.
+- **Full `.PML` interoperability with Sysinternals Process Monitor** — files open both ways: capture with OpenProcMon and open the log in the real Process Monitor (event list, the per-process **Properties** dialog, and kernel-resolved **call stacks** all work), or open a Procmon-captured `.PML` here.
 - **Full-control Rust SDK** — drive everything programmatically: load/connect the driver, choose what to monitor, push filters, and consume the parsed event stream. The GUI is just one consumer (see [SDK example](#sdk-example)).
 - **Modern, GPU-accelerated UI** (GPUI) with a clean, contemporary design — light/dark themes and English/Chinese localization.
 
@@ -264,13 +264,6 @@ Monitor works, or as a starting point for your own EDR-style tooling.
   Running on 32-bit Windows is not supported and not currently planned.
 - **32-bit `.PML` files are not supported.** The PML reader/writer only handles the
   64-bit PML format; `.PML` logs produced on a 32-bit host will not parse.
-- **`.PML` files written by OpenProcMon can crash the original Process Monitor.**
-  The PML writer is not yet fully byte-compatible with the format Sysinternals
-  Process Monitor expects, so logs captured/saved with OpenProcMon may cause the
-  stock Procmon to crash when opened. Reading Procmon-produced `.PML` files in
-  OpenProcMon, and round-tripping OpenProcMon-written `.PML` files back through
-  OpenProcMon, work as expected. A fix to make the writer fully compatible is
-  planned.
 
 ## Status & roadmap
 

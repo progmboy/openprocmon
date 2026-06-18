@@ -63,7 +63,7 @@ openprocmon/
 - 按进程名、PID、操作、路径、结果或类别进行实时 **过滤** 和 **高亮**。
 - **进程树**，以及针对进程、文件、注册表、网络和交叉引用的 **活动汇总**。
 - 带每帧模块解析的 **调用栈** 视图。
-- 读写 **Procmon 兼容的 `.PML`** 日志——用 OpenProcMon 捕获并在 Sysinternals Process Monitor 中打开，反之亦然。
+- **与 Sysinternals Process Monitor 完全互通的 `.PML`**——文件双向互通：用 OpenProcMon 捕获并在原版 Process Monitor 中打开（事件列表、单进程 **属性** 对话框、内核解析的 **调用栈** 均正常），也可在本工具中打开原版 Procmon 抓取的 `.PML`。
 - **功能完整的 Rust SDK**——以编程方式驱动一切：加载/连接驱动、选择监控内容、推送过滤器、消费解析后的事件流。GUI 只是其中一个消费者（见 [SDK 示例](#sdk-示例)）。
 - **现代化、GPU 加速的 UI**（GPUI），设计简洁——支持浅色/深色主题和中英文本地化。
 
@@ -253,12 +253,6 @@ procmon-cli --help           # 全部子命令
   暂不支持，也没有支持计划。
 - **不支持 32 位 `.PML` 文件。** PML 读写器只处理 64 位 PML 格式；在 32 位主机上
   生成的 `.PML` 日志无法解析。
-- **OpenProcMon 写出的 `.PML` 文件可能导致原版 Process Monitor 崩溃。**
-  PML 写入器目前尚未与 Sysinternals Process Monitor 期望的格式完全字节兼容，
-  因此用 OpenProcMon 捕获/保存的日志在原版 Procmon 中打开时可能导致其崩溃。
-  在 OpenProcMon 中读取由 Procmon 生成的 `.PML` 文件，以及将 OpenProcMon 写出的
-  `.PML` 文件在 OpenProcMon 中往返读取，均能正常工作。让写入器完全兼容的修复
-  已在计划中。
 
 ## 状态与路线图
 
