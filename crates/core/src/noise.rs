@@ -1,5 +1,5 @@
 //! The default noise-suppression rule set, ported verbatim from the GUI / SDK
-//! example `advanced_display_rules` (`crates/gui/src/model/filter.rs`,
+//! example `default_display_filter` (`crates/gui/src/model/filter.rs`,
 //! `crates/example/src/main.rs`) plus our own `procmon-cli.exe` exclusion.
 //!
 //! These are *exclude* predicates: [`crate::analyze::query`] drops an event when
@@ -22,7 +22,7 @@ fn clause(column: Column, relation: Relation, values: &[&str]) -> Clause {
 
 /// The default noise filter: the monitoring tools (including this CLI) and the
 /// System process, the IRP/FastIO bookkeeping operations, and NTFS metadata
-/// files. Mirrors the GUI's `advanced_display_rules`, plus `procmon-cli.exe`.
+/// files. Mirrors the GUI's `default_display_filter`, plus `procmon-cli.exe`.
 pub fn default_noise() -> Vec<Clause> {
     vec![
         clause(

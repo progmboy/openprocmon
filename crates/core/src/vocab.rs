@@ -60,10 +60,10 @@ pub fn filter_vocab() -> FilterVocab {
 
     let process = distinct((0..=proc_notify::SYSTEM_PERFORMANCE).map(strings::process_operation));
     let registry = distinct((0..=reg_notify::QUERYKEYSECURITY).map(strings::reg_operation));
-    // File ops: the IRP major names (advanced display, minor 0 — major-level
-    // names are what the Operation column carries for filtering).
+    // File ops: the friendly major-level names (minor 0, advance=false) — these are
+    // what the Operation column carries for filtering (cf. `Event::operation_name`).
     let file = distinct(
-        (0u16..0x40).map(|maj| strings::file_operation(FILE_NOTIFY_BASE + maj, 0, false, true)),
+        (0u16..0x40).map(|maj| strings::file_operation(FILE_NOTIFY_BASE + maj, 0, false, false)),
     );
     let network = distinct((0u16..=9).map(|c| NetOp::from_pml(c).name()));
 

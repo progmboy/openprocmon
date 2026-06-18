@@ -10,7 +10,7 @@
 //! # Read back a .PML (no driver needed) and print its events:
 //! cargo run -p procmon-example -- --pml out.pml
 //!
-//! # Apply the default "Advanced Display" exclude filter to any of the above:
+//! # Advanced output: low-level IRP_MJ_*/FASTIO_* operation names, no filtering:
 //! cargo run -p procmon-example -- --pml out.pml --advanced
 //! ```
 //!
@@ -41,8 +41,9 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     save: Option<PathBuf>,
 
-    /// Apply the default "Advanced Display" exclude rules (hide the monitoring
-    /// tools, IRP/FastIO bookkeeping, and NTFS metadata files).
+    /// Advanced output (cf. Procmon's Filter ▸ Enable Advanced Output): show the
+    /// low-level IRP_MJ_*/FASTIO_* operation names and apply no filter (every event).
+    /// Without it, the demo uses the friendly names and the default display filter.
     #[arg(long)]
     advanced: bool,
 
@@ -54,11 +55,13 @@ struct Cli {
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    // The optional "Advanced Display" exclude rules, shared by every source.
+    // Advanced output shows every event (no filter); the default view applies
+    // Procmon's default display filter. The operation-name column follows suit via
+    // `operation_name_advanced(cli.advanced)` below.
     let filter = if cli.advanced {
-        FilterSet::new(advanced_display_rules())
-    } else {
         FilterSet::default()
+    } else {
+        FilterSet::new(default_display_filter())
     };
 
     // One unified entry point for both live capture and offline PML.
@@ -115,10 +118,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The default "Advanced Display" exclude rules: the monitoring tools themselves
-/// and the System process, the IRP/FastIO bookkeeping operations, and NTFS
-/// metadata files. Always appended at the end of the set.
-fn advanced_display_rules() -> Vec<Rule> {
+/// Procmon's default display filter (active in the normal, non-advanced view): the
+/// monitoring tools themselves and the System process, the IRP/FastIO bookkeeping
+/// operations, and NTFS metadata files. Always appended at the end of the set.
+fn default_display_filter() -> Vec<Rule> {
     use Action::Exclude;
     use Column::{Operation, Path, ProcessName, Result};
     use Relation::{BeginsWith, EndsWith, Is};
