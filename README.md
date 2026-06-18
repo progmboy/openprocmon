@@ -24,6 +24,7 @@ The desktop GUI is powered by [GPUI] and [GPUI-Component].
 - [Run](#run)
 - [SDK example](#sdk-example)
 - [PML logs](#pml-logs)
+- [MCP / Skill](#mcp--skill)
 - [Driver compatibility](#driver-compatibility)
 - [Known issues](#known-issues)
 - [Status & roadmap](#status--roadmap)
@@ -211,7 +212,7 @@ cargo run -p procmon-example -- --pml out.pml
 
 In the GUI, use **File ▸ Open** to load a `.PML`.
 
-## AI / MCP
+## MCP / Skill
 
 `procmon-cli` is a command-line and **MCP** front-end that lets an AI agent drive
 OpenProcMon is a capture-then-analyze tool: a capture writes a `.PML`, and every

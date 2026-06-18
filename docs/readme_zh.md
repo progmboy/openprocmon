@@ -24,6 +24,7 @@
 - [运行](#运行)
 - [SDK 示例](#sdk-示例)
 - [PML 日志](#pml-日志)
+- [MCP / Skill](#mcp--skill)
 - [驱动兼容性](#驱动兼容性)
 - [已知问题](#已知问题)
 - [状态与路线图](#状态与路线图)
@@ -208,7 +209,7 @@ cargo run -p procmon-example -- --pml out.pml
 
 在 GUI 中，使用 **文件 ▸ 打开** 加载 `.PML`。
 
-## AI / MCP
+## MCP / Skill
 
 `procmon-cli` 是一个命令行 + **MCP** 前端，让 AI agent 驱动 OpenProcMon——一个
 捕获-分析工具：捕获写出一个 `.PML`，所有分析都读这个文件。一个万能的 `query` 原语（过滤 +
