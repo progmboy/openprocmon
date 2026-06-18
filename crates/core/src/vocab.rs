@@ -122,7 +122,7 @@ const OPERATORS: &[Operator] = &[
 ];
 
 const SYNTAX: &str = concat!(
-    "A filter is a Wireshark-style expression: `Column OP value` clauses joined with ",
+    "A filter is an expression: `Column OP value` clauses joined with ",
     "&& (and), || (or), ! (not) and parentheses. Quote values that contain spaces or ",
     "special characters, e.g. \"File System\". Examples:\n",
     "  Operation == WriteFile\n",

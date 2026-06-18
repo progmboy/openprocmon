@@ -210,7 +210,7 @@ In the GUI, use **File ▸ Open** to load a `.PML`.
 ## AI / MCP
 
 `procmon-cli` is a command-line and **MCP** front-end that lets an AI agent drive
-OpenProcMon — "Process Monitor as Wireshark": a capture writes a `.PML`, and every
+OpenProcMon is a capture-then-analyze tool: a capture writes a `.PML`, and every
 analysis reads one. The single `query` primitive (filter + group-by) answers the
 common questions ("what files did X write?", "registry persistence?", "network
 endpoints?") without flooding the model with raw events.
@@ -221,7 +221,7 @@ cargo build -p procmon-cli --release
 # Capture a program + its children for 10s (live capture needs Administrator):
 procmon-cli capture --name app.exe --launch "app.exe" --duration 10
 
-# Analyze any .PML (no elevation needed). The filter is a Wireshark-style
+# Analyze any .PML (no elevation needed). The filter is an
 # expression (&& / || / ! / in (...)); see `vocab` for the full syntax:
 procmon-cli query --pml cap.pml --group-by Path \
   --filter 'Category == "File System" && Operation == WriteFile'

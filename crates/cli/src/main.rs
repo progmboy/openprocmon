@@ -1,6 +1,6 @@
 //! `procmon-cli`: the command-line + MCP front-end for OpenProcMon.
 //!
-//! "Process Monitor as Wireshark": `capture` writes a Procmon-compatible `.PML`
+//! A capture-then-analyze tool: `capture` writes a Procmon-compatible `.PML`
 //! (live, needs Administrator + driver); every other command reads a `.PML` and
 //! prints JSON — the same shape the MCP tools return. The one filter vocabulary
 //! (`vocab`) drives both the capture filter and the analysis queries.
@@ -59,7 +59,7 @@ enum Command {
         #[arg(long = "max-mb", default_value_t = 512)]
         max_mb: usize,
         /// Capture-time filter expression, e.g. 'Operation == WriteFile'
-        /// (Wireshark-style; && / || / ! / in (...)). See `vocab`.
+        /// (&& / || / ! / in (...)). See `vocab`.
         #[arg(long = "filter")]
         filter: Option<String>,
         /// Output .PML path (default: a temp file).
@@ -88,7 +88,7 @@ enum Command {
         #[command(flatten)]
         src: PmlArg,
         /// Filter expression, e.g. 'Category == "File System" && Operation == WriteFile'
-        /// (Wireshark-style; && / || / ! / in (...)). See `vocab`.
+        /// (&& / || / ! / in (...)). See `vocab`.
         #[arg(long = "filter")]
         filter: Option<String>,
         /// Aggregate: distinct values + counts of this column.
@@ -145,7 +145,7 @@ enum Command {
         format: String,
         #[arg(long)]
         out: PathBuf,
-        /// Filter expression (Wireshark-style; see `vocab`).
+        /// Filter expression (see `vocab`).
         #[arg(long = "filter")]
         filter: Option<String>,
         /// Include call-stack frames (XML only).

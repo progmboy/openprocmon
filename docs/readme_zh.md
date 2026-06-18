@@ -205,8 +205,8 @@ cargo run -p procmon-example -- --pml out.pml
 
 ## AI / MCP
 
-`procmon-cli` 是一个命令行 + **MCP** 前端，让 AI agent 驱动 OpenProcMon——"Process Monitor
-版的 Wireshark"：捕获写出一个 `.PML`，所有分析都读这个文件。一个万能的 `query` 原语（过滤 +
+`procmon-cli` 是一个命令行 + **MCP** 前端，让 AI agent 驱动 OpenProcMon——一个
+捕获-分析工具：捕获写出一个 `.PML`，所有分析都读这个文件。一个万能的 `query` 原语（过滤 +
 分组聚合）就能回答常见问题（"X 写了哪些文件？""注册表持久化？""连了哪些外网？"），而不会用海量原始
 事件淹没模型。
 
@@ -216,7 +216,7 @@ cargo build -p procmon-cli --release
 # 捕获某程序及其子进程 10 秒（实时捕获需要管理员权限）：
 procmon-cli capture --name app.exe --launch "app.exe" --duration 10
 
-# 分析任意 .PML（无需提权）。过滤器是 Wireshark 风格的表达式
+# 分析任意 .PML（无需提权）。过滤器是表达式
 # （&& / || / ! / in (...)）；完整语法见 `vocab`：
 procmon-cli query --pml cap.pml --group-by Path \
   --filter 'Category == "File System" && Operation == WriteFile'

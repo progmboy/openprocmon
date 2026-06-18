@@ -4,13 +4,13 @@ description: >
   Capture and analyze Windows process / file / registry / network activity with
   OpenProcMon (procmon-cli). Use when investigating what a program does — files
   it writes, registry keys it touches, network it makes, its process tree and
-  call stacks — or when analyzing a Procmon-compatible .PML capture. Think
-  "Process Monitor as Wireshark": capture writes a .PML; every analysis reads one.
+  call stacks — or when analyzing a Procmon-compatible .PML capture. The model:
+  a capture writes a .PML; every analysis reads one.
 ---
 
 # OpenProcMon (procmon-cli)
 
-OpenProcMon is Process Monitor as Wireshark. A **capture** records process/file/
+OpenProcMon is a capture-then-analyze tool. A **capture** records process/file/
 registry/network events to a Procmon-compatible **`.PML`** file; every analysis
 command **reads a `.PML`** and prints JSON. The same `procmon-cli` binary also
 serves these as MCP tools (`procmon-cli mcp`).
@@ -54,7 +54,7 @@ that `.PML` with the commands below.
 
 `procmon-cli query --pml <file> [--filter "<expr>"] [--group-by <col>] [--limit N]`
 
-- **`--filter "<expr>"`** — a single Wireshark-style filter expression (see the
+- **`--filter "<expr>"`** — a single filter expression (see the
   **Filter syntax** section below). One flag expresses AND, OR, NOT and parens.
 - **`--group-by <Column>`** — return distinct values + counts (de-duplicated),
   instead of raw events. Use it to avoid flooding (e.g. distinct files, not 5000

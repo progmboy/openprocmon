@@ -123,8 +123,8 @@ impl PmlReader {
     /// `.PML` at `path`: every event index `i` for which `keep(i)` returns true,
     /// with its raw detail and process linkage preserved (the full process table
     /// is carried so `process_index` references stay valid). Returns the number
-    /// of events written. This is the "save the matching events" / Wireshark
-    /// `filter_save` primitive; callers decide `keep` (e.g. from a filter).
+    /// of events written. This is the "save the matching events" filter-save
+    /// primitive; callers decide `keep` (e.g. from a filter).
     pub fn write_subset<P: AsRef<Path>>(
         &self,
         path: P,

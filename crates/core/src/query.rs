@@ -1,5 +1,5 @@
-//! The universal event query: a filter expression (a Wireshark-style display
-//! filter) + optional group-by aggregation.
+//! The universal event query: a filter expression + optional group-by
+//! aggregation.
 //!
 //! A filter is an [`Expr`] tree of clauses combined with `&&` / `||` / `!` and
 //! parentheses. A leaf clause is `Column <op> value`, reusing the SDK's column

@@ -173,7 +173,7 @@ pub fn process_tree(reader: &Arc<PmlReader>) -> Vec<ProcessNode> {
         .collect()
 }
 
-/// `.PML` metadata (≈ `capinfos`), read from the header without scanning events.
+/// `.PML` metadata, read from the header without scanning events.
 #[derive(Clone, Debug, Serialize)]
 pub struct PmlInfo {
     pub event_count: u32,

@@ -1,7 +1,7 @@
 //! `procmon-core`: the gpui-free capture + PML-analysis core shared by the
 //! OpenProcMon CLI and MCP server.
 //!
-//! OpenProcMon is "Process Monitor as Wireshark": a live capture writes a
+//! OpenProcMon is a capture-then-analyze tool: a live capture writes a
 //! Procmon-compatible `.PML`, and every analysis reads that file. This crate
 //! owns the capture driver (P2) and the analysis layer — a set of pure
 //! functions over a [`procmon_sdk::PmlReader`] returning serde-serializable

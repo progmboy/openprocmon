@@ -72,7 +72,7 @@ struct Source {
     pml_path: Option<String>,
 }
 
-/// A Wireshark-style filter expression (see `list_filter_columns` for the
+/// A filter expression (see `list_filter_columns` for the
 /// columns / operators). Example: `Category == "File System" && Operation ==
 /// WriteFile`. Empty / omitted matches everything.
 type FilterExpr = Option<String>;
@@ -93,7 +93,7 @@ struct CaptureArgs {
     /// Sources: any of process/file/registry/network (default all).
     #[serde(default)]
     monitors: Vec<String>,
-    /// Optional capture-time filter expression (Wireshark-style).
+    /// Optional capture-time filter expression.
     #[serde(default)]
     filter: FilterExpr,
     #[serde(default = "default_duration")]
@@ -139,7 +139,7 @@ struct SummaryArgs {
 struct QueryArgs {
     #[serde(flatten)]
     source: Source,
-    /// Filter expression (Wireshark-style). See list_filter_columns.
+    /// Filter expression. See list_filter_columns.
     #[serde(default)]
     filter: FilterExpr,
     #[serde(default)]
@@ -521,7 +521,7 @@ impl ProcmonServer {
     }
 
     #[tool(
-        description = "Query events with a Wireshark-style filter expression. The `filter` is one \
+        description = "Query events with a filter expression. The `filter` is one \
         string of `Column OP value` clauses joined by && / || / ! and parens, e.g. \
         'Category == \"File System\" && Operation == WriteFile'. Operators: == != ~ (contains) \
         !~ (excludes) ^= (begins) $= (ends) < > and `Column in (a, b)` for OR over values. With \
@@ -729,11 +729,11 @@ impl rmcp::ServerHandler for ProcmonServer {
 }
 
 const INSTRUCTIONS: &str = r#"
-OpenProcMon — Process Monitor as Wireshark. capture writes a .PML; every analysis tool reads
+OpenProcMon — capture writes a .PML; every analysis tool reads
 one. Typical flow: capture (or start_capture/stop_capture) -> query_events with a filter ->
 get_event for a stack. Pass a `source` of either session_id (a finished capture) or pml_path.
 
-query_events is the universal primitive. `filter` is a Wireshark-style expression string:
+query_events is the universal primitive. `filter` is an expression string:
 `Column OP value` clauses joined with && / || / ! and parentheses. Quote values with spaces or
 special characters. Operators:
   ==  is            !=  is not          ~   contains       !~  excludes
