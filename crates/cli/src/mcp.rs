@@ -139,14 +139,30 @@ struct SummaryArgs {
 struct QueryArgs {
     #[serde(flatten)]
     source: Source,
-    /// Filter expression. See list_filter_columns.
+    /// Filter expression: `Column OP value` clauses joined with && / || / ! and
+    /// parens (OP: == != ~ !~ ^= $= < >, or `Column in (a, b)`); quote values with
+    /// spaces. File "writes" are not just WriteFile — they span WriteFile,
+    /// SetEndOfFileInformationFile / SetAllocationInformationFile (truncate/extend),
+    /// SetRenameInformationFile (rename/move), SetDispositionInformationFile (mark
+    /// for delete), DeleteFile. CreateFile is a file OPEN (how a process opens ANY
+    /// file), not necessarily a creation. See list_filter_columns for exact column /
+    /// field / operation names and meanings.
     #[serde(default)]
     filter: FilterExpr,
-    /// Group-by column(s). Comma-separate for multi-column (e.g. ProcessName,Path).
+    /// Group-by column(s); comma-separate for multi-column (e.g. ProcessName,Path).
+    /// Returns distinct values + counts instead of raw rows — use it to summarize.
+    /// Summary views: busiest processes = group_by=ProcessName (add ,Category for a
+    /// breakdown); network endpoints = group_by=RemoteAddress (+ metric=NetBytes);
+    /// who-touched-a-file = filter on Path, group_by=ProcessName.
     #[serde(default)]
     group_by: Option<String>,
-    /// Numeric column to roll up per group — adds sum/avg/min/max + first/last time
-    /// (e.g. NetBytes for network bytes per endpoint). Only used with group_by.
+    /// Numeric column / field to roll up per group — adds sum/avg/min/max + first/
+    /// last time (e.g. group_by=RemoteAddress metric=NetBytes for bytes per endpoint).
+    /// NetBytes is an accurate, summable network transfer size; file IO byte counts
+    /// are NOT exposed (memory-mapped IO is invisible) so don't sum file bytes — use
+    /// operation counts for file activity. Procmon records WHICH file/endpoint was
+    /// touched, never the bytes written; for what was actually sent/stolen, look at
+    /// Network activity. Only used with group_by.
     #[serde(default)]
     metric: Option<String>,
     /// Apply the default noise filter (default true).
@@ -571,18 +587,28 @@ impl ProcmonServer {
     }
 
     #[tool(
-        description = "Query events with a filter expression. The `filter` is one \
-        string of `Column OP value` clauses joined by && / || / ! and parens, e.g. \
-        'Category == \"File System\" && Operation == WriteFile'. Operators: == != ~ (contains) \
-        !~ (excludes) ^= (begins) $= (ends) < > and `Column in (a, b)` for OR over values. With \
-        group_by, returns distinct values + counts of that column (e.g. files written: \
-        'Category == \"File System\" && Operation == WriteFile' group_by=Path). Comma-separate \
-        group_by for multi-column (group_by=ProcessName,Path); add metric=<numeric column> for \
-        sum/avg/min/max + first/last time per group (e.g. group_by=RemoteAddress metric=NetBytes \
-        for network bytes per endpoint) — prefer this over exporting CSV to total things yourself. \
-        Without group_by, a page of events (each with a seq for get_event). exclude_noise \
-        (default true) drops NTFS-metadata / monitoring-tool / bookkeeping noise. Call \
-        list_filter_columns for the exact column / operator / operation names."
+        description = "Find or summarize events in a .PML — the universal analysis primitive. \
+        `filter` is one expression string: `Column OP value` clauses joined with && / || / ! and \
+        parens; quote values with spaces. Operators: == (is) != (is not) ~ (contains) !~ (excludes) \
+        ^= (begins) $= (ends) < > (numeric), and `Column in (a, b, c)` (matches ANY of the values). \
+        With group_by, returns the distinct values + counts of that column instead of raw rows \
+        (summarize — don't page thousands); comma-separate for multi-column \
+        (group_by=ProcessName,Path), and add metric=<numeric column> for sum/avg/min/max + \
+        first/last time per group. Without group_by, a page of events, each with a seq for \
+        get_event / event_window. Prefer group_by/metric over exporting CSV to count or total \
+        things yourself. \
+        Recipes: files X wrote = 'Category == \"File System\" && ProcessName == X && Operation in \
+        (WriteFile, SetEndOfFileInformationFile, DeleteFile)' group_by=Path; registry persistence \
+        = 'Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run' \
+        group_by=Path; network endpoints = 'Category == Network && ProcessName == X' \
+        group_by=RemoteAddress (+ metric=NetBytes for bytes per endpoint); failed ops = \
+        'Result != SUCCESS'. Summaries (the GUI's summary views) are all just group_by: busiest \
+        processes = group_by=ProcessName (add ,Category for a breakdown); file/registry summary = \
+        'Category == \"File System\"' (or Registry) group_by=Path; network summary = 'Category == \
+        Network' group_by=RemoteAddress metric=NetBytes; who-touched-a-file = 'Path ~ \"...\"' \
+        group_by=ProcessName; operation/result mix = group_by=Operation or group_by=Result. \
+        CreateFile is a file OPEN (not necessarily a creation); NetBytes is summable but file byte \
+        totals are not. Call list_filter_columns for exact column / field / operation names + meanings."
     )]
     async fn query_events(
         &self,
@@ -783,8 +809,10 @@ impl ProcmonServer {
     }
 
     #[tool(
-        description = "The filter vocabulary: exact column names, relations, and per-category \
-        operation names to use in query_events / capture filters."
+        description = "The filter vocabulary for query_events / capture filters: exact column \
+        names (each with a description), structured extension fields (network endpoints — \
+        RemoteAddress / RemotePort / NetBytes / …), relations, and per-category operation names. \
+        Call it instead of guessing names."
     )]
     async fn list_filter_columns(&self) -> Result<CallToolResult, McpError> {
         json(&core::filter_vocab())
@@ -873,65 +901,13 @@ impl rmcp::ServerHandler for ProcmonServer {
         info.protocol_version = ProtocolVersion::V_2025_06_18;
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.server_info = Implementation::from_build_env();
-        info.instructions = Some(INSTRUCTIONS.to_string());
+        // No `instructions`: some clients (e.g. Codex) don't surface
+        // InitializeResult.instructions to the model, so all guidance lives in the
+        // tool descriptions / parameter schemas (which tools/list always delivers)
+        // and in list_filter_columns' return value.
         info
     }
 }
-
-const INSTRUCTIONS: &str = r#"
-OpenProcMon — capture writes a .PML; every analysis tool reads
-one. Typical flow: capture (or start_capture/stop_capture) -> query_events with a filter ->
-get_event for a stack. Pass a `source` of either session_id (a finished capture) or pml_path.
-
-query_events is the universal primitive. `filter` is an expression string:
-`Column OP value` clauses joined with && / || / ! and parentheses. Quote values with spaces or
-special characters. Operators:
-  ==  is            !=  is not          ~   contains       !~  excludes
-  ^=  begins with   $=  ends with       <   less than      >   more than
-  Column in (a, b, c)   matches ANY of the listed values (OR)
-group_by returns distinct values + counts of a column — summarize instead of flooding.
-Comma-separate for multi-column (group_by=ProcessName,Path). Add metric=<numeric column> for
-sum/avg/min/max + first/last time per group. Do NOT export CSV to count or total things yourself
-— group_by/metric already does it.
-
-File "writes" are not just WriteFile — they span WriteFile, SetEndOfFileInformationFile,
-SetAllocationInformationFile, SetRenameInformationFile, DeleteFile. Network columns:
-RemoteAddress, RemotePort, LocalAddress, LocalPort, NetBytes.
-
-Operation semantics (most names are self-evident; these are the traps): CreateFile is a file
-OPEN — how a process opens ANY file — not necessarily a creation; whether it created / opened /
-overwrote is in the Detail. So "touched a file" == CreateFile, and a reads-only view undercounts
-(stealers open then memory-map). SetEndOfFileInformationFile / SetAllocationInformationFile =
-truncate or extend (a write); SetRenameInformationFile = rename / move;
-SetDispositionInformationFile = mark for delete.
-
-Data model: NetBytes (network transfer size) is accurate to sum. File IO byte counts are NOT
-exposed — memory-mapped (section) reads/writes emit no IO event, so a file byte total would
-silently undercount; use operation counts (group_by=Path) for file activity, not byte sums.
-Procmon records which file/endpoint was touched, never payload bytes.
-
-Recipes:
-- What files did X write?  'Category == "File System" && ProcessName == X
-                            && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)'
-                            group_by=Path
-- Registry persistence:    'Category == Registry && Operation in (RegSetValue, RegCreateKey)
-                            && Path ~ Run'   group_by=Path
-- Network endpoints of X:  'Category == Network && ProcessName == X'   group_by=RemoteAddress
-- Bytes per endpoint:      'Category == Network && ProcessName == X'
-                            group_by=RemoteAddress metric=NetBytes
-- Failed operations:       'Result != SUCCESS'
-
-Summaries (the GUI's summary views are all just group_by — reproduce any of them here):
-- Busiest processes:       group_by=ProcessName   (add ,Category for a per-category breakdown)
-- File summary:            'Category == "File System"'   group_by=Path
-- Registry summary:        'Category == Registry'   group_by=Path
-- Network summary:         'Category == Network'   group_by=RemoteAddress metric=NetBytes
-- Cross-reference / who touched a file:  'Path ~ "Local State"'   group_by=ProcessName
-                           (Path group rows also carry a distinct-process count)
-- Operation / result mix:  group_by=Operation   /   group_by=Result
-
-Call list_filter_columns for the exact column / operator / operation names — do not guess them.
-Live capture (capture/start_capture) requires Administrator; PML analysis does not."#;
 
 // --- helpers ----------------------------------------------------------------
 
