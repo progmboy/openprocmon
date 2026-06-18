@@ -242,6 +242,14 @@ fn run_capture(
 ) -> Result<CaptureOutcome> {
     let own_pid = std::process::id();
     let mut writer = PmlWriter::new(cfg!(target_pointer_width = "64"));
+    // Populate the PML header metadata Procmon records (computer name, OS version
+    // blob, CPU count, RAM, max user address), so the capture is self-describing.
+    let host = procmon_sdk::system::host_info();
+    writer.computer_name = host.computer_name;
+    writer.os_version = host.os_version;
+    writer.max_app_address = host.max_app_address;
+    writer.num_logical_processors = host.num_logical_processors;
+    writer.ram_bytes = host.ram_bytes;
     let mut bytes = 0usize;
     let mut written = 0usize;
     let start = Instant::now();
@@ -278,6 +286,12 @@ fn run_capture(
     };
 
     controller.stop();
+    // Append the System (PID 4) process with kernel modules, like Procmon, so
+    // kernel-mode stack frames resolve and Procmon doesn't crash on them.
+    let kmods = procmon_sdk::system::kernel_modules();
+    if !kmods.is_empty() {
+        writer.add_system_process(&kmods);
+    }
     writer.write_to_path(&out_path)?;
     Ok(CaptureOutcome {
         pml_path: out_path.to_string_lossy().into_owned(),

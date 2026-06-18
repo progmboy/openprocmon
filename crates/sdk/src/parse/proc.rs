@@ -16,12 +16,40 @@ use crate::process::{Module, ProcessInfo, ProcessManager, ProcessRecord};
 use crate::strings;
 use core::mem::size_of;
 
-/// Applies a process lifecycle record to the process table.
-pub(crate) fn track(mgr: &ProcessManager, entry: &LogEntry, data: &[u8]) {
+/// Applies a process lifecycle record to the process table. `metadata` (live
+/// capture only) resolves the new process's image metadata (version + icon) as
+/// it is inserted — like Procmon, which resolves the process described by the
+/// CREATE/INIT record (the *new* process; a CREATE event is attributed to the
+/// parent, so the child would otherwise never be resolved).
+pub(crate) fn track(
+    mgr: &ProcessManager,
+    metadata: Option<&crate::metadata::MetadataCache>,
+    entry: &LogEntry,
+    data: &[u8],
+) {
     match entry.notify() {
         pn::INIT | pn::CREATE => {
             if let Some(info) = create_info(data, DetailMode::Live) {
-                mgr.insert(ProcessRecord::new(info));
+                let pid = info.pid;
+                let rec = ProcessRecord::new(info);
+                if let Some(metadata) = metadata {
+                    rec.set_meta(metadata.resolve(&rec.info.image_path));
+                    // Seed the module list from a live Toolhelp snapshot only for
+                    // INIT — a process already running at capture start, whose
+                    // image-loads predate capture, so the snapshot is the only
+                    // source for its modules. A CREATE process's modules all
+                    // arrive as image-load events, so Procmon and the C++ both
+                    // deliberately skip the snapshot for it (`v21 = notify==0`
+                    // gate in IDA `sub_140085160`; `IsProcessFromInit()` branch
+                    // in `propstack.cpp`). Live capture only (`metadata` is None
+                    // for offline PML replay, where a live PID query is wrong).
+                    if entry.notify() == pn::INIT {
+                        for module in crate::system::snapshot_modules(pid) {
+                            rec.add_module(module);
+                        }
+                    }
+                }
+                mgr.insert(rec);
             }
         }
         pn::EXIT => {
@@ -83,7 +111,12 @@ pub(crate) fn create_info(data: &[u8], mode: DetailMode) -> Option<ProcessInfo> 
         parent_seq: ci.parent_proc_seq,
         parent_pid: ci.parent_id,
         session_id: ci.session_id,
-        is_wow64: ci.is_wow64 != 0,
+        // The driver's `IsWow64` field is inverted relative to its name: it is
+        // SET for 64-bit native processes and CLEAR for WoW64 (32-bit) ones. The
+        // C++ reference reads `!IsWow64` to recover the real WoW64 flag
+        // (procmonsdk/viewer.cxx `CProcInfoView::IsWow64`). Mirror that so
+        // `is_wow64` genuinely means "32-bit process on 64-bit Windows".
+        is_wow64: ci.is_wow64 == 0,
         create_time: ci.create_time,
         authentication_id: (luid.high_part, luid.low_part),
         user_sid,

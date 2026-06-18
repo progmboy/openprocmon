@@ -131,6 +131,12 @@ pub struct Correlator {
     /// (startup INIT races) must not be masked by a stale miss, and a seq's
     /// record never changes once inserted, so a hit cannot go stale.
     last_proc: Option<(i32, Arc<ProcessRecord>)>,
+    /// When set (live capture), the image metadata (version + icon) of each newly
+    /// tracked process is resolved as it is inserted — matching Procmon, which
+    /// resolves the metadata of the process described by a CREATE/INIT record (the
+    /// *new* process; on CREATE the event itself is attributed to the parent).
+    /// `None` for offline parsing, where metadata comes from the PML instead.
+    metadata: Option<Arc<crate::metadata::MetadataCache>>,
 }
 
 impl Correlator {
@@ -138,7 +144,13 @@ impl Correlator {
         Self {
             pending: FxHashMap::default(),
             last_proc: None,
+            metadata: None,
         }
+    }
+
+    /// Enables live image-metadata resolution for newly tracked processes.
+    pub fn set_metadata(&mut self, metadata: Arc<crate::metadata::MetadataCache>) {
+        self.metadata = Some(metadata);
     }
 
     /// Parses every record in `batch`, updating `mgr` and appending finished
@@ -193,7 +205,7 @@ impl Correlator {
 
             // PRE record: process lifecycle records update the process table.
             if monitor == MonitorType::Process {
-                proc::track(mgr, record.entry(), record.data());
+                proc::track(mgr, self.metadata.as_deref(), record.entry(), record.data());
             }
 
             if status == STATUS_PENDING {

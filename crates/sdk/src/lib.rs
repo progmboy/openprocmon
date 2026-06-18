@@ -26,6 +26,7 @@ pub mod sid;
 pub mod source;
 pub mod strings;
 pub mod symbols;
+pub mod system;
 pub mod time;
 
 pub use driver::{extract_to_system32, DriverLoader};

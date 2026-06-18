@@ -15,9 +15,7 @@ use windows::Win32::Foundation::{
     STATUS_SUCCESS, UNICODE_STRING, WIN32_ERROR,
 };
 use windows::Win32::Security::{
-    AdjustTokenPrivileges, GetTokenInformation, LookupPrivilegeValueW, TokenElevation,
-    LUID_AND_ATTRIBUTES, SE_LOAD_DRIVER_NAME, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
-    TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY,
+    GetTokenInformation, TokenElevation, SE_LOAD_DRIVER_NAME, TOKEN_ELEVATION, TOKEN_QUERY,
 };
 use windows::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_NORMAL};
 use windows::Win32::System::Registry::{
@@ -104,7 +102,7 @@ impl DriverLoader {
         if !is_elevated()? {
             return Err(Error::NotElevated);
         }
-        enable_privilege(SE_LOAD_DRIVER_NAME)?;
+        crate::system::enable_privilege(SE_LOAD_DRIVER_NAME)?;
         let sys_path = self.resolve_sys_path()?;
         self.create_service_key(&sys_path)?;
         let result = load_driver(&self.registry_path());
@@ -291,40 +289,6 @@ fn is_elevated() -> Result<bool> {
     }
     result.map_err(Error::PrivilegeDenied)?;
     Ok(elevation.TokenIsElevated != 0)
-}
-
-/// Enables a named privilege (e.g. `SeLoadDriverPrivilege`) on the current token.
-fn enable_privilege(name: PCWSTR) -> Result<()> {
-    let mut token = HANDLE::default();
-    // SAFETY: opening the current process token for privilege adjustment.
-    unsafe {
-        OpenProcessToken(
-            GetCurrentProcess(),
-            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-            &mut token,
-        )
-    }
-    .map_err(Error::PrivilegeDenied)?;
-
-    let mut luid = Default::default();
-    // SAFETY: `name` is a static privilege-name constant; `luid` receives the id.
-    let lookup = unsafe { LookupPrivilegeValueW(PCWSTR::null(), name, &mut luid) };
-    let tp = TOKEN_PRIVILEGES {
-        PrivilegeCount: 1,
-        Privileges: [LUID_AND_ATTRIBUTES {
-            Luid: luid,
-            Attributes: SE_PRIVILEGE_ENABLED,
-        }],
-    };
-    let adjust = lookup.and_then(|()| {
-        // SAFETY: `tp` describes exactly one privilege and outlives the call.
-        unsafe { AdjustTokenPrivileges(token, false, Some(&tp), 0, None, None) }
-    });
-    // SAFETY: closing a handle we opened.
-    unsafe {
-        let _ = CloseHandle(token);
-    }
-    adjust.map_err(Error::PrivilegeDenied)
 }
 
 // --- Registry helpers --------------------------------------------------------

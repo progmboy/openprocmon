@@ -100,9 +100,15 @@ impl ProcessRecord {
         *self.exit.read()
     }
 
-    /// Appends a loaded module.
+    /// Appends a loaded module, skipping a base already present. The Toolhelp
+    /// seed (modules already loaded when the process is first seen) and a later
+    /// image-load event can both report the same module; keep it once.
     pub fn add_module(&self, module: Module) {
-        self.modules.write().push(Arc::new(module));
+        let mut mods = self.modules.write();
+        if mods.iter().any(|m| m.base == module.base) {
+            return;
+        }
+        mods.push(Arc::new(module));
     }
 
     /// Number of modules loaded so far.
