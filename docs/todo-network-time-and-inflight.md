@@ -1,9 +1,21 @@
 # TODO: Network-time normalization + optional Procmon-style in-flight display
 
-> Design/plan doc for a future change. Not yet implemented. Tracks two items:
-> a PML fidelity fix (network event time) and a GUI UX feature (show in-flight
-> operations like Process Monitor). Driver-event time ordering is already handled
-> by the adaptive stable sort in `PmlWriter::to_bytes` (commit `dbb0cd5`).
+> **Status (update):**
+> - **Source-ordering: DONE** — done with a *watermark reorder in the correlator*
+>   (commit `0611ca2`), not the opt-in pending-mode below. The correlator now
+>   emits complete events already in start-time order; consumers are unchanged and
+>   the live GUI is time-ordered too.
+> - **Network time normalization: DONE** (commit `6baca80`, `ClientContext = 2`).
+>   Verified: Process Monitor opens captures with no blank network rows.
+> - **The opt-in pending-mode + GUI in-flight display below are now OPTIONAL** —
+>   only needed if we want the live GUI to show operations *before* they complete
+>   (Procmon-style in-flight rows). The watermark already orders everything; it
+>   just shows events when they complete rather than at start. Kept here as a
+>   future enhancement.
+>
+> Original design doc follows. Driver-event ordering was previously handled by the
+> adaptive stable sort in `PmlWriter::to_bytes` (commit `dbb0cd5`), now superseded
+> at the source by the watermark (the sort remains as a harmless safety net).
 
 ## Why
 
@@ -61,17 +73,14 @@
 
 ## TODO
 
-### P0 — Network time QPC→FILETIME normalization (PML fidelity fix)
-- [ ] In `crates/sdk/src/network.rs`, normalize `NetworkEvent.time` to FILETIME.
-      Preferred: change ETW `ClientContext` from `1` (QPC) to `2` (system time /
-      FILETIME) at `network.rs:218` so `EventHeader.TimeStamp` arrives as FILETIME.
-- [ ] Fallback if that mode is unreliable: `QueryPerformanceFrequency` + a
-      one-time QPC↔FILETIME anchor conversion.
-- [ ] Verify the classic kernel TcpIp/UdpIp events actually deliver FILETIME under
-      `ClientContext=2`.
-- [ ] **Verify:** mixed file+network capture → network timestamps correct, ordered
-      with driver events, 0 inversions; open in real Procmon → network rows not
-      blank. (No writer/GUI change required for this item.)
+### P0 — Network time QPC→FILETIME normalization (PML fidelity fix) — DONE (`6baca80`)
+- [x] `crates/sdk/src/network.rs`: ETW `ClientContext` changed from `1` (QPC) to
+      `2` (system time / FILETIME) so `EventHeader.TimeStamp` is FILETIME.
+- [x] Fallback not needed — `ClientContext = 2` delivers FILETIME for the classic
+      kernel TcpIp/UdpIp events. (If a future Windows build regresses this, the
+      fallback is `QueryPerformanceFrequency` + a one-time QPC↔FILETIME anchor.)
+- [x] **Verified:** Process Monitor opens captures with network rows not blank,
+      ordered together with driver events.
 
 ### P1 — SDK opt-in pending-emit mode
 - [ ] `crates/sdk/src/event.rs`: add `Event::is_complete(&self) -> bool =
