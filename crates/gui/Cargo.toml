@@ -1,8 +1,8 @@
 [package]
 name = "procmon-gui"
-# Explicit, independent of the workspace version: the GUI is the shipped app and is
-# released/tagged on its own cadence (release.yml verifies the tag matches this).
-version = "0.2.1"
+# Inherits the workspace version — the whole project (gui + cli + example + libs)
+# ships under one version, tagged at the workspace level (see release.yml).
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 

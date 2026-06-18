@@ -122,9 +122,10 @@ pub struct AppState {
     pub selected: Option<usize>,
     /// Current applied filter (kept so the Filter dialog can edit it).
     pub filter: FilterModel,
-    /// Whether `filter` contains the full Advanced Display rule set — cached on
-    /// every filter change because the table's Operation cell reads it per row
-    /// per frame (recomputing it there rebuilt the 23-rule default set each time).
+    /// Whether Advanced Output is on (the default display filter is *not* fully
+    /// present) — cached on every filter change because the table's Operation cell
+    /// reads it per row per frame (recomputing it there rebuilt the 23-rule default
+    /// set each time). Drives both the raw vs friendly operation name and the menu.
     pub advanced_display: bool,
     /// Highlight rule set — same shape as `filter`; matching rows are tinted.
     pub highlight: FilterModel,
@@ -150,11 +151,11 @@ impl AppState {
         // Load the persisted config (%USERPROFILE%\openprocmon\config.json), falling
         // back to defaults if it is missing or unreadable.
         let config = AppConfig::load();
-        // Advanced Display (Event menu) defaults to on: seed the noise-suppression
-        // rules so the monitor's own tools / NTFS metadata are excluded out of the
-        // box.
+        // Advanced Output (Event menu) defaults to OFF: seed the default display
+        // filter so the monitor's own tools / NTFS metadata are excluded and
+        // operations show their friendly names out of the box.
         let mut filter = FilterModel::default();
-        set_advanced_display(&mut filter, true);
+        set_advanced_display(&mut filter, false);
         let mut state = Self {
             theme_mode: ThemeMode::Dark,
             // Launch paused by default; the Settings "Start capture at boot"
@@ -1255,9 +1256,9 @@ impl AppView {
         cx.notify();
     }
 
-    /// Event ▸ "Advanced Display": toggle the default noise-suppression rules.
-    /// State is derived from the filter contents, so this flips the current
-    /// presence and re-applies the rules at the end of the set.
+    /// Event ▸ "Advanced Display": toggle Advanced Output. Enabling it strips the
+    /// default display filter (showing every event with low-level operation names);
+    /// disabling re-applies the filter. State is derived from the filter contents.
     pub(crate) fn toggle_advanced_display(&mut self, cx: &mut Context<Self>) {
         let mut model = self.state.read(cx).filter.clone();
         let on = !advanced_display_on(&model);

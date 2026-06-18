@@ -1,0 +1,22 @@
+[package]
+name = "procmon-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "gpui-free capture + PML analysis core shared by the OpenProcMon CLI and MCP server"
+
+[dependencies]
+procmon-sdk = { path = "../sdk" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustc-hash = "2"
+# The driver event channel (MonitorController::start_with returns this Receiver).
+crossbeam-channel = "0.5"
+# CSV / XML export writers (formats interchangeable with the GUI's Save dialog).
+csv = "1"
+quick-xml = "0.37"
+
+[dev-dependencies]
+# Test PML fixtures are zlib-compressed; decompress to a temp file for the reader.
+flate2 = "1"
+tempfile = "3"

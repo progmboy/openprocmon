@@ -30,31 +30,37 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      # Fail fast if the release tag doesn't match the shipped crate's version, so a
-      # mistyped tag (e.g. v0.2.0 while procmon-gui is still 0.1.0) never produces a
-      # mislabeled release. Uses `cargo metadata` so it resolves
+      # Fail fast if the release tag doesn't match the shared workspace version, so a
+      # mistyped tag (e.g. v0.2.0 while the workspace is still 0.2.1) never produces a
+      # mislabeled release. Every shipped crate inherits `[workspace.package] version`,
+      # so we assert the tag matches each one — this also catches a crate that has
+      # drifted off the workspace version. Uses `cargo metadata` to resolve
       # `version.workspace = true` to the actual version.
-      - name: Verify tag matches procmon-gui version
+      - name: Verify tag matches the workspace version
         shell: pwsh
         run: |
           $tag = "${{ github.event.inputs.tag || github.ref_name }}"
           $tagVersion = $tag -replace '^v', ''
           $meta = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
-          $crateVersion = ($meta.packages | Where-Object { $_.name -eq 'procmon-gui' }).version
-          if ($tagVersion -ne $crateVersion) {
-            Write-Error "Release tag '$tag' (version '$tagVersion') does not match the procmon-gui crate version '$crateVersion'. Bump crates/gui (or the workspace) version, or fix the tag."
-            exit 1
+          foreach ($name in 'procmon-gui','procmon-cli','procmon-example') {
+            $crateVersion = ($meta.packages | Where-Object { $_.name -eq $name }).version
+            if ($tagVersion -ne $crateVersion) {
+              Write-Error "Release tag '$tag' (version '$tagVersion') does not match $name version '$crateVersion'. Bump [workspace.package] version in Cargo.toml (every crate must inherit it via version.workspace = true), or fix the tag."
+              exit 1
+            }
           }
-          Write-Host "OK: tag '$tag' matches procmon-gui version '$crateVersion'."
+          Write-Host "OK: tag '$tag' matches the workspace version '$tagVersion'."
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
-      - name: Build GUI + example (release)
-        run: cargo build --release -p procmon-gui -p procmon-example
+      - name: Build GUI + CLI + example (release)
+        run: cargo build --release -p procmon-gui -p procmon-cli -p procmon-example
 
-      # Stage the artifacts that actually ship: the GUI app and the console
-      # example. (procmon-sdk is a library, nothing to ship standalone.)
+      # Stage the artifacts that actually ship: the GUI app, the CLI / MCP
+      # front-end, and the console example, plus the Claude skill and the MCP
+      # usage docs that drive the CLI. (procmon-sdk / procmon-core are libraries,
+      # nothing to ship standalone.)
       - name: Stage artifacts
         shell: pwsh
         run: |
@@ -62,7 +68,15 @@ jobs:
           $stage = "dist/openprocmon-$version-windows-x64"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item "target/release/procmon-gui.exe"     -Destination $stage
+          Copy-Item "target/release/procmon-cli.exe"     -Destination $stage
           Copy-Item "target/release/procmon-example.exe" -Destination $stage
+          # Bundle the Claude skill so a CLI-driving agent can drop it into
+          # ~/.claude/skills, and the MCP guides that document the CLI/MCP server.
+          if (Test-Path "skills") { Copy-Item "skills" -Destination $stage -Recurse }
+          New-Item -ItemType Directory -Force -Path "$stage/docs" | Out-Null
+          foreach ($doc in 'docs/mcp-guide.md','docs/mcp-guide_zh.md') {
+            if (Test-Path $doc) { Copy-Item $doc -Destination "$stage/docs" }
+          }
           if (Test-Path "README.md")    { Copy-Item "README.md"    -Destination $stage }
           if (Test-Path "LICENSE")      { Copy-Item "LICENSE"      -Destination $stage }
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/openprocmon-$version-windows-x64.zip" -Force

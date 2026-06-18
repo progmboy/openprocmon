@@ -13,7 +13,7 @@
 //! the kernel's buffering) instead of growing without bound.
 
 use crate::event::Event;
-use crate::kernel_types::{proc_notify, MonitorType, ProcmonMessageHeader};
+use crate::kernel_types::ProcmonMessageHeader;
 use crate::metadata::MetadataCache;
 use crate::network::NetworkEvent;
 use crate::parse::Correlator;
@@ -153,6 +153,9 @@ fn parse_loop(
     tx_b: Sender<Event>,
 ) {
     let mut correlator = Correlator::new();
+    // Resolve image metadata (version + icon) for each new process as it is
+    // tracked, the way Procmon does (on the CREATE/INIT record's new process).
+    correlator.set_metadata(Arc::clone(&enrich.metadata));
     // Reused across batches so a steady event stream doesn't regrow it each time.
     let mut events: Vec<Event> = Vec::new();
     // A "parked" channel whose sender we keep alive: selecting on it blocks
@@ -203,7 +206,6 @@ fn handle_batch(
         if ev.process().is_none() {
             continue;
         }
-        resolve_metadata_if_process(&ev, enrich);
         if tx_b.send(ev).is_err() {
             break;
         }
@@ -217,22 +219,4 @@ fn emit_network(net: NetworkEvent, enrich: &Enrichment, tx_b: &Sender<Event>) {
         Arc::new(net),
         crate::event::ProcessSource::Live(proc),
     ));
-}
-
-/// On a process create/init event, resolves the image metadata (version strings
-/// and icons) synchronously and attaches it to the process record. Cached by
-/// image path, so only the first process of each image reads from disk.
-fn resolve_metadata_if_process(ev: &Event, enrich: &Enrichment) {
-    if ev.monitor_type() != MonitorType::Process {
-        return;
-    }
-    if !matches!(ev.notify_type(), proc_notify::CREATE | proc_notify::INIT) {
-        return;
-    }
-    if let Some(rec) = ev.process() {
-        if rec.meta().is_none() {
-            // `image_path` is already a DOS path (converted at parse time).
-            rec.set_meta(enrich.metadata.resolve(&rec.info.image_path));
-        }
-    }
 }

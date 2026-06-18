@@ -8,7 +8,6 @@
 //! (monitor-toggle gating, the Advanced Display rule set).
 
 use procmon_sdk::filter::{Column, FilterFields};
-use procmon_sdk::Relation::Contains;
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{CapturedEvent, EventCategory};
@@ -60,60 +59,29 @@ pub fn category_enabled(category: EventCategory, monitor: &MonitorToggles) -> bo
     }
 }
 
-/// The default noise-suppression rules toggled by the Event menu's "Advanced
-/// Display" item: excludes the monitoring tools themselves and the System process,
-/// the IRP/FastIO bookkeeping operations, and NTFS metadata files. Always appended
-/// at the end of the set so they evaluate after any user rules.
-pub fn advanced_display_rules() -> Vec<FilterRule> {
-    use FilterAction::Exclude;
-    use FilterColumn::{Operation, Path, ProcessName, Result};
-    use FilterRelation::{BeginsWith, EndsWith, Is};
+// Procmon's default display filter — the normal (non-advanced) view's exclude set
+// (our tools, the System process, IRP/FastIO bookkeeping, NTFS metadata). The single
+// source of truth lives in the SDK, shared with the example and the CLI/MCP noise
+// set; the GUI's Advanced Output toggle adds/removes it (see below).
+pub use procmon_sdk::default_display_filter;
 
-    let proc = |name: &str| FilterRule::new(ProcessName, Is, name, Exclude);
-    let ends = |name: &str| FilterRule::new(Path, EndsWith, name, Exclude);
-    let contains = |name: &str| FilterRule::new(Path, Contains, name, Exclude);
-    vec![
-        proc("OpenProcmon.exe"),
-        proc("Procmon.exe"),
-        proc("Procexp.exe"),
-        proc("Autoruns.exe"),
-        proc("Procmon64.exe"),
-        proc("Procexp64.exe"),
-        proc("System"),
-        FilterRule::new(Operation, BeginsWith, "IRP_MJ_", Exclude),
-        FilterRule::new(Operation, BeginsWith, "FASTIO_", Exclude),
-        FilterRule::new(Operation, BeginsWith, "FAST IO", Exclude),
-        FilterRule::new(Result, BeginsWith, "FAST IO", Exclude),
-        ends("pagefile.sys"),
-        ends("$Mft"),
-        ends("$MftMirr"),
-        ends("$LogFile"),
-        ends("$Volume"),
-        ends("$AttrDef"),
-        ends("$Root"),
-        ends("$Bitmap"),
-        ends("$Boot"),
-        ends("$BadClus"),
-        ends("$Secure"),
-        ends("$Upcase"),
-        contains("$Extend"),
-    ]
-}
-
-/// Whether the advanced-display default rules are all present (drives the Event
-/// menu's check state — clearing the filter or editing it away auto-unchecks).
+/// Whether Advanced Output is on (drives the Event menu's check state): true when
+/// the default display filter is *not* fully present — i.e. the low-level view that
+/// shows every event with raw `IRP_MJ_*`/`FASTIO_*` operation names. The normal,
+/// friendly+filtered view (all default rules present) reads as off.
 pub fn advanced_display_on(set: &FilterModel) -> bool {
-    advanced_display_rules().iter().all(|d| set.contains(d))
+    !default_display_filter().iter().all(|d| set.contains(d))
 }
 
-/// Adds (`on`) or removes (`!on`) the advanced-display default rules. Any existing
-/// copies are stripped first, so enabling always re-appends the full set at the
-/// very end (after the user's own rules).
+/// Enables (`on`) or disables Advanced Output. Advanced output removes the default
+/// display filter (show every event with low-level names); disabling re-appends the
+/// full default filter at the very end (after the user's own rules). Existing copies
+/// are always stripped first.
 pub fn set_advanced_display(set: &mut FilterModel, on: bool) {
-    let defaults = advanced_display_rules();
+    let defaults = default_display_filter();
     set.rules
         .retain(|r| !defaults.iter().any(|d| d.same_rule(r)));
-    if on {
+    if !on {
         set.rules.extend(defaults);
     }
 }

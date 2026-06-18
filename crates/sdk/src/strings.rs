@@ -281,7 +281,7 @@ pub fn class_event(monitor: MonitorType) -> &'static str {
 
 /// `FLTFL_CALLBACK_DATA_FAST_IO_OPERATION` (`fltKernel.h`): set in
 /// `LOG_FILE_OPT.Flags` when the operation arrived via the fast-I/O path, which
-/// selects the `FASTIO_*` name in non-advanced display.
+/// selects the `FASTIO_*` name in advanced output.
 const FAST_IO_OPERATION: u32 = 0x0000_0002;
 
 /// Operation display name for an event (cf. C++ `StrMapOperation(PLOG_ENTRY, bAdvance)`).
@@ -291,9 +291,11 @@ const FAST_IO_OPERATION: u32 = 0x0000_0002;
 /// just as the C++ function reads `pEntry->MonitorType`/`NotifyType` and
 /// `TO_EVENT_DATA(PLOG_FILE_OPT, pEntry)->MinorFunction`/`->Flags`.
 ///
-/// `advance` is the "Advanced Display" toggle (C++ `bAdvance`): when set, file
-/// operations use the friendly detail name; otherwise the raw `IRP_MJ_*` name, or
-/// the `FASTIO_*` name when the fast-I/O flag is set.
+/// `advance` is the "Advanced Output" toggle (real Procmon's Filter ▸ Enable
+/// Advanced Output): when set, file operations use the low-level `IRP_MJ_*` name
+/// (or the `FASTIO_*` name when the fast-I/O flag is set); otherwise the friendly
+/// detail name, which is the default view. (Note this is the *opposite* sense of
+/// the C++ reference's `bAdvance`, which returned the friendly name when set.)
 pub fn operation(ev: &Event, advance: bool) -> &'static str {
     if let Some(net) = ev.network() {
         return crate::parse::network::op_label(net.is_tcp, net.op);
@@ -367,12 +369,15 @@ pub fn reg_operation(notify: u16) -> &'static str {
 
 /// File operation name from a file `NotifyType` (= IRP major function + base).
 ///
-/// Faithful port of the file branch of C++ `StrMapOperation`: resolve the major to
-/// a [`gFileOptMap`](file_major) row, then
+/// Port of the file branch of C++ `StrMapOperation`, with the `advance` sense
+/// corrected to match real Procmon (advanced output = low-level names). Resolve
+/// the major to a [`gFileOptMap`](file_major) row, then
 /// - if the major has a sub-map, match the minor (`0xFF` = wildcard) and return the
-///   friendly name (`advance`), the `FASTIO_*` name (`fast_io`), or the row's raw
-///   `IRP_MJ_*` opt-name; an unmatched minor yields `"Unknown"`;
-/// - otherwise return the friendly name (`advance`) or the raw opt-name.
+///   friendly name (default), or — under advanced output (`advance`) — the
+///   `FASTIO_*` name (`fast_io`) or the row's raw `IRP_MJ_*` opt-name; an unmatched
+///   minor yields `"Unknown"`;
+/// - otherwise return the friendly name (default) or, under advanced output, the
+///   raw opt-name.
 pub fn file_operation(notify: u16, minor: u8, fast_io: bool, advance: bool) -> &'static str {
     // The driver stores `NotifyType = (UCHAR)(MajorFunction + FILE_NOTIFY_BASE)`
     // truncated to 8 bits, so the major is recovered with a wrapping u8 subtract
@@ -389,7 +394,7 @@ pub fn file_operation(notify: u16, minor: u8, fast_io: bool, advance: bool) -> &
             .find(|&&(m, _, _)| m == file_info_class::SUB_WILDCARD || m == minor)
         {
             Some(&(_, fast_io_name, sub_show)) => {
-                if advance {
+                if !advance {
                     sub_show
                 } else if fast_io {
                     fast_io_name
@@ -401,7 +406,7 @@ pub fn file_operation(notify: u16, minor: u8, fast_io: bool, advance: bool) -> &
             None => "Unknown",
         },
         None => {
-            if advance {
+            if !advance {
                 show_name
             } else {
                 opt_name
@@ -411,9 +416,9 @@ pub fn file_operation(notify: u16, minor: u8, fast_io: bool, advance: bool) -> &
 }
 
 /// One `gFileOptMap` row for an IRP major: `(opt_name, show_name, sub_table)`, where
-/// `opt_name` is the raw `IRP_MJ_*` / `FASTIO_*` name (C++ `lpOptName`), `show_name`
-/// the friendly "Advanced Display" name (`lpszShowName`), and `sub_table` the
-/// per-minor refinement map. `None` for unmapped majors (→ `"Unknown"`).
+/// `opt_name` is the raw `IRP_MJ_*` / `FASTIO_*` name (C++ `lpOptName`), shown under
+/// advanced output, `show_name` the friendly default-view name (`lpszShowName`), and
+/// `sub_table` the per-minor refinement map. `None` for unmapped majors (→ `"Unknown"`).
 type FileSub = &'static [(u8, &'static str, &'static str)];
 fn file_major(major: u8) -> Option<(&'static str, &'static str, Option<FileSub>)> {
     use file_info_class as fc;
@@ -817,61 +822,65 @@ mod tests {
 
     #[test]
     fn file_operation_minor_refinement() {
-        // (notify, minor, fast_io, advance)
+        // (notify, minor, fast_io, advance) — advance=false is the friendly default
+        // view; advance=true is advanced output (low-level IRP_MJ_* / FASTIO_*).
         let set_info = FILE_NOTIFY_BASE + irp_mj::SET_INFORMATION as u16;
-        // Advanced display: friendly detail name.
+        // Default view: friendly detail name.
         assert_eq!(
-            file_operation(set_info, 0x0a, false, true),
+            file_operation(set_info, 0x0a, false, false),
             "SetRenameInformationFile"
         );
-        // Non-advanced: the FASTIO_* name under the fast-I/O flag, else the raw
+        // Advanced output: the FASTIO_* name under the fast-I/O flag, else the raw
         // IRP_MJ_* opt-name (cf. C++ `lpszFastIoName` / `lpOptName`).
         assert_eq!(
-            file_operation(set_info, 0x0a, true, false),
+            file_operation(set_info, 0x0a, true, true),
             "FASTIO_SET_INFORMATION"
         );
         assert_eq!(
-            file_operation(set_info, 0x0a, false, false),
+            file_operation(set_info, 0x0a, false, true),
             "IRP_MJ_SET_INFORMATION"
         );
         // Unknown minor on a sub-mapped major → "Unknown" (C++ NULL fallthrough).
-        assert_eq!(file_operation(set_info, 0xfe, false, true), "Unknown");
+        assert_eq!(file_operation(set_info, 0xfe, false, false), "Unknown");
 
         let lock = FILE_NOTIFY_BASE + irp_mj::LOCK_CONTROL as u16;
-        assert_eq!(file_operation(lock, 1, false, true), "LockFile");
-        // Lock-control entries carry their own FASTIO_* name.
-        assert_eq!(file_operation(lock, 1, true, false), "FASTIO_LOCK");
+        assert_eq!(file_operation(lock, 1, false, false), "LockFile");
+        // Lock-control entries carry their own FASTIO_* name (advanced + fast-I/O).
+        assert_eq!(file_operation(lock, 1, true, true), "FASTIO_LOCK");
 
         let dir = FILE_NOTIFY_BASE + irp_mj::DIRECTORY_CONTROL as u16;
-        assert_eq!(file_operation(dir, 2, false, true), "NotifyChangeDirectory");
         assert_eq!(
-            file_operation(dir, 2, true, false),
+            file_operation(dir, 2, false, false),
+            "NotifyChangeDirectory"
+        );
+        assert_eq!(
+            file_operation(dir, 2, true, true),
             "FASTIO_DIRECTORY_CONTROL"
         );
 
         // Fast-I/O majors truncate below the base on the wire (the driver does
         // `(UCHAR)(major + 20)`); recovery must wrap. ACQUIRE_FOR_SECTION_SYNC
         // (0xFF) -> wire NotifyType (UCHAR)(0xFF + 20) == 19.
-        assert_eq!(file_operation(19, 0, false, true), "CreateFileMapping");
-        // No sub-map: non-advanced uses the raw opt-name.
+        assert_eq!(file_operation(19, 0, false, false), "CreateFileMapping");
+        // No sub-map: advanced output uses the raw opt-name.
         assert_eq!(
-            file_operation(19, 0, false, false),
+            file_operation(19, 0, false, true),
             "IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION"
         );
         let mount = (FILE_NOTIFY_BASE + irp_mj::VOLUME_MOUNT as u16) & 0xff;
-        assert_eq!(file_operation(mount, 0, false, true), "VolumeMount");
+        assert_eq!(file_operation(mount, 0, false, false), "VolumeMount");
 
         // PnP minor refinement.
         let pnp = FILE_NOTIFY_BASE + irp_mj::PNP as u16;
-        assert_eq!(file_operation(pnp, 0, false, true), "StartDevice");
+        assert_eq!(file_operation(pnp, 0, false, false), "StartDevice");
 
         // Read/Write carry a `0xFF` wildcard entry: any minor maps to the verb.
         let read = FILE_NOTIFY_BASE + irp_mj::READ as u16;
-        assert_eq!(file_operation(read, 0, false, true), "ReadFile");
-        assert_eq!(file_operation(read, 0x7c, false, true), "ReadFile");
-        assert_eq!(file_operation(read, 0x7c, true, false), "FASTIO_READ");
+        assert_eq!(file_operation(read, 0, false, false), "ReadFile");
+        assert_eq!(file_operation(read, 0x7c, false, false), "ReadFile");
+        assert_eq!(file_operation(read, 0x7c, true, true), "FASTIO_READ");
         let write = FILE_NOTIFY_BASE + irp_mj::WRITE as u16;
-        assert_eq!(file_operation(write, 0x10, false, true), "WriteFile");
+        assert_eq!(file_operation(write, 0x10, false, false), "WriteFile");
     }
 
     #[test]
@@ -886,7 +895,11 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(operation(&ev(3, FILE_NOTIFY_BASE), true), "CreateFile");
+        // Default (friendly) view is advance=false; file ops give the friendly name.
+        assert_eq!(operation(&ev(3, FILE_NOTIFY_BASE), false), "CreateFile");
+        // Advanced output gives the low-level IRP_MJ_* name for the same event.
+        assert_eq!(operation(&ev(3, FILE_NOTIFY_BASE), true), "IRP_MJ_CREATE");
+        // Process / registry names are unaffected by the toggle.
         assert_eq!(
             operation(&ev(2, reg_notify::SETVALUEKEY), true),
             "RegSetValue"

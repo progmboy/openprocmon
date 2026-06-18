@@ -64,7 +64,7 @@ openprocmon/
 - Live **filtering** and **highlighting** by process name, PID, operation, path, result, or category.
 - **Process tree**, and **activity summaries** for processes, files, registry, network, and cross-references.
 - **Call stack** view with per-frame module resolution.
-- Read and write **Procmon-compatible `.PML`** logs — capture with OpenProcMon and open in Sysinternals Process Monitor, or vice versa.
+- **Full `.PML` interoperability with Sysinternals Process Monitor** — files open both ways: capture with OpenProcMon and open the log in the real Process Monitor (event list, the per-process **Properties** dialog, and kernel-resolved **call stacks** all work), or open a Procmon-captured `.PML` here.
 - **Full-control Rust SDK** — drive everything programmatically: load/connect the driver, choose what to monitor, push filters, and consume the parsed event stream. The GUI is just one consumer (see [SDK example](#sdk-example)).
 - **Modern, GPU-accelerated UI** (GPUI) with a clean, contemporary design — light/dark themes and English/Chinese localization.
 
@@ -207,6 +207,49 @@ cargo run -p procmon-example -- --pml out.pml
 
 In the GUI, use **File ▸ Open** to load a `.PML`.
 
+## AI / MCP
+
+`procmon-cli` is a command-line and **MCP** front-end that lets an AI agent drive
+OpenProcMon is a capture-then-analyze tool: a capture writes a `.PML`, and every
+analysis reads one. The single `query` primitive (filter + group-by) answers the
+common questions ("what files did X write?", "registry persistence?", "network
+endpoints?") without flooding the model with raw events.
+
+```bash
+cargo build -p procmon-cli --release
+
+# Capture a program + its children for 10s (live capture needs Administrator):
+procmon-cli capture --name app.exe --launch "app.exe" --duration 10
+
+# Analyze any .PML (no elevation needed). The filter is an
+# expression (&& / || / ! / in (...)); see `vocab` for the full syntax:
+procmon-cli query --pml cap.pml --group-by Path \
+  --filter 'Category == "File System" && Operation == WriteFile'
+procmon-cli vocab            # exact column/operator/operation names + syntax
+procmon-cli --help           # all subcommands
+```
+
+Two ways to wire it to an agent:
+
+- **MCP server.** `procmon-cli mcp` serves the operations as MCP tools over stdio.
+  📖 See the **[full MCP guide](docs/mcp-guide.md)** ([中文](docs/mcp-guide_zh.md))
+  for client setup (Claude Code / Claude Desktop / Codex / Cursor …) and a worked
+  malware-`.PML` analysis. Quick start (Claude Code):
+
+  ```bash
+  claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp
+  ```
+
+  The server's `instructions` and the `list_filter_columns` tool teach the agent
+  the filter vocabulary and recipes, so no extra setup is needed.
+
+- **Skill (for CLI-driving agents).** Copy [`skills/procmon/`](skills/procmon/)
+  into your own `~/.claude/skills/` — it teaches an agent the `procmon-cli`
+  commands and the filter cookbook.
+
+Live capture requires Administrator (it loads the driver); analyzing a `.PML`
+does not.
+
 ## Driver compatibility
 
 You don't need your own code-signing certificate: the SDK is 100% compatible with
@@ -221,13 +264,6 @@ Monitor works, or as a starting point for your own EDR-style tooling.
   Running on 32-bit Windows is not supported and not currently planned.
 - **32-bit `.PML` files are not supported.** The PML reader/writer only handles the
   64-bit PML format; `.PML` logs produced on a 32-bit host will not parse.
-- **`.PML` files written by OpenProcMon can crash the original Process Monitor.**
-  The PML writer is not yet fully byte-compatible with the format Sysinternals
-  Process Monitor expects, so logs captured/saved with OpenProcMon may cause the
-  stock Procmon to crash when opened. Reading Procmon-produced `.PML` files in
-  OpenProcMon, and round-tripping OpenProcMon-written `.PML` files back through
-  OpenProcMon, work as expected. A fix to make the writer fully compatible is
-  planned.
 
 ## Status & roadmap
 
@@ -239,7 +275,7 @@ The Rust rewrite is under active development.
 - [x] GUI: event table, detail panel, filter/highlight, process tree, summaries
 - [x] Call stack with module resolution
 - [x] Save the current capture from the GUI
-- [ ] AI Mcp server and skills
+- [x] AI MCP server and skills (`procmon-cli` + `procmon-cli mcp`)
 - [x] Performance optimization
 - [ ] Boot logging capture
 

@@ -10,7 +10,7 @@
 //! # Read back a .PML (no driver needed) and print its events:
 //! cargo run -p procmon-example -- --pml out.pml
 //!
-//! # Apply the default "Advanced Display" exclude filter to any of the above:
+//! # Advanced output: low-level IRP_MJ_*/FASTIO_* operation names, no filtering:
 //! cargo run -p procmon-example -- --pml out.pml --advanced
 //! ```
 //!
@@ -19,9 +19,8 @@
 //! capture. Press Ctrl-C to exit live capture.
 
 use clap::Parser;
-use procmon_sdk::Relation::Contains;
 use procmon_sdk::{
-    Action, Column, DriverLoader, EventSource, FilterSet, MonitorFlags, PmlWriter, Relation, Rule,
+    default_display_filter, DriverLoader, EventSource, FilterSet, MonitorFlags, PmlWriter,
 };
 use std::error::Error;
 use std::path::PathBuf;
@@ -41,8 +40,9 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     save: Option<PathBuf>,
 
-    /// Apply the default "Advanced Display" exclude rules (hide the monitoring
-    /// tools, IRP/FastIO bookkeeping, and NTFS metadata files).
+    /// Advanced output (cf. Procmon's Filter ▸ Enable Advanced Output): show the
+    /// low-level IRP_MJ_*/FASTIO_* operation names and apply no filter (every event).
+    /// Without it, the demo uses the friendly names and the default display filter.
     #[arg(long)]
     advanced: bool,
 
@@ -54,11 +54,15 @@ struct Cli {
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    // The optional "Advanced Display" exclude rules, shared by every source.
+    // Advanced output shows every event (no filter); the default view applies
+    // Procmon's default display filter. The operation-name column follows suit via
+    // `operation_name_advanced(cli.advanced)` below.
     let filter = if cli.advanced {
-        FilterSet::new(advanced_display_rules())
-    } else {
         FilterSet::default()
+    } else {
+        // Procmon's default display filter (the single source of truth lives in
+        // `procmon_sdk::default_display_filter`, shared with the GUI and CLI).
+        FilterSet::new(default_display_filter())
     };
 
     // One unified entry point for both live capture and offline PML.
@@ -113,43 +117,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-/// The default "Advanced Display" exclude rules: the monitoring tools themselves
-/// and the System process, the IRP/FastIO bookkeeping operations, and NTFS
-/// metadata files. Always appended at the end of the set.
-fn advanced_display_rules() -> Vec<Rule> {
-    use Action::Exclude;
-    use Column::{Operation, Path, ProcessName, Result};
-    use Relation::{BeginsWith, EndsWith, Is};
-
-    let proc = |name: &str| Rule::new(ProcessName, Is, name, Exclude);
-    let ends = |name: &str| Rule::new(Path, EndsWith, name, Exclude);
-    let contains = |name: &str| Rule::new(Path, Contains, name, Exclude);
-    vec![
-        proc("OpenProcmon.exe"),
-        proc("Procmon.exe"),
-        proc("Procexp.exe"),
-        proc("Autoruns.exe"),
-        proc("Procmon64.exe"),
-        proc("Procexp64.exe"),
-        proc("System"),
-        Rule::new(Operation, BeginsWith, "IRP_MJ_", Exclude),
-        Rule::new(Operation, BeginsWith, "FASTIO_", Exclude),
-        Rule::new(Operation, BeginsWith, "FAST IO", Exclude),
-        Rule::new(Result, BeginsWith, "FAST IO", Exclude),
-        ends("pagefile.sys"),
-        ends("$Mft"),
-        ends("$MftMirr"),
-        ends("$LogFile"),
-        ends("$Volume"),
-        ends("$AttrDef"),
-        ends("$Root"),
-        ends("$Bitmap"),
-        ends("$Boot"),
-        ends("$BadClus"),
-        ends("$Secure"),
-        ends("$Upcase"),
-        contains("$Extend"),
-    ]
 }

@@ -19,15 +19,39 @@ use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
 use crate::process::ProcessRecord;
 
 const HEADER_SIZE: usize = 0x3a8;
+/// `sizeof(OSVERSIONINFOEXW)` — the version blob embedded in the header.
+const OS_VERSION_LEN: usize = 0x11c;
+
+/// A default `OSVERSIONINFOEXW` blob for writers without a live host snapshot
+/// (tests / offline saves): Win10-ish, NT platform, workstation. The live
+/// capture path overwrites this with the real struct (`system::host_info`).
+fn default_os_version() -> Vec<u8> {
+    let mut b = WBuf::new();
+    b.u32(OS_VERSION_LEN as u32); // dwOSVersionInfoSize
+    b.u32(10); // dwMajorVersion
+    b.u32(0); // dwMinorVersion
+    b.u32(0); // dwBuildNumber
+    b.u32(2); // dwPlatformId = VER_PLATFORM_WIN32_NT
+    b.fixed_utf16("", 0x100); // szCSDVersion[128]
+    b.u16(0); // wServicePackMajor
+    b.u16(0); // wServicePackMinor
+    b.u16(0); // wSuiteMask
+    b.u8(1); // wProductType = VER_NT_WORKSTATION
+    b.u8(0); // wReserved
+    b.d
+}
 
 /// Builds a PML byte image from added processes + events.
 pub struct PmlWriter {
     is_64bit: bool,
     pub computer_name: String,
     pub system_root: String,
-    pub windows_major: u32,
-    pub windows_minor: u32,
-    pub windows_build: u32,
+    /// Raw `OSVERSIONINFOEXW` bytes (284), written verbatim into the header just
+    /// as Procmon copies the struct `RtlGetVersion` filled. See
+    /// [`crate::system::host_info`] for the live source / [`default_os_version`].
+    pub os_version: Vec<u8>,
+    /// `SYSTEM_INFO.lpMaximumApplicationAddress` (the 64-bit-system tell).
+    pub max_app_address: u64,
     pub num_logical_processors: u32,
     pub ram_bytes: u64,
     processes: Vec<PmlProcess>,
@@ -36,6 +60,14 @@ pub struct PmlWriter {
     icons: Vec<PmlIcon>,
     /// Process seq → index in `processes`, for de-duping `push_event` sources.
     proc_index: HashMap<u32, u32>,
+    /// Live process records interned via `push_event`, keyed by their index in
+    /// `processes`. Their module list is re-read at [`to_bytes`](Self::to_bytes)
+    /// because image-load events keep arriving *after* the first event that
+    /// interned the process — snapshotting modules at intern time would freeze an
+    /// incomplete (often empty) list. Records added via [`add_process`](Self::add_process)
+    /// / [`add_system_process`](Self::add_system_process) are not here; their
+    /// modules are already final.
+    proc_records: HashMap<u32, Arc<ProcessRecord>>,
 }
 
 impl PmlWriter {
@@ -44,20 +76,87 @@ impl PmlWriter {
             is_64bit,
             computer_name: String::new(),
             system_root: "C:\\Windows".to_string(),
-            windows_major: 10,
-            windows_minor: 0,
-            windows_build: 0,
+            os_version: default_os_version(),
+            max_app_address: 0,
             num_logical_processors: 1,
             ram_bytes: 0,
             processes: Vec::new(),
             events: Vec::new(),
             icons: vec![PmlIcon::default()], // index 0 = empty placeholder
             proc_index: HashMap::new(),
+            proc_records: HashMap::new(),
         }
     }
 
     pub fn add_process(&mut self, process: PmlProcess) {
         self.processes.push(process);
+    }
+
+    /// Appends a synthetic System (PID 4) process carrying the loaded kernel
+    /// modules — exactly what Procmon stores so kernel-mode stack frames resolve.
+    /// Without it, Procmon dereferences an uninitialized kernel-module list and
+    /// crashes when resolving a kernel address (Properties dialog). Call once,
+    /// after all events, before finalizing.
+    ///
+    /// The identity strings mirror Procmon's System process: `"System"` for the
+    /// name/path/description/integrity, `NT AUTHORITY\SYSTEM` for the user, the
+    /// SYSTEM logon LUID (`0x3e7`), and the company/version read from the kernel
+    /// image (`ntoskrnl.exe`) version resource.
+    pub fn add_system_process(&mut self, modules: &[crate::system::KernelModule]) {
+        // Company/version come from the kernel image's version resource, like
+        // Procmon (so they track the running OS, not a hardcoded value).
+        let kernel = modules.iter().find(|m| {
+            let p = m.path.to_ascii_lowercase();
+            p.ends_with("ntoskrnl.exe")
+                || p.ends_with("ntkrnlmp.exe")
+                || p.ends_with("ntkrnlpa.exe")
+                || p.ends_with("ntkrpamp.exe")
+        });
+        let meta = kernel.map(|m| crate::metadata::MetadataCache::new().resolve(&m.path));
+        let company = meta
+            .as_ref()
+            .and_then(|m| m.company.clone())
+            .unwrap_or_else(|| "Microsoft Corporation".to_string());
+        let version = meta
+            .as_ref()
+            .and_then(|m| m.version.clone())
+            .unwrap_or_default();
+
+        let process_index = self.processes.len() as u32;
+        let modules = modules
+            .iter()
+            .map(|m| PmlModule {
+                base_address: m.base,
+                size: m.size,
+                image_path: Arc::from(m.path.as_str()),
+                version: Arc::from(""),
+                company: Arc::from(""),
+                description: Arc::from(""),
+                timestamp: 0,
+            })
+            .collect();
+        self.processes.push(PmlProcess {
+            process_index,
+            pid: 4,
+            parent_pid: 0,
+            authentication_id: 0x3e7, // SYSTEM logon session LUID
+            session: 0,
+            start_time: 0,
+            end_time: 0,
+            virtualized: false,
+            is_64bit: true,
+            integrity: Arc::from("System"),
+            user: Arc::from("NT AUTHORITY\\SYSTEM"),
+            process_name: Arc::from("System"),
+            image_path: Arc::from("System"),
+            command_line: Arc::from(""),
+            company: Arc::from(company.as_str()),
+            version: Arc::from(version.as_str()),
+            description: Arc::from("System"),
+            icon_small: 0,
+            icon_big: 0,
+            modules,
+        });
     }
 
     #[allow(dead_code)] // PML→PML round-trip test support
@@ -113,6 +212,9 @@ impl PmlWriter {
         }
         let index = self.processes.len() as u32;
         self.proc_index.insert(seq, index);
+        // Keep the live record so its (still-growing) module list is re-read at
+        // finalize, not frozen at this first event.
+        self.proc_records.insert(index, Arc::clone(rec));
         let mut p = pml_process_from(rec, index);
         // The PE icon bytes (RT_ICON) are already in ICONIMAGE form — register them
         // into the icon table so the PML carries them for offline rendering.
@@ -152,21 +254,55 @@ impl PmlWriter {
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let pv = self.sizeof_pvoid();
 
+        // Finalize the process table: a live-interned process re-reads its module
+        // list now, because image-load events arrive after the first event that
+        // interned it (freezing the list at intern time loses every later module).
+        // Records added pre-built (round-trip / System process) pass through.
+        let processes: Vec<PmlProcess> = self
+            .processes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| match self.proc_records.get(&(i as u32)) {
+                Some(rec) => {
+                    let mut p = p.clone();
+                    p.modules = pml_modules_from(rec);
+                    p
+                }
+                None => p.clone(),
+            })
+            .collect();
+
         // Intern every process/module string into the dedup table (index 0 = "").
         let mut strings = Interner::new();
-        for p in &self.processes {
+        for p in &processes {
             intern_process(&mut strings, p);
         }
+
+        // Procmon writes events in strictly non-decreasing timestamp order, and
+        // its viewer indexes by time — an out-of-order record renders as a blank
+        // row. We emit events in POST-completion order (when correlation finishes)
+        // but stamp them with the operation's start time, so a fast op that
+        // started later can complete first → a time inversion. Re-order by start
+        // time (stable, so equal timestamps keep capture order) to match Procmon.
+        let mut order: Vec<usize> = (0..self.events.len()).collect();
+        order.sort_by_key(|&i| self.events[i].date_filetime);
 
         // --- events section (records back-to-back, absolute offsets collected) ---
         let mut events_buf = WBuf::new();
         let mut event_offsets: Vec<u32> = Vec::with_capacity(self.events.len());
         let off_events = HEADER_SIZE;
-        for e in &self.events {
+        for &i in &order {
+            let e = &self.events[i];
             event_offsets.push((off_events + events_buf.len()) as u32);
             encode_event(&mut events_buf, e, pv);
         }
 
+        let mut eoff_buf = WBuf::new();
+        for &o in &event_offsets {
+            eoff_buf.u32(o);
+            eoff_buf.u8(0); // flags
+        }
+        let proc_buf = encode_processes(&processes, &strings, pv);
         let strings_buf = encode_strings(&strings);
         let icon_buf = encode_icons(&self.icons);
         let hosts_buf = {
@@ -176,19 +312,17 @@ impl PmlWriter {
             b
         };
 
-        // Absolute offsets of the trailing sections.
-        let off_strings = off_events + events_buf.len();
+        // Section order MUST match Procmon: it memory-maps from
+        // `process_table_offset` to EOF and reaches the strings/icon tables as
+        // positive deltas from the process table, so the physical order has to be
+        // events -> event-offset array -> process table -> strings -> icons ->
+        // hosts. Putting the process table last makes those deltas negative and
+        // crashes Procmon (sub_140057FF0 dereferences before the mapped view).
+        let off_eoff = off_events + events_buf.len();
+        let off_proc = off_eoff + eoff_buf.len();
+        let off_strings = off_proc + proc_buf.len();
         let off_icon = off_strings + strings_buf.len();
         let off_hosts = off_icon + icon_buf.len();
-        let off_eoff = off_hosts + hosts_buf.len();
-        let off_proc = off_eoff + event_offsets.len() * 5;
-
-        let mut eoff_buf = WBuf::new();
-        for &o in &event_offsets {
-            eoff_buf.u32(o);
-            eoff_buf.u8(0); // flags
-        }
-        let proc_buf = encode_processes(&self.processes, &strings, pv);
 
         // --- header ---
         let header = self.encode_header(HeaderOffsets {
@@ -201,15 +335,15 @@ impl PmlWriter {
             hosts_and_ports_offset: off_hosts as u64,
         });
 
-        // Assemble: header, events, strings, icon, hosts, event-offsets, processes.
-        let mut out = Vec::with_capacity(off_proc + proc_buf.len());
+        // Assemble in the Procmon-compatible order (see the offset note above).
+        let mut out = Vec::with_capacity(off_hosts + hosts_buf.len());
         out.extend_from_slice(&header);
         out.extend_from_slice(&events_buf.d);
+        out.extend_from_slice(&eoff_buf.d);
+        out.extend_from_slice(&proc_buf.d);
         out.extend_from_slice(&strings_buf.d);
         out.extend_from_slice(&icon_buf.d);
         out.extend_from_slice(&hosts_buf.d);
-        out.extend_from_slice(&eoff_buf.d);
-        out.extend_from_slice(&proc_buf.d);
         Ok(out)
     }
 
@@ -227,20 +361,20 @@ impl PmlWriter {
         b.u32(self.is_64bit as u32);
         b.fixed_utf16(&self.computer_name, 0x20);
         b.fixed_utf16(&self.system_root, 0x208);
-        b.u32(o.number_of_events);
-        b.zeros(8); // unknown
-        b.u64(o.events_offset);
-        b.u64(o.events_offsets_array_offset);
-        b.u64(o.process_table_offset);
-        b.u64(o.strings_table_offset);
-        b.u64(o.icon_table_offset);
-        b.zeros(12); // unknown
-        b.u32(self.windows_major);
-        b.u32(self.windows_minor);
-        b.u32(self.windows_build);
-        b.u32(0); // build after decimal
-        b.fixed_utf16("", 0x32); // service pack
-        b.zeros(0xd6); // unknown
+        b.u32(o.number_of_events); // 0x234
+        b.zeros(8); // 0x238 reserved (zero in real Procmon logs)
+        b.u64(o.events_offset); // 0x240
+        b.u64(o.events_offsets_array_offset); // 0x248
+        b.u64(o.process_table_offset); // 0x250
+        b.u64(o.strings_table_offset); // 0x258
+        b.u64(o.icon_table_offset); // 0x260, ends 0x268
+                                    // 0x268: SYSTEM_INFO.lpMaximumApplicationAddress (GetSystemInfo).
+        b.u64(self.max_app_address);
+        // 0x270: the OSVERSIONINFOEXW (284 bytes) verbatim, exactly as Procmon
+        // copies the struct RtlGetVersion filled. Clamp/pad to 284 for safety.
+        let n = self.os_version.len().min(OS_VERSION_LEN);
+        b.bytes(&self.os_version[..n]);
+        b.zeros(OS_VERSION_LEN - n); // -> ends 0x38C
         b.u32(self.num_logical_processors);
         b.u64(self.ram_bytes);
         b.u64(HEADER_SIZE as u64); // header_size
@@ -283,21 +417,6 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
     let company = meta_str(meta.and_then(|m| m.company.as_ref()));
     let version = meta_str(meta.and_then(|m| m.version.as_ref()));
     let description = meta_str(meta.and_then(|m| m.description.as_ref()));
-    // Loaded modules (the SDK module record has only base/size/path; PML's
-    // per-module version strings are left empty).
-    let modules = rec
-        .modules()
-        .iter()
-        .map(|m| PmlModule {
-            base_address: m.base,
-            size: m.size,
-            image_path: Arc::from(crate::path::nt_to_dos(&m.path).as_str()),
-            version: Arc::from(""),
-            company: Arc::from(""),
-            description: Arc::from(""),
-            timestamp: 0,
-        })
-        .collect();
     PmlProcess {
         process_index: index,
         pid: info.pid,
@@ -318,8 +437,28 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         description,
         icon_small: 0,
         icon_big: 0,
-        modules,
+        // Filled at finalize from the (then-complete) record — see `to_bytes`.
+        modules: pml_modules_from(rec),
     }
+}
+
+/// Converts a record's loaded modules to PML module entries. The SDK module
+/// record carries only base/size/path; PML's per-module version strings are left
+/// empty. Called both when the process is first interned and again at finalize
+/// (`to_bytes`), where the list is complete.
+fn pml_modules_from(rec: &ProcessRecord) -> Vec<PmlModule> {
+    rec.modules()
+        .iter()
+        .map(|m| PmlModule {
+            base_address: m.base,
+            size: m.size,
+            image_path: Arc::from(crate::path::nt_to_dos(&m.path).as_str()),
+            version: Arc::from(""),
+            company: Arc::from(""),
+            description: Arc::from(""),
+            timestamp: 0,
+        })
+        .collect()
 }
 
 struct HeaderOffsets {
@@ -487,7 +626,15 @@ fn encode_process(p: &PmlProcess, strings: &Interner, pv: usize) -> WBuf {
     b.u32(strings.index_of(&p.description));
     b.u32(p.icon_small); // icon index (small)
     b.u32(p.icon_big); // icon index (big)
-    b.pvoid(0, pv); // unknown
+                       // Module-storage flag (low byte at entry offset 96). Procmon maps the process
+                       // struct zero-copy onto this PML entry and reads the byte at +0x60 as
+                       // "modules stored as an inline array" (1) vs "linked list" (0). On disk it is
+                       // always an array, so it MUST be 1: with 0, Procmon's Properties dialog takes
+                       // the linked-list branch and dereferences the module count (offset 104) as a
+                       // list-head pointer → crash (IDA `sub_140086420`; even a 0-module process
+                       // crashes on `[0]`). Real logs store 1 here (upper 7 bytes are live-struct
+                       // leftovers Procmon never reads back).
+    b.pvoid(1, pv);
     b.u32(p.modules.len() as u32);
     for m in &p.modules {
         b.pvoid(0, pv); // unknown
@@ -608,6 +755,47 @@ mod tests {
             assert_eq!(proc.pid, 1234);
             assert_eq!(&*proc.process_name, "chrome.exe");
         }
+    }
+
+    /// Events must be written in non-decreasing timestamp order: Procmon's viewer
+    /// indexes by time and renders an out-of-order record as a blank row. We emit
+    /// in completion order (which can invert start times), so the writer re-sorts.
+    #[test]
+    fn events_written_in_timestamp_order() {
+        let mut w = PmlWriter::new(true);
+        w.add_process(PmlProcess {
+            process_index: 0,
+            pid: 1,
+            is_64bit: true,
+            ..Default::default()
+        });
+        // Add events out of order (descending), with one tie at 200.
+        for (i, ft) in [300u64, 100, 200, 200].into_iter().enumerate() {
+            w.add_event(PmlEvent {
+                process_index: 0,
+                tid: i as u32, // tie-break check: the first 200 (tid 2) stays first
+                class: EventClass::File,
+                operation: 23,
+                date_filetime: ft,
+                ..Default::default()
+            });
+        }
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let times: Vec<u64> = (0..r.len())
+            .map(|i| r.event(i).unwrap().date_filetime)
+            .collect();
+        assert_eq!(
+            times,
+            vec![100, 200, 200, 300],
+            "events must be time-sorted"
+        );
+        // Stable: the earlier-added 200 (tid 2) precedes the later 200 (tid 3).
+        assert_eq!(r.event(1).unwrap().tid, 2);
+        assert_eq!(r.event(2).unwrap().tid, 3);
     }
 
     /// A live (driver-form) registry event saved to PML keeps its resolved hive
@@ -866,6 +1054,93 @@ mod tests {
         let big = r.icon(p.icon_big).expect("big icon");
         assert_eq!(&*big.data, [0xBB; 32].as_slice());
         assert_eq!(big.dimension, 32);
+    }
+
+    /// A module that loads *after* the process's first event (the common case:
+    /// image-load events trail the create/first event) must still reach the PML.
+    /// Regression for the intern-at-first-event freeze that dropped late modules
+    /// (e.g. a short-lived process showed an empty module list); the writer now
+    /// re-reads the record's module list at finalize.
+    #[test]
+    fn late_loaded_module_reaches_pml() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{Module, ProcessInfo, ProcessRecord};
+
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 9,
+            pid: 4242,
+            image_path: "\\Device\\HarddiskVolume1\\Windows\\notepad.exe".into(),
+            ..Default::default()
+        });
+        // One module known at the first event.
+        rec.add_module(Module {
+            base: 0x1000,
+            size: 0x2000,
+            path: "\\Device\\HarddiskVolume1\\Windows\\System32\\ntdll.dll".into(),
+        });
+
+        let late = std::sync::Arc::clone(&rec);
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev); // interns the process now (one module)
+                           // A second module loads afterwards (image-load arrives after the event).
+        late.add_module(Module {
+            base: 0x5000,
+            size: 0x3000,
+            path: "\\Device\\HarddiskVolume1\\Windows\\System32\\kernel32.dll".into(),
+        });
+
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let e = r.event(0).expect("event");
+        let p = r.process(e.process_index).expect("process");
+        assert_eq!(p.modules.len(), 2, "late module must be in the PML");
+        assert!(p
+            .modules
+            .iter()
+            .any(|m| m.image_path.ends_with("kernel32.dll")));
+    }
+
+    /// Every process entry's module-storage flag (low byte at entry offset 96)
+    /// must be 1, or Procmon's Properties dialog dereferences the module count as
+    /// a list-head pointer and crashes. Verified against real logs (offset 96 low
+    /// byte = 0x01). Guards the raw on-disk byte the reader otherwise skips.
+    #[test]
+    fn process_entry_has_array_storage_flag() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{ProcessInfo, ProcessRecord};
+
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 3,
+            pid: 1234,
+            image_path: "\\Device\\HarddiskVolume1\\Windows\\notepad.exe".into(),
+            ..Default::default()
+        });
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev);
+        let bytes = w.to_bytes().expect("serialize");
+
+        // Walk header → process table → first entry, check the flag byte at +96.
+        let pt = u64::from_le_bytes(bytes[0x250..0x258].try_into().unwrap()) as usize;
+        let count = u32::from_le_bytes(bytes[pt..pt + 4].try_into().unwrap()) as usize;
+        assert!(count >= 1);
+        let off_arr = pt + 4 + count * 4; // after count + index array
+        let rel = u32::from_le_bytes(bytes[off_arr..off_arr + 4].try_into().unwrap()) as usize;
+        let entry = pt + rel;
+        assert_eq!(
+            bytes[entry + 96],
+            1,
+            "module-storage flag must be 1 (array)"
+        );
     }
 }
 

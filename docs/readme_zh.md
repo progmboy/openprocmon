@@ -63,7 +63,7 @@ openprocmon/
 - 按进程名、PID、操作、路径、结果或类别进行实时 **过滤** 和 **高亮**。
 - **进程树**，以及针对进程、文件、注册表、网络和交叉引用的 **活动汇总**。
 - 带每帧模块解析的 **调用栈** 视图。
-- 读写 **Procmon 兼容的 `.PML`** 日志——用 OpenProcMon 捕获并在 Sysinternals Process Monitor 中打开，反之亦然。
+- **与 Sysinternals Process Monitor 完全互通的 `.PML`**——文件双向互通：用 OpenProcMon 捕获并在原版 Process Monitor 中打开（事件列表、单进程 **属性** 对话框、内核解析的 **调用栈** 均正常），也可在本工具中打开原版 Procmon 抓取的 `.PML`。
 - **功能完整的 Rust SDK**——以编程方式驱动一切：加载/连接驱动、选择监控内容、推送过滤器、消费解析后的事件流。GUI 只是其中一个消费者（见 [SDK 示例](#sdk-示例)）。
 - **现代化、GPU 加速的 UI**（GPUI），设计简洁——支持浅色/深色主题和中英文本地化。
 
@@ -203,6 +203,45 @@ cargo run -p procmon-example -- --pml out.pml
 
 在 GUI 中，使用 **文件 ▸ 打开** 加载 `.PML`。
 
+## AI / MCP
+
+`procmon-cli` 是一个命令行 + **MCP** 前端，让 AI agent 驱动 OpenProcMon——一个
+捕获-分析工具：捕获写出一个 `.PML`，所有分析都读这个文件。一个万能的 `query` 原语（过滤 +
+分组聚合）就能回答常见问题（"X 写了哪些文件？""注册表持久化？""连了哪些外网？"），而不会用海量原始
+事件淹没模型。
+
+```bash
+cargo build -p procmon-cli --release
+
+# 捕获某程序及其子进程 10 秒（实时捕获需要管理员权限）：
+procmon-cli capture --name app.exe --launch "app.exe" --duration 10
+
+# 分析任意 .PML（无需提权）。过滤器是表达式
+# （&& / || / ! / in (...)）；完整语法见 `vocab`：
+procmon-cli query --pml cap.pml --group-by Path \
+  --filter 'Category == "File System" && Operation == WriteFile'
+procmon-cli vocab            # 精确的列/运算符/操作名 + 语法
+procmon-cli --help           # 全部子命令
+```
+
+两种接入 agent 的方式：
+
+- **MCP 服务器**：`procmon-cli mcp` 通过 stdio 把这些操作作为 MCP 工具提供。
+  📖 详见 **[MCP 使用文档](mcp-guide_zh.md)**（[English](mcp-guide.md)）：各客户端
+  接入（Claude Code / Claude Desktop / Codex / Cursor …）+ 一个完整的恶意样本 `.PML`
+  分析实战。快速开始（Claude Code）：
+
+  ```bash
+  claude mcp add --transport stdio --scope user openprocmon -- procmon-cli mcp
+  ```
+
+  服务器的 `instructions` 和 `list_filter_columns` 工具会教 agent 过滤词汇与配方，无需额外设置。
+
+- **Skill（给用 CLI 的 agent）**：把 [`skills/procmon/`](../skills/procmon/) 复制进你自己的
+  `~/.claude/skills/`——它教 agent 用 `procmon-cli` 命令和过滤器菜谱。
+
+实时捕获需要管理员权限（要加载驱动）；分析 `.PML` 不需要。
+
 ## 驱动兼容性
 
 你不需要自己的代码签名证书：SDK 与原版 Process Monitor 驱动 100% 兼容，因此可以直接用原版 Procmon 驱动来驱动它。反过来，本驱动也可以替换原版，用于研究 Process Monitor 的工作原理，或作为你自己 EDR 类工具的起点。
@@ -214,12 +253,6 @@ cargo run -p procmon-example -- --pml out.pml
   暂不支持，也没有支持计划。
 - **不支持 32 位 `.PML` 文件。** PML 读写器只处理 64 位 PML 格式；在 32 位主机上
   生成的 `.PML` 日志无法解析。
-- **OpenProcMon 写出的 `.PML` 文件可能导致原版 Process Monitor 崩溃。**
-  PML 写入器目前尚未与 Sysinternals Process Monitor 期望的格式完全字节兼容，
-  因此用 OpenProcMon 捕获/保存的日志在原版 Procmon 中打开时可能导致其崩溃。
-  在 OpenProcMon 中读取由 Procmon 生成的 `.PML` 文件，以及将 OpenProcMon 写出的
-  `.PML` 文件在 OpenProcMon 中往返读取，均能正常工作。让写入器完全兼容的修复
-  已在计划中。
 
 ## 状态与路线图
 
@@ -231,7 +264,7 @@ Rust 重写正在积极开发中。
 - [x] GUI：事件表格、详情面板、过滤/高亮、进程树、汇总
 - [x] 带模块解析的调用栈
 - [x] 从 GUI 保存当前捕获
-- [ ] AI Mcp服务器和skills
+- [x] AI MCP 服务器和 skills（`procmon-cli` + `procmon-cli mcp`）
 - [x] 性能优化
 - [ ] 开机日志捕获
 

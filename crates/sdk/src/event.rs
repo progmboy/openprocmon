@@ -117,8 +117,8 @@ impl EventClass {
         match self {
             Self::Process => crate::strings::process_operation(code),
             Self::Registry => crate::strings::reg_operation(code),
-            // Canonical (advanced) name with a minor-function fallback of 0.
-            Self::File => crate::strings::file_operation(code, 0, false, true),
+            // Canonical (friendly) name with a minor-function fallback of 0.
+            Self::File => crate::strings::file_operation(code, 0, false, false),
             Self::Network => crate::network::NetOp::from_pml(code).name(),
             Self::Profiling => crate::strings::profiling_operation(code),
             Self::Other => "<Unknown>",
@@ -681,18 +681,19 @@ impl Event {
         self.post_data().and_then(crate::kernel_types::cast::<T>)
     }
 
-    /// The operation's canonical display name (cf. C++ `StrMapOperation`, advanced).
-    /// For file events the IRP minor function refines it (e.g.
-    /// `QueryStandardInformationFile`). This is the stable name used for filtering,
-    /// search and export — independent of the GUI's display toggle; the toggle-aware
-    /// variant is [`operation_name_advanced`](Self::operation_name_advanced).
+    /// The operation's canonical (friendly) display name. For file events the IRP
+    /// minor function refines it (e.g. `QueryStandardInformationFile`). This is the
+    /// stable name used for filtering, search and export — independent of the GUI's
+    /// display toggle; the toggle-aware variant is
+    /// [`operation_name_advanced`](Self::operation_name_advanced).
     pub fn operation_name(&self) -> &'static str {
-        crate::strings::operation(self, true)
+        crate::strings::operation(self, false)
     }
 
-    /// Operation name honoring the "Advanced Display" toggle (C++ `bAdvance`): the
-    /// friendly detail name when `advance`, otherwise the raw `IRP_MJ_*` name (or the
-    /// `FASTIO_*` name when the file record's fast-I/O flag is set).
+    /// Operation name honoring the "Advanced Output" toggle (real Procmon's Filter ▸
+    /// Enable Advanced Output): the low-level `IRP_MJ_*` name when `advance` (or the
+    /// `FASTIO_*` name when the file record's fast-I/O flag is set), otherwise the
+    /// friendly detail name — which is the default view.
     pub fn operation_name_advanced(&self, advance: bool) -> &'static str {
         crate::strings::operation(self, advance)
     }
@@ -739,6 +740,28 @@ impl Event {
                 EventClass::Process => crate::parse::proc::ProcView::new(self).detail(),
                 _ => String::new(),
             },
+        }
+    }
+
+    /// A structured, category-specific field by name (e.g. network `RemoteAddress`
+    /// / `NetBytes`), read straight from the decoded event. These are the query
+    /// layer's extension fields — kept out of the Procmon-mirrored `Column` set so
+    /// per-category detail doesn't bloat it. `None` if this event has no such field.
+    pub fn struct_field(&self, name: &str) -> Option<std::borrow::Cow<'_, str>> {
+        match &self.backing {
+            Backing::Network(n) => crate::parse::network::NetView::new(n)
+                .field(name)
+                .map(std::borrow::Cow::Owned),
+            _ => None,
+        }
+    }
+
+    /// The numeric value of a structured field (for numeric compare / aggregation);
+    /// `None` for a non-numeric or unknown field.
+    pub fn struct_number(&self, name: &str) -> Option<i64> {
+        match &self.backing {
+            Backing::Network(n) => crate::parse::network::NetView::new(n).number(name),
+            _ => None,
         }
     }
 }
