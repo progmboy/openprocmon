@@ -144,10 +144,9 @@ args = ["mcp"]
 
 > **自己动手试。** 下面用的样本是
 > [BitravenS/Cloudflare-malware](https://github.com/BitravenS/Cloudflare-malware)
-> 仓库里的 **`Logfile.pml`**。下载这个 `.PML`、存到本地,让 agent 打开它即可 —— 分析不需要
-> 管理员、不需要驱动,人人可复现。
+> 仓库里的 **`Logfile.pml`**。下载这个 `.PML`、存到本地,让 agent 打开它即可
 
-整个分析全程都是**自然语言提问** —— 你完全不用写过滤器或工具调用。一段真实对话:
+一段真实对话:
 
 > **你 ——** *打开 `Logfile.pml`,告诉我里面有什么。*
 >

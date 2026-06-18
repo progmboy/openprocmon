@@ -163,11 +163,9 @@ themselves) — if you want *everything*, just say so ("include the noise").
 
 > **Try it yourself.** The sample below is **`Logfile.pml`** from
 > [BitravenS/Cloudflare-malware](https://github.com/BitravenS/Cloudflare-malware).
-> Download that `.PML`, save it locally, and ask the agent to open it — analysis
-> needs no Administrator and no driver, so anyone can reproduce this.
+> Download that `.PML`, save it locally, and ask the agent to analyze it
 
-The whole investigation is **plain-English questions** — you never write a filter
-or a tool call. A real triage conversation:
+A real triage conversation:
 
 > **You —** *Open `Logfile.pml` and tell me what's in it.*
 >
