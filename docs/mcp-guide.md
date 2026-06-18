@@ -116,7 +116,9 @@ ask for.
 
 - **`query_events`** — the workhorse. Find events, or summarize a column into
   distinct values + counts (e.g. "what files were written").
-- **`process_tree`** / **`list_processes`** — the parent→child tree / a flat list.
+- **`process_tree`** — the parent→child spawn tree (structure + names).
+- **`list_processes`** — processes with identity + a clipped command line
+  (paginated; the full command line is in `get_process`).
 - **`get_process`** — one process's identity + loaded modules.
 - **`get_event`** — one event's full detail, including its call stack.
 - **`summary`** / **`pml_info`** — quick overview / metadata (event count,
@@ -213,9 +215,13 @@ touched, never the bytes; for "what did it actually steal/send", ask about the
 
 ## 6. Tips & troubleshooting
 
+- **Responses are size-capped server-side.** Every tool result is bounded (~48 KB);
+  if a request would exceed that, the server returns a short "narrow it" hint
+  (use `group_by` / a filter / `get_process`) instead of a wall of data — so even
+  a huge capture can't blow up your context. `list_processes` is paginated and
+  `process_tree` returns just the pid/name structure for the same reason.
 - **Ask for summaries, not dumps.** "Group the writes by path", "which processes
-  are busiest" — the agent returns counts instead of thousands of raw rows. Big
-  raw results get truncated to a file anyway.
+  are busiest" — the agent returns counts instead of thousands of raw rows.
 - **Capture not working?** Ask the agent to check `driver_status` — it reports
   driver reachability, whether you're elevated, and what each tool can do.
 - **Same vocabulary on the CLI.** Everything here also works from the terminal:

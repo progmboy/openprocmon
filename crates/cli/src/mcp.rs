@@ -178,6 +178,16 @@ struct SourceOnly {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ListArgs {
+    #[serde(flatten)]
+    source: Source,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct ExportArgs {
     #[serde(flatten)]
     source: Source,
@@ -589,23 +599,51 @@ impl ProcmonServer {
     }
 
     #[tool(
-        description = "All processes seen in the capture (flat list with identity + command line)."
+        description = "Processes in the capture (paginated): identity + a clipped command line. \
+        For a quick overview prefer query_events with group_by=ProcessName; for one process's \
+        full command line + modules use get_process(pid). Args: offset, limit (default 100)."
     )]
     async fn list_processes(
         &self,
-        Parameters(a): Parameters<SourceOnly>,
+        Parameters(a): Parameters<ListArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.analyze(a.source, move |r| Ok(core::list_processes(r)))
-            .await
+        let (offset, limit) = (a.offset, a.limit);
+        self.analyze(a.source, move |r| {
+            let all = core::list_processes(r);
+            let total = all.len();
+            let truncated = offset.saturating_add(limit) < total;
+            let mut page: Vec<core::ProcessNode> =
+                all.into_iter().skip(offset).take(limit).collect();
+            for n in &mut page {
+                clip(&mut n.command_line, MAX_CMDLINE);
+            }
+            Ok(serde_json::json!({
+                "total": total,
+                "offset": offset,
+                "returned": page.len(),
+                "truncated": truncated,
+                "processes": page,
+            }))
+        })
+        .await
     }
 
-    #[tool(description = "The parent->child process tree of the capture.")]
+    #[tool(
+        description = "The parent->child process tree (pid + name structure). Use get_process(pid) \
+        for a node's full command line + modules."
+    )]
     async fn process_tree(
         &self,
         Parameters(a): Parameters<SourceOnly>,
     ) -> Result<CallToolResult, McpError> {
-        self.analyze(a.source, move |r| Ok(core::process_tree(r)))
-            .await
+        self.analyze(a.source, move |r| {
+            let tree = core::process_tree(r);
+            Ok(serde_json::json!({
+                "total_processes": count_tree(&tree),
+                "tree": compact_tree(&tree),
+            }))
+        })
+        .await
     }
 
     #[tool(description = "PML metadata: event count, computer name, OS build, process count.")]
@@ -765,8 +803,68 @@ fn parse_filter_opt(filter: &FilterExpr) -> Result<Option<core::Expr>, McpError>
 }
 
 /// Serializes `value` as pretty JSON in a single text content block.
+/// A tool response above this many bytes would bloat the model's context window,
+/// so [`json`] returns guidance instead of the payload; the list/tree tools
+/// paginate or compact to stay well under it.
+const MAX_RESPONSE_BYTES: usize = 48 * 1024;
+/// Command lines are clipped to this in list views (a browser/Electron command
+/// line is often 1–2 KB); the full line is available via `get_process`.
+const MAX_CMDLINE: usize = 256;
+
+/// Truncates `s` in place to at most `max` bytes on a char boundary, marking it
+/// with an ellipsis when clipped.
+fn clip(s: &mut String, max: usize) {
+    if s.len() <= max {
+        return;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s.truncate(end);
+    s.push('…');
+}
+
+/// A compact process tree — pid / parent_pid / name / children only, so even a
+/// few-hundred-process tree fits the response budget. Per-node detail (command
+/// line, modules, user, …) is a `get_process(pid)` away.
+fn compact_tree(nodes: &[core::ProcessNode]) -> Vec<serde_json::Value> {
+    nodes
+        .iter()
+        .map(|n| {
+            let mut o = serde_json::json!({
+                "pid": n.pid,
+                "parent_pid": n.parent_pid,
+                "name": n.name,
+            });
+            if !n.children.is_empty() {
+                o["children"] = serde_json::Value::Array(compact_tree(&n.children));
+            }
+            o
+        })
+        .collect()
+}
+
+fn count_tree(nodes: &[core::ProcessNode]) -> usize {
+    nodes.iter().map(|n| 1 + count_tree(&n.children)).sum()
+}
+
 fn json<T: serde::Serialize>(value: &T) -> Result<CallToolResult, McpError> {
-    let text = serde_json::to_string_pretty(value).map_err(internal)?;
+    // Compact (not pretty): the model reads this, so whitespace is pure overhead.
+    let text = serde_json::to_string(value).map_err(internal)?;
+    if text.len() > MAX_RESPONSE_BYTES {
+        let msg = format!(
+            "Response is too large for the model context ({} KB; cap {} KB). Narrow the \
+             request instead of fetching everything:\n\
+             • Processes overview → query_events with group_by=ProcessName.\n\
+             • Events → add a filter and/or group_by (e.g. group_by=Path), or lower `limit`.\n\
+             • One process's full detail → get_process(pid).\n\
+             • The complete data → export(format=csv|xml|pml, out_path).",
+            text.len() / 1024,
+            MAX_RESPONSE_BYTES / 1024,
+        );
+        return Ok(CallToolResult::success(vec![Content::text(msg)]));
+    }
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
