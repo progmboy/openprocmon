@@ -265,6 +265,21 @@ mod tests {
         // And the registry side, with the emoji crossing the `\REGISTRY\` length.
         assert_eq!(reg_normalize("\\REGISTR🌏nope", None), "\\REGISTR🌏nope");
         assert_eq!(reg_normalize("🌏", None), "🌏");
+
+        // Same class of bug for 3-byte CJK: `中` at bytes 8..11 straddles the
+        // `\REGISTRY\` prefix length (10), and a CJK segment crossing a volume /
+        // device prefix length must also pass through rather than panic.
+        assert_eq!(reg_normalize("\\REGISTR中文", None), "\\REGISTR中文");
+        assert_eq!(
+            reg_normalize("\\REGISTRY\\MACHINE\\软件\\中文键", None),
+            "HKLM\\软件\\中文键"
+        );
+        assert_eq!(
+            convert_with("\\Device\\中文卷\\路径", &[], "C:\\Windows"),
+            None
+        );
+        let cjk = "C:\\用户\\文档\\文件.txt";
+        assert_eq!(convert_with(cjk, &[], "C:\\Windows"), Some(cjk.to_string()));
     }
 
     #[test]
