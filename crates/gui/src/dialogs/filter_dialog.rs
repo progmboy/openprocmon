@@ -178,12 +178,17 @@ impl FilterDialog {
             .selected_index(cx)
             .map(|p| p.row)
             .unwrap_or(0);
-        self.rules.push(FilterRule::new(
-            FilterColumn::ALL[col_ix],
-            FilterRelation::ALL[rel_ix],
-            value,
-            ACTIONS[act_ix],
-        ));
+        // Insert at the top so the newest rule appears first in the list (matching
+        // the context-menu quick filters' `FilterSet::add_front`).
+        self.rules.insert(
+            0,
+            FilterRule::new(
+                FilterColumn::ALL[col_ix],
+                FilterRelation::ALL[rel_ix],
+                value,
+                ACTIONS[act_ix],
+            ),
+        );
         self.value.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }

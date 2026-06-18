@@ -140,6 +140,51 @@ fn get_event_detail_and_process() {
 }
 
 #[test]
+fn get_event_resolves_kernel_and_user_stack_frames() {
+    let f = fixture();
+    // Requesting only the stack (not "process") must still resolve frames: user
+    // frames against the originating process's modules, kernel frames against the
+    // System (PID 4) driver modules. Scan early events for kernel frames.
+    let parts = vec!["stack".to_string()];
+    let (mut kernel_seen, mut kernel_resolved) = (0usize, 0usize);
+    let (mut user_seen, mut user_resolved) = (0usize, 0usize);
+    for seq in 0..200 {
+        let Some(d) = get_event(&f.reader, seq, &parts) else {
+            continue;
+        };
+        let Some(stack) = d.stack else { continue };
+        for fr in &stack {
+            let resolved = fr.module != "<UNKNOWN>";
+            match fr.kind {
+                "K" => {
+                    kernel_seen += 1;
+                    kernel_resolved += usize::from(resolved);
+                }
+                _ => {
+                    user_seen += 1;
+                    user_resolved += usize::from(resolved);
+                }
+            }
+        }
+    }
+    assert!(kernel_seen > 0, "fixture should have kernel stack frames");
+    // Every kernel frame in this fixture maps to a loaded driver (ntoskrnl.exe, …);
+    // before the fix these were all `<UNKNOWN>` because no kernel module list was
+    // consulted.
+    assert_eq!(
+        kernel_seen, kernel_resolved,
+        "all kernel frames should resolve against System (PID 4) modules"
+    );
+    // User frames resolve even though "process" wasn't requested (a handful may sit
+    // outside any tracked module); require the overwhelming majority to resolve.
+    assert!(user_seen > 0, "fixture should have user stack frames");
+    assert!(
+        user_resolved * 10 >= user_seen * 9,
+        "most user frames should resolve ({user_resolved}/{user_seen})"
+    );
+}
+
+#[test]
 fn summary_matches_pml_total() {
     let f = fixture();
     let s = summary(&f.reader, 6);

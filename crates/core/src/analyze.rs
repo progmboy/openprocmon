@@ -113,11 +113,21 @@ pub fn get_event(reader: &Arc<PmlReader>, seq: usize, parts: &[String]) -> Optio
         .then(|| find_process(reader, ev.pid()))
         .flatten();
     let stack = want("stack").then(|| {
-        let mods = process
+        // A stack always resolves against the originating process's user modules
+        // and the System (PID 4) kernel-driver modules — independent of whether the
+        // `process` detail itself was requested (else every frame is `<UNKNOWN>`).
+        // Reuse the process detail if it was already fetched.
+        let proc_mods = process
             .as_ref()
             .map(|p| p.modules.clone())
+            .or_else(|| find_process(reader, ev.pid()).map(|p| p.modules))
             .unwrap_or_default();
-        resolve_stack(&ev, &mods)
+        // Kernel-mode frames resolve against the System (PID 4) driver modules,
+        // exactly as the GUI's `frame_module` does.
+        let kernel_mods = find_process(reader, 4)
+            .map(|p| p.modules)
+            .unwrap_or_default();
+        resolve_stack(&ev, &proc_mods, &kernel_mods)
     });
     Some(EventDetail {
         event: EventRecord::from_event(&ev, seq as u64, true),
@@ -194,10 +204,16 @@ pub fn pml_info(reader: &Arc<PmlReader>) -> PmlInfo {
     }
 }
 
-/// Resolves each call-stack frame address to `module+offset` against the
-/// process's loaded modules (cf. the GUI's `frame_module`). Kernel vs user is
-/// inferred from the high address bits.
-fn resolve_stack(ev: &Event, mods: &[ModuleRow]) -> Vec<StackFrameRow> {
+/// Resolves each call-stack frame address to `module+offset` (cf. the GUI's
+/// `frame_module`). User-mode frames resolve against the originating process's
+/// modules, kernel-mode frames against the System (PID 4) driver modules; both
+/// lists are searched so either kind resolves. Kernel vs user is inferred from the
+/// high address bits.
+fn resolve_stack(
+    ev: &Event,
+    proc_mods: &[ModuleRow],
+    kernel_mods: &[ModuleRow],
+) -> Vec<StackFrameRow> {
     ev.call_stack()
         .iter()
         .enumerate()
@@ -208,8 +224,9 @@ fn resolve_stack(ev: &Event, mods: &[ModuleRow]) -> Vec<StackFrameRow> {
             } else {
                 "U"
             };
-            let (module, location, path) = mods
+            let (module, location, path) = proc_mods
                 .iter()
+                .chain(kernel_mods.iter())
                 .find(|m| m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size))
                 .map(|m| {
                     (
