@@ -1,9 +1,10 @@
 <div align="center">
+
+# OpenProcMon
+
   <img src="docs/logo.png" alt="OpenProcMon" width="140">
   <p><strong>English</strong> · <a href="docs/readme_zh.md">中文</a></p>
 </div>
-
-# OpenProcMon
 
 An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/downloads/procmon) implementation for Windows: a kernel miniFilter driver captures process, file, registry and network activity in real time, a Rust SDK talks to the driver and parses the event stream, and a Rust/GPUI desktop GUI presents it.
 
