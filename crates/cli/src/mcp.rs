@@ -573,6 +573,9 @@ impl ProcmonServer {
             for g in &mut res.groups {
                 clip(&mut g.value, MAX_FIELD);
             }
+            // Return as many rows as fit the budget (marking truncated) rather
+            // than letting an oversized page trip the all-or-nothing guard.
+            fit_within_budget(&mut res);
             Ok(res)
         })
         .await
@@ -833,6 +836,33 @@ fn clip(s: &mut String, max: usize) {
     }
     s.truncate(end);
     s.push('…');
+}
+
+/// Drops trailing rows from a `QueryResult` until it serializes within the
+/// response budget, marking it `truncated`. This makes `query_events`
+/// byte-aware: a detail-heavy or long-path page returns as many rows as fit
+/// (plus `total_matched` / `truncated` so the agent can page or group) instead
+/// of tripping the all-or-nothing [`json`] guard and returning nothing.
+fn fit_within_budget(res: &mut core::QueryResult) {
+    // group_by produces `groups`, a plain query produces `events`; only one is
+    // ever populated, so trimming both vecs to the same target is safe.
+    loop {
+        let len = serde_json::to_string(res).map(|s| s.len()).unwrap_or(0);
+        if len <= MAX_RESPONSE_BYTES {
+            return;
+        }
+        let rows = res.events.len().max(res.groups.len());
+        if rows <= 1 {
+            // A single row over budget — let the json() guard handle that edge.
+            return;
+        }
+        // Estimate the row count that fits (90% of budget for header/JSON
+        // slack), always dropping at least one row so the loop makes progress.
+        let keep = ((rows * MAX_RESPONSE_BYTES * 9) / (len * 10)).clamp(1, rows - 1);
+        res.truncated = true;
+        res.events.truncate(keep.min(res.events.len()));
+        res.groups.truncate(keep.min(res.groups.len()));
+    }
 }
 
 /// A compact process tree — pid / parent_pid / name / children only, so even a
