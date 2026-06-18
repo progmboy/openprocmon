@@ -118,6 +118,9 @@ pub struct NetworkEvent {
     pub local_name: Option<std::sync::Arc<str>>,
     pub remote_name: Option<std::sync::Arc<str>>,
     pub length: u32,
+    /// Event time as a FILETIME (100-ns ticks since 1601), the same clock as the
+    /// driver's `LogEntry.time`, so network and driver events order together. The
+    /// ETW session requests this with `ClientContext = 2` (see [`start_session`]).
     pub time: i64,
 }
 
@@ -215,7 +218,11 @@ fn start_session() -> Result<()> {
         (*props).Wnode.BufferSize = buf.len() as u32;
         (*props).Wnode.Flags = WNODE_FLAG_TRACED_GUID;
         (*props).Wnode.Guid = windows::Win32::System::Diagnostics::Etw::SystemTraceControlGuid;
-        (*props).Wnode.ClientContext = 1; // QPC timestamps
+        // System-time (FILETIME) timestamps, not QPC (1): EventHeader.TimeStamp is
+        // then 100-ns ticks since 1601 — the same clock as the driver's
+        // LogEntry.time, so network events sort/order together with driver events
+        // (otherwise QPC values write garbage timestamps into the PML).
+        (*props).Wnode.ClientContext = 2;
         (*props).LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
         (*props).EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;
         (*props).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
@@ -334,6 +341,7 @@ fn decode(r: &EVENT_RECORD) -> Option<NetworkEvent> {
         local_name: None,
         remote_name: None,
         length,
+        // FILETIME because the session uses ClientContext = 2 (see start_session).
         time: r.EventHeader.TimeStamp,
     })
 }
