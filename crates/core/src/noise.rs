@@ -18,7 +18,7 @@ pub fn default_noise() -> Vec<Clause> {
     procmon_sdk::default_display_filter()
         .into_iter()
         .map(|r| Clause {
-            column: r.column,
+            column: crate::query::Field::Col(r.column),
             relation: r.relation,
             values: vec![r.value],
         })

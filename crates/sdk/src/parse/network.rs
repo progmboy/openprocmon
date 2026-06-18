@@ -84,7 +84,69 @@ impl<'a> NetView<'a> {
             _ => addr.to_string(),
         }
     }
+
+    /// Host portion of an endpoint without the port: the resolved name (`x.com`)
+    /// when known, else the numeric IP — so grouping is per-host.
+    fn host(name: &Option<Arc<str>>, addr: &SocketAddr) -> String {
+        match name {
+            // `*_name` are `host:port` display strings; drop the port.
+            Some(n) if !n.is_empty() => n.rsplit_once(':').map_or(&**n, |(h, _)| h).to_string(),
+            _ => addr.ip().to_string(),
+        }
+    }
+
+    /// A structured network field by name — one of [`NETWORK_FIELDS`]. `None` for an
+    /// unknown name. These are the query layer's network extension fields, read
+    /// straight from the decoded event (no `Column` bloat, no string re-parsing).
+    pub(crate) fn field(&self, name: &str) -> Option<String> {
+        let n = self.net;
+        Some(match name {
+            "RemoteAddress" => Self::host(&n.remote_name, &n.remote),
+            "LocalAddress" => Self::host(&n.local_name, &n.local),
+            "RemotePort" => n.remote.port().to_string(),
+            "LocalPort" => n.local.port().to_string(),
+            "NetBytes" => n.length.to_string(),
+            _ => return None,
+        })
+    }
+
+    /// Numeric value of a network field (port / bytes), for numeric compare and
+    /// aggregation; `None` for a non-numeric or unknown field.
+    pub(crate) fn number(&self, name: &str) -> Option<i64> {
+        let n = self.net;
+        match name {
+            "RemotePort" => Some(n.remote.port() as i64),
+            "LocalPort" => Some(n.local.port() as i64),
+            "NetBytes" => Some(n.length as i64),
+            _ => None,
+        }
+    }
 }
+
+/// The network extension fields exposed to the query layer: `(name, numeric,
+/// description)`. `numeric` ones are usable as a `metric`. Kept next to the decoder
+/// so adding a field — name, type, and human-readable meaning — is one place.
+pub const NETWORK_FIELDS: &[(&str, bool, &str)] = &[
+    (
+        "RemoteAddress",
+        false,
+        "Remote endpoint host name or IP, without the port (the port is RemotePort). \
+         Group by this for per-host network activity.",
+    ),
+    ("RemotePort", true, "Remote endpoint port number."),
+    (
+        "LocalAddress",
+        false,
+        "Local endpoint host name or IP, without the port.",
+    ),
+    ("LocalPort", true, "Local endpoint port number."),
+    (
+        "NetBytes",
+        true,
+        "Bytes transferred by this send/receive operation. Sum it (metric=NetBytes) \
+         for total bytes per endpoint; it is an accurate network transfer size.",
+    ),
+];
 
 impl OperationView for NetView<'_> {
     fn path(&self) -> Option<String> {

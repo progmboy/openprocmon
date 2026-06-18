@@ -2,29 +2,30 @@
 //! aggregation.
 //!
 //! A filter is an [`Expr`] tree of clauses combined with `&&` / `||` / `!` and
-//! parentheses. A leaf clause is `Column <op> value`, reusing the SDK's column
-//! vocabulary and per-clause matching ([`procmon_sdk::clause_matches`]). One
-//! query primitive (filter + `group_by`) subsumes per-path / per-process /
+//! parentheses. A leaf clause is `Field <op> value`, where a [`Field`] is either a
+//! Procmon-mirrored SDK [`Column`] or a structured extension field (network
+//! endpoints, …) read from the decoded event. One query primitive (filter +
+//! `group_by`, with an optional numeric `metric`) subsumes per-path / per-process /
 //! cross-reference aggregations.
 
 use procmon_sdk::{clause_matches, Column, Event, FilterFields, Relation};
 use serde::Serialize;
 
-/// A leaf condition: a column, a relation, and one or more candidate values
+/// A leaf condition: a field, a relation, and one or more candidate values
 /// (matches if the relation holds against ANY value — the `in (...)` form).
 #[derive(Clone, Debug)]
 pub struct Clause {
-    pub column: Column,
+    pub column: Field,
     pub relation: Relation,
     pub values: Vec<String>,
 }
 
 impl Clause {
     /// Whether `ev` matches (OR over the clause's values).
-    pub fn matches<E: FilterFields>(&self, ev: &E) -> bool {
+    pub fn matches(&self, ev: &Event) -> bool {
         self.values
             .iter()
-            .any(|v| clause_matches(ev, self.column, self.relation, v))
+            .any(|v| self.column.matches(ev, self.relation, v))
     }
 }
 
@@ -39,7 +40,7 @@ pub enum Expr {
 
 impl Expr {
     /// Whether `ev` satisfies the expression.
-    pub fn matches<E: FilterFields>(&self, ev: &E) -> bool {
+    pub fn matches(&self, ev: &Event) -> bool {
         match self {
             Expr::Clause(c) => c.matches(ev),
             Expr::Not(e) => !e.matches(ev),
@@ -262,8 +263,8 @@ impl Parser {
             Tok::Bare(w) | Tok::Quoted(w) => w,
             other => return Err(format!("expected a column name, got {other:?}")),
         };
-        let column = parse_column(&col_name)
-            .ok_or_else(|| format!("unknown filter column: {col_name:?}"))?;
+        let column =
+            parse_field(&col_name).ok_or_else(|| format!("unknown filter column: {col_name:?}"))?;
 
         // `Column in (a, b, c)` — OR over values (a single Is clause).
         if matches!(self.peek(), Some(Tok::Bare(w)) if w.eq_ignore_ascii_case("in")) {
@@ -360,51 +361,180 @@ pub fn parse_column(name: &str) -> Option<Column> {
     Column::ALL.into_iter().find(|c| norm(c.label()) == alias)
 }
 
+/// A query field: either a Procmon-mirrored [`Column`] or a structured extension
+/// field (network endpoint, file detail, …) resolved at runtime from the decoded
+/// event. Keeps per-category detail out of the `Column` set — see
+/// [`procmon_sdk::struct_fields`].
+#[derive(Clone, Debug)]
+pub enum Field {
+    Col(Column),
+    /// The canonical name of a structured extension field (`procmon_sdk` owns the
+    /// per-category readers and the name table).
+    Ext(String),
+}
+
+impl Field {
+    /// The field's string value for `ev` (`None` if the event has none).
+    fn value_str<'a>(&self, ev: &'a Event) -> Option<std::borrow::Cow<'a, str>> {
+        match self {
+            Field::Col(c) => ev.filter_field(*c),
+            Field::Ext(name) => ev.struct_field(name),
+        }
+    }
+    /// The field's numeric value for `ev` (numeric columns / fields only).
+    fn value_num(&self, ev: &Event) -> Option<i64> {
+        match self {
+            Field::Col(c) => ev.filter_number(*c),
+            Field::Ext(name) => ev.struct_number(name),
+        }
+    }
+    /// Whether `ev`'s value for this field satisfies `relation`/`value`.
+    fn matches(&self, ev: &Event, relation: Relation, value: &str) -> bool {
+        match self {
+            Field::Col(c) => clause_matches(ev, *c, relation, value),
+            Field::Ext(name) => procmon_sdk::clause_matches_named(ev, name, relation, value),
+        }
+    }
+    fn is_path(&self) -> bool {
+        matches!(self, Field::Col(Column::Path))
+    }
+}
+
+/// Resolves a field name to a [`Column`] or a structured extension field
+/// (network endpoints, …). `None` if it matches neither.
+pub fn parse_field(name: &str) -> Option<Field> {
+    if let Some(c) = parse_column(name) {
+        return Some(Field::Col(c));
+    }
+    let n = norm(name);
+    procmon_sdk::struct_fields()
+        .into_iter()
+        .find(|f| norm(f.name) == n)
+        .map(|f| Field::Ext(f.name.to_string()))
+}
+
 // --- group-by ---------------------------------------------------------------
 
-/// One aggregation bucket: a distinct column value and how many matching events
-/// had it. `processes` is the number of distinct process names that touched the
-/// value (populated for cross-reference style group-bys on `Path`).
+/// One aggregation bucket: the group-by column value(s) and the match count.
+/// `processes` is the number of distinct process names in the bucket (populated
+/// for cross-reference style group-bys that include `Path`). When a numeric
+/// `metric` column was requested, the bucket also carries sum/avg/min/max of that
+/// metric plus the first/last event time seen in it.
 #[derive(Clone, Debug, Serialize)]
 pub struct GroupRow {
-    pub value: String,
+    /// One entry per group-by column, in the requested order.
+    pub values: Vec<String>,
     pub count: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sum: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_time: Option<String>,
 }
 
-/// Accumulates group-by counts (and distinct process names per group) as events
-/// stream past.
+/// Per-bucket accumulator.
 #[derive(Default)]
+struct Acc {
+    count: u64,
+    procs: rustc_hash::FxHashSet<String>,
+    sum: i64,
+    n: u64,
+    min: Option<i64>,
+    max: Option<i64>,
+    first_time: Option<String>,
+    last_time: Option<String>,
+}
+
+/// Accumulates group-by buckets keyed on one or more columns. With a numeric
+/// `metric` column it also rolls up sum/avg/min/max and the first/last event time
+/// (computed only in that mode, so a plain count group-by stays light).
 pub struct Grouper {
-    counts: rustc_hash::FxHashMap<String, (u64, rustc_hash::FxHashSet<String>)>,
+    cols: Vec<Field>,
+    metric: Option<Field>,
+    with_processes: bool,
+    groups: rustc_hash::FxHashMap<Vec<String>, Acc>,
 }
 
 impl Grouper {
-    /// Records `ev`'s value for `column` (skips events with no value).
-    pub fn observe(&mut self, ev: &Event, column: Column) {
-        if let Some(value) = ev.filter_field(column) {
-            let entry = self.counts.entry(value.into_owned()).or_default();
-            entry.0 += 1;
+    pub fn new(cols: Vec<Field>, metric: Option<Field>) -> Self {
+        let with_processes = cols.iter().any(Field::is_path);
+        Self {
+            cols,
+            metric,
+            with_processes,
+            groups: rustc_hash::FxHashMap::default(),
+        }
+    }
+
+    /// Records `ev`. Skipped if it lacks a value for any group-by column.
+    pub fn observe(&mut self, ev: &Event) {
+        let mut key = Vec::with_capacity(self.cols.len());
+        for f in &self.cols {
+            match f.value_str(ev) {
+                Some(v) => key.push(v.into_owned()),
+                None => return, // event lacks one of the grouped dimensions
+            }
+        }
+        let acc = self.groups.entry(key).or_default();
+        acc.count += 1;
+        if self.with_processes {
             if let Some(pn) = ev.process_name() {
-                entry.1.insert(pn.to_string());
+                acc.procs.insert(pn.to_string());
+            }
+        }
+        if let Some(m) = &self.metric {
+            if let Some(n) = m.value_num(ev) {
+                acc.sum += n;
+                acc.n += 1;
+                acc.min = Some(acc.min.map_or(n, |x| x.min(n)));
+                acc.max = Some(acc.max.map_or(n, |x| x.max(n)));
+            }
+            // Events stream in file (= time) order, so first/last seen == min/max.
+            if let Some(t) = ev.filter_field(Column::Date) {
+                let t = t.into_owned();
+                if acc.first_time.is_none() {
+                    acc.first_time = Some(t.clone());
+                }
+                acc.last_time = Some(t);
             }
         }
     }
 
-    /// Sorted-by-count-desc rows; `with_processes` includes the distinct process
-    /// count per group.
-    pub fn into_rows(self, with_processes: bool) -> Vec<GroupRow> {
+    /// Buckets sorted by count desc (ties broken by the values).
+    pub fn into_rows(self) -> Vec<GroupRow> {
+        let has_metric = self.metric.is_some();
+        let with_processes = self.with_processes;
         let mut rows: Vec<GroupRow> = self
-            .counts
+            .groups
             .into_iter()
-            .map(|(value, (count, procs))| GroupRow {
-                value,
-                count,
-                processes: with_processes.then_some(procs.len() as u64),
+            .map(|(values, a)| GroupRow {
+                values,
+                count: a.count,
+                processes: with_processes.then_some(a.procs.len() as u64),
+                sum: has_metric.then_some(a.sum),
+                avg: has_metric.then(|| {
+                    if a.n > 0 {
+                        a.sum as f64 / a.n as f64
+                    } else {
+                        0.0
+                    }
+                }),
+                min: if has_metric { a.min } else { None },
+                max: if has_metric { a.max } else { None },
+                first_time: if has_metric { a.first_time } else { None },
+                last_time: if has_metric { a.last_time } else { None },
             })
             .collect();
-        rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+        rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.values.cmp(&b.values)));
         rows
     }
 }

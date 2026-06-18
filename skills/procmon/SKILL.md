@@ -52,15 +52,22 @@ that `.PML` with the commands below.
 
 ### 2. Query — the universal tool
 
-`procmon-cli query --pml <file> [--filter "<expr>"] [--group-by <col>] [--limit N]`
+`procmon-cli query --pml <file> [--filter "<expr>"] [--group-by <cols>] [--metric <col>] [--limit N]`
 
 - **`--filter "<expr>"`** — a single filter expression (see the
   **Filter syntax** section below). One flag expresses AND, OR, NOT and parens.
-- **`--group-by <Column>`** — return distinct values + counts (de-duplicated),
-  instead of raw events. Use it to avoid flooding (e.g. distinct files, not 5000
-  WriteFile events).
+- **`--group-by <Column[,Column...]>`** — return distinct values + counts
+  (de-duplicated) instead of raw events. **Comma-separate for multi-column**
+  (e.g. `ProcessName,Path`). Use it to avoid flooding (distinct files, not 5000
+  WriteFile rows).
+- **`--metric <numeric column/field>`** — roll up **sum/avg/min/max + first/last
+  time** per group (e.g. `--metric NetBytes` for bytes per endpoint). Only with
+  `--group-by`.
 - Noise (NTFS metadata, monitoring tools, IRP/FastIO bookkeeping, the tool
   itself) is excluded by default; add `--no-noise` to see everything.
+
+Prefer `--group-by`/`--metric` over exporting CSV and counting yourself — they
+already do the aggregation.
 
 **Recipes** (the answers to common questions):
 
@@ -74,15 +81,18 @@ procmon-cli query --pml cap.pml --group-by Path --filter \
 procmon-cli query --pml cap.pml --group-by Path --filter \
   'Category == Registry && Operation in (RegSetValue, RegCreateKey) && Path ~ Run'
 
-# Network endpoints a process talked to
-procmon-cli query --pml cap.pml --group-by Path --filter \
+# Network endpoints + bytes per endpoint a process talked to
+procmon-cli query --pml cap.pml --group-by RemoteAddress --metric NetBytes --filter \
   'Category == Network && ProcessName == app.exe'
 
 # Operations that FAILED (probing / blocked)
 procmon-cli query --pml cap.pml --filter 'Result != SUCCESS' --limit 50
 
-# Which processes are busiest / by category
-procmon-cli query --pml cap.pml --group-by ProcessName
+# Summaries — the GUI's summary views are all just group_by:
+procmon-cli query --pml cap.pml --group-by ProcessName            # busiest processes
+procmon-cli query --pml cap.pml --group-by ProcessName,Category   # per-process by category
+procmon-cli query --pml cap.pml --group-by Path --filter 'Category == "File System"'  # file summary
+procmon-cli query --pml cap.pml --group-by Path --filter 'Path ~ "Local State"'       # who touched it
 procmon-cli summary --pml cap.pml
 ```
 
@@ -102,10 +112,16 @@ subcommand (and the MCP `list_filter_columns` tool) print this same vocabulary.
 | `~`  | contains           | `<` / `>`     | less / more than (numeric)      |
 | `!~` | excludes           | `in (a, b)`   | matches ANY listed value (OR)   |
 
-**Columns:** `Time of Day`, `Process Name` (alias `ProcessName`/`proc`), `PID`,
-`Parent PID` (`ppid`), `TID`, `Category` (`class`: values `Process`,
-`File System`, `Registry`, `Network`, `Profiling`), `Operation` (`op`), `Path`,
-`Detail`, `Result`, `User`, `Duration`, `Relative Time`.
+**Columns** (Procmon-mirrored; `vocab` prints all 25 with a description each):
+`Process Name` (alias `ProcessName`/`proc`), `PID`, `Parent PID` (`ppid`), `TID`,
+`Category` (`class`: values `Process`, `File System`, `Registry`, `Network`,
+`Profiling`), `Operation` (`op`), `Path`, `Detail`, `Result`, `User`, `Duration`,
+`Date & Time`, `Time of Day`, `Sequence`, …
+
+**Network fields** — structured extension fields beyond the Procmon columns,
+usable in filters and `--group-by` (the numeric ones also as `--metric`):
+`RemoteAddress`, `RemotePort`, `LocalAddress`, `LocalPort`, `NetBytes` (bytes
+transferred). `vocab` lists them under `extension_fields` with descriptions.
 
 **Operation values** (use exact names; `vocab` lists them all per category):
 - *File:* `CreateFile`, `ReadFile`, `WriteFile`, `CloseFile`, `SetEndOfFileInformationFile`,
@@ -114,6 +130,14 @@ subcommand (and the MCP `list_filter_columns` tool) print this same vocabulary.
   `RegDeleteValue`, `RegDeleteKey`, `RegEnumKey`, …
 - *Process:* `Process Create`, `Process Exit`, `Thread Create`, `Load Image`, …
 - *Network:* `TCP Connect`, `TCP Send`, `TCP Receive`, `UDP Send`, `UDP Receive`, …
+
+**Operation gotchas:** `CreateFile` is a file **OPEN** (how a process opens *any*
+file), not necessarily a creation — what it did (created / opened / overwrote) is in
+the Detail. So "touched a file" == `CreateFile`, and a reads-only view undercounts
+(stealers open then memory-map). `SetEndOfFileInformationFile` /
+`SetAllocationInformationFile` = truncate or extend (a write);
+`SetRenameInformationFile` = rename / move; `SetDispositionInformationFile` = mark
+for delete.
 
 Examples combining the above:
 
@@ -150,6 +174,10 @@ procmon-cli pml-info --pml cap.pml      # event count, computer, OS
 - **File *content* is not captured** (only path/offset/length). Registry value
   *data* IS captured (in an event's Detail). To see what was written into a
   dropped file, read the file separately.
+- **Don't sum file byte counts** — they're unreliable: memory-mapped (section)
+  reads/writes emit no IO event, so a total silently undercounts. Use operation
+  counts (`--group-by Path`) for file activity. `NetBytes` (network) IS an accurate
+  transfer size — summing it (`--metric NetBytes`) is fine.
 - Analysis re-reads the `.PML` each call; that's fine for typical captures.
 - Cross-event reasoning (e.g. dropped-then-executed) is yours to assemble from
   multiple queries — the tool returns the raw material.

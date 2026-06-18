@@ -7,10 +7,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use procmon_sdk::{Column, Event, PmlReader, Result};
+use procmon_sdk::{Event, PmlReader, Result};
 use serde::Serialize;
 
-use crate::query::{Clause, Expr, GroupRow, Grouper};
+use crate::query::{Clause, Expr, Field, GroupRow, Grouper};
 use crate::record::{EventRecord, ModuleRow, ProcessDetail, ProcessNode, StackFrameRow};
 
 /// Opens (and indexes) a `.PML` file. The reader is shared (`Arc`) because
@@ -42,7 +42,8 @@ pub fn query(
     reader: &Arc<PmlReader>,
     filter: Option<&Expr>,
     noise: &[Clause],
-    group_by: Option<Column>,
+    group_by: &[Field],
+    metric: Option<Field>,
     offset: usize,
     limit: usize,
     include_detail: bool,
@@ -50,16 +51,16 @@ pub fn query(
     let passes =
         |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
 
-    if let Some(col) = group_by {
-        let mut grouper = Grouper::default();
+    if !group_by.is_empty() {
+        let mut grouper = Grouper::new(group_by.to_vec(), metric);
         let mut total = 0u64;
         for ev in reader.events() {
             if passes(&ev) {
                 total += 1;
-                grouper.observe(&ev, col);
+                grouper.observe(&ev);
             }
         }
-        let all = grouper.into_rows(col == Column::Path);
+        let all = grouper.into_rows();
         let truncated = all.len() > offset + limit;
         let groups = all.into_iter().skip(offset).take(limit).collect();
         QueryResult {

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use procmon_core::{
     filter_vocab, get_event, get_process, list_processes, parse_filter, pml_info, process_tree,
-    query, summary,
+    query, summary, Field,
 };
 use procmon_sdk::{Column, PmlReader};
 
@@ -66,7 +66,7 @@ fn pml_info_and_processes() {
 fn query_unfiltered_paginates() {
     let f = fixture();
     let total = pml_info(&f.reader).event_count as u64;
-    let r = query(&f.reader, None, &[], None, 0, 50, false);
+    let r = query(&f.reader, None, &[], &[], None, 0, 50, false);
     assert_eq!(r.total_matched, total, "no filter matches every event");
     assert_eq!(r.events.len(), 50.min(total as usize));
     assert!(r.groups.is_empty());
@@ -85,7 +85,8 @@ fn query_filter_and_group_by_path() {
         &f.reader,
         Some(&filter),
         &[],
-        Some(Column::Path),
+        &[Field::Col(Column::Path)],
+        None,
         0,
         20,
         false,
@@ -97,8 +98,51 @@ fn query_filter_and_group_by_path() {
         assert!(g.count <= grouped.total_matched);
     }
     // Raw (ungrouped) of the same filter returns events whose count == total.
-    let raw = query(&f.reader, Some(&filter), &[], None, 0, 1000, false);
+    let raw = query(&f.reader, Some(&filter), &[], &[], None, 0, 1000, false);
     assert_eq!(raw.total_matched, grouped.total_matched);
+}
+
+#[test]
+fn group_by_multi_column_and_metric() {
+    let f = fixture();
+    // Multi-column group-by: one `values` entry per grouped column, no aggregates
+    // without a metric.
+    let multi = query(
+        &f.reader,
+        None,
+        &[],
+        &[
+            Field::Col(Column::ProcessName),
+            Field::Col(Column::Operation),
+        ],
+        None,
+        0,
+        10,
+        false,
+    );
+    assert!(!multi.groups.is_empty());
+    for g in &multi.groups {
+        assert_eq!(g.values.len(), 2, "two group columns -> two values");
+        assert!(g.sum.is_none() && g.first_time.is_none());
+    }
+    // With a numeric metric every bucket carries sum/avg/min/max + first/last time.
+    let agg = query(
+        &f.reader,
+        None,
+        &[],
+        &[Field::Col(Column::ProcessName)],
+        Some(Field::Col(Column::Sequence)),
+        0,
+        10,
+        false,
+    );
+    assert!(!agg.groups.is_empty());
+    for g in &agg.groups {
+        let (min, max, sum) = (g.min.unwrap(), g.max.unwrap(), g.sum.unwrap());
+        assert!(min <= max, "min <= max");
+        assert!(sum >= max, "sum of non-negative sequences >= max");
+        assert!(g.avg.is_some() && g.first_time.is_some() && g.last_time.is_some());
+    }
 }
 
 #[test]
@@ -106,14 +150,14 @@ fn clause_semantics_and_or() {
     // Cross-clause AND, in-clause OR, via the expression parser.
     let f = fixture();
     let a = parse_filter(r#"Category == "File System""#).unwrap();
-    let raw = query(&f.reader, Some(&a), &[], None, 0, 5, false);
+    let raw = query(&f.reader, Some(&a), &[], &[], None, 0, 5, false);
     // Every returned event is a File event.
     for ev in &raw.events {
         assert_eq!(ev.category, procmon_core::Category::File);
     }
     // A contradictory AND (File AND Registry) matches nothing.
     let none_expr = parse_filter(r#"Category == "File System" && Category == Registry"#).unwrap();
-    let none = query(&f.reader, Some(&none_expr), &[], None, 0, 5, false);
+    let none = query(&f.reader, Some(&none_expr), &[], &[], None, 0, 5, false);
     assert_eq!(none.total_matched, 0, "File AND Registry is empty");
 }
 
@@ -200,11 +244,12 @@ fn summary_matches_pml_total() {
 #[test]
 fn exclude_noise_drops_metadata_and_self() {
     let f = fixture();
-    let all = query(&f.reader, None, &[], None, 0, 1, false).total_matched;
+    let all = query(&f.reader, None, &[], &[], None, 0, 1, false).total_matched;
     let clean = query(
         &f.reader,
         None,
         &procmon_core::default_noise(),
+        &[],
         None,
         0,
         1,
@@ -217,6 +262,7 @@ fn exclude_noise_drops_metadata_and_self() {
         &f.reader,
         None,
         &procmon_core::default_noise(),
+        &[],
         None,
         0,
         500,
@@ -289,7 +335,10 @@ fn export_csv_and_xml_and_pml_roundtrip() {
 #[test]
 fn vocab_lists_real_operations() {
     let v = filter_vocab();
-    assert!(v.columns.iter().any(|c| c == "Process Name"));
+    assert!(v
+        .columns
+        .iter()
+        .any(|c| c.name == "Process Name" && !c.description.is_empty()));
     assert!(v.relations.iter().any(|r| r == "contains"));
     assert!(v.operations.file.iter().any(|o| o == "WriteFile"));
     assert!(v.operations.registry.iter().any(|o| o.starts_with("Reg")));

@@ -14,8 +14,13 @@ pub struct FilterVocab {
     pub syntax: String,
     /// Symbolic operators usable in a clause (`symbol` -> what it means).
     pub operators: Vec<Operator>,
-    /// Column names usable on the left of a clause.
-    pub columns: Vec<String>,
+    /// Columns usable on the left of a clause (the Procmon-mirrored set), each with
+    /// a one-line description of what it means.
+    pub columns: Vec<ColumnDoc>,
+    /// Structured extension fields usable on the left of a clause — network
+    /// endpoints etc., beyond the Procmon columns; the `numeric` ones also work as
+    /// a `metric` for sum/avg/min/max aggregation.
+    pub extension_fields: Vec<ExtField>,
     /// Relation names (the words the operators map to; informational).
     pub relations: Vec<String>,
     /// Exact `Operation` column values, grouped by category — so a filter says
@@ -28,6 +33,25 @@ pub struct FilterVocab {
 pub struct Operator {
     pub symbol: &'static str,
     pub meaning: &'static str,
+}
+
+/// A Procmon column name plus a one-line description of its meaning.
+#[derive(Clone, Debug, Serialize)]
+pub struct ColumnDoc {
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+/// A structured extension field (beyond the Procmon `columns`): a network
+/// endpoint, file detail, … Usable on the left of a clause and, when `numeric`,
+/// as a `metric`.
+#[derive(Clone, Debug, Serialize)]
+pub struct ExtField {
+    pub name: &'static str,
+    pub category: &'static str,
+    pub numeric: bool,
+    /// What the field means — so the agent uses it correctly without guessing.
+    pub description: &'static str,
 }
 
 /// Operation names per category.
@@ -52,7 +76,22 @@ fn distinct(names: impl Iterator<Item = &'static str>) -> Vec<String> {
 
 /// Builds the vocabulary (no event data needed).
 pub fn filter_vocab() -> FilterVocab {
-    let columns = Column::ALL.iter().map(|c| c.label().to_string()).collect();
+    let columns = Column::ALL
+        .iter()
+        .map(|c| ColumnDoc {
+            name: c.label(),
+            description: c.description(),
+        })
+        .collect();
+    let extension_fields = procmon_sdk::struct_fields()
+        .into_iter()
+        .map(|f| ExtField {
+            name: f.name,
+            category: f.category,
+            numeric: f.numeric,
+            description: f.description,
+        })
+        .collect();
     let relations = Relation::ALL
         .iter()
         .map(|r| r.label().to_string())
@@ -71,6 +110,7 @@ pub fn filter_vocab() -> FilterVocab {
         syntax: SYNTAX.to_string(),
         operators: OPERATORS.to_vec(),
         columns,
+        extension_fields,
         relations,
         operations: Operations {
             process,

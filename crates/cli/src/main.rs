@@ -91,9 +91,14 @@ enum Command {
         /// (&& / || / ! / in (...)). See `vocab`.
         #[arg(long = "filter")]
         filter: Option<String>,
-        /// Aggregate: distinct values + counts of this column.
+        /// Aggregate: distinct values + counts. Comma-separate for multi-column
+        /// (e.g. ProcessName,Path).
         #[arg(long = "group-by")]
         group_by: Option<String>,
+        /// Numeric column to roll up per group (sum/avg/min/max + first/last time),
+        /// e.g. NetBytes. Only used with --group-by.
+        #[arg(long = "metric")]
+        metric: Option<String>,
         /// Include the noise (NTFS metadata / monitoring tools / bookkeeping).
         #[arg(long)]
         no_noise: bool,
@@ -215,6 +220,7 @@ fn run() -> Result<()> {
             src,
             filter,
             group_by,
+            metric,
             no_noise,
             offset,
             limit,
@@ -222,7 +228,8 @@ fn run() -> Result<()> {
         } => {
             let reader = src.open()?;
             let expr = parse_filter_opt(&filter)?;
-            let group = group_by.as_deref().map(parse_group).transpose()?;
+            let group = parse_groups(group_by.as_deref())?;
+            let metric = metric.as_deref().map(parse_group).transpose()?;
             let noise = if no_noise {
                 Vec::new()
             } else {
@@ -232,7 +239,8 @@ fn run() -> Result<()> {
                 &reader,
                 expr.as_ref(),
                 &noise,
-                group,
+                &group,
+                metric,
                 offset,
                 limit,
                 detail,
@@ -509,7 +517,7 @@ fn print_capture_result(
     let reader = core::open_pml(pml_path)?;
     let noise = core::default_noise();
     let summary = core::summary(&reader, 10);
-    let sample_events = core::query(&reader, None, &noise, None, 0, sample, false);
+    let sample_events = core::query(&reader, None, &noise, &[], None, 0, sample, false);
     print(&serde_json::json!({
         "pml_path": pml_path,
         "events_written": events_written,
@@ -538,9 +546,23 @@ fn parse_filter_opt(filter: &Option<String>) -> Result<Option<core::Expr>> {
     }
 }
 
-/// Parses a `--group-by` column name.
-fn parse_group(name: &str) -> Result<procmon_sdk::Column> {
-    core::parse_column(name).with_context(|| format!("unknown column {name:?}"))
+/// Parses a `--group-by` / `--metric` field name (a Column or an extension field).
+fn parse_group(name: &str) -> Result<core::Field> {
+    core::parse_field(name).with_context(|| format!("unknown column {name:?}"))
+}
+
+/// Parses a `--group-by` spec into fields (comma-separated; `None`/empty = no
+/// grouping).
+fn parse_groups(spec: Option<&str>) -> Result<Vec<core::Field>> {
+    match spec {
+        Some(s) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(parse_group)
+            .collect(),
+        None => Ok(Vec::new()),
+    }
 }
 
 /// Splits a launch command into argv on whitespace (quotes not handled — pass a

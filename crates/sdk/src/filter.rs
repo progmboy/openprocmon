@@ -127,6 +127,44 @@ impl Column {
             Column::Virtualized => "Virtualized",
         }
     }
+
+    /// A one-line description of the column's meaning, for the filter vocabulary so
+    /// an agent doesn't have to guess from the name.
+    pub fn description(self) -> &'static str {
+        match self {
+            Column::ProcessName => "Image file name of the process (basename), e.g. notepad.exe.",
+            Column::Pid => "Process id.",
+            Column::Operation => "Operation name, e.g. CreateFile / RegSetValue / TCP Send.",
+            Column::Path => {
+                "Target of the operation: a file path, a registry key, or network endpoints."
+            }
+            Column::Result => {
+                "Operation result/status, e.g. SUCCESS / NAME NOT FOUND / ACCESS DENIED."
+            }
+            Column::Class => {
+                "Event category: File System / Registry / Network / Process / Profiling."
+            }
+            Column::Detail => "Operation-specific detail string (free-form; varies by operation).",
+            Column::ImagePath => "Full NT image path of the process executable.",
+            Column::CommandLine => "Process command line.",
+            Column::ParentPid => "Parent process id.",
+            Column::Session => "Windows session id.",
+            Column::User => "User account that ran the process (DOMAIN\\User).",
+            Column::Architecture => "Process architecture: 32-bit or 64-bit.",
+            Column::Integrity => "Process integrity level, e.g. Low / Medium / High / System.",
+            Column::Virtualized => "Whether UAC token virtualization is enabled: True or False.",
+            Column::AuthId => "Logon session id (Authentication ID), as HighPart:LowPart.",
+            Column::Company => "Image company name, from the executable's version metadata.",
+            Column::Description => "Image description / product name, from version metadata.",
+            Column::Version => "Image file version, from version metadata.",
+            Column::Date => "Event start date and time.",
+            Column::TimeOfDay => "Event time of day.",
+            Column::CompletionTime => "Time the operation completed.",
+            Column::Duration => "How long the operation took.",
+            Column::Sequence => "Event sequence number (PRE/POST correlation / capture order).",
+            Column::Tid => "Thread id.",
+        }
+    }
 }
 
 /// How a rule's value is compared against the event's column (case-insensitive).
@@ -506,6 +544,56 @@ pub fn clause_matches<E: FilterFields>(
     ev.filter_field(column)
         .map(|actual| relation_matches(relation, &actual, value))
         .unwrap_or(false)
+}
+
+/// Whether a structured (extension) field `name` matches under `relation`/`value`.
+/// The non-[`Column`] analog of [`clause_matches`]: a numeric fast path via
+/// [`Event::struct_number`], otherwise a string compare via [`Event::struct_field`].
+/// An unknown field never matches. These fields (network endpoints, file detail, …)
+/// live beside the Procmon-mirrored `Column` set instead of inflating it.
+pub fn clause_matches_named(ev: &Event, name: &str, relation: Relation, value: &str) -> bool {
+    if matches!(
+        relation,
+        Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
+    ) {
+        if let (Some(actual), Ok(expected)) = (ev.struct_number(name), value.parse::<i64>()) {
+            return match relation {
+                Relation::Is => actual == expected,
+                Relation::IsNot => actual != expected,
+                Relation::LessThan => actual < expected,
+                Relation::MoreThan => actual > expected,
+                _ => unreachable!("guarded by the relation match above"),
+            };
+        }
+    }
+    ev.struct_field(name)
+        .map(|actual| relation_matches(relation, &actual, value))
+        .unwrap_or(false)
+}
+
+/// Metadata for a structured (extension) query field: its name, the event category
+/// it applies to, whether it is numeric (usable as a `metric` / numeric compare),
+/// and a human-readable description of what it means.
+pub struct StructField {
+    pub name: &'static str,
+    pub category: &'static str,
+    pub numeric: bool,
+    pub description: &'static str,
+}
+
+/// Every structured extension field the query layer understands, beside the
+/// Procmon-mirrored [`Column`] set (network for now; file/registry to follow).
+/// Adding a field is one entry next to its decoder, not a new `Column` variant.
+pub fn struct_fields() -> Vec<StructField> {
+    crate::parse::network::NETWORK_FIELDS
+        .iter()
+        .map(|&(name, numeric, description)| StructField {
+            name,
+            category: "Network",
+            numeric,
+            description,
+        })
+        .collect()
 }
 
 /// Extracts the comparison string for a column, or `None` if the event has none.

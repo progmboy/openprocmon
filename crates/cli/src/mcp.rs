@@ -142,8 +142,13 @@ struct QueryArgs {
     /// Filter expression. See list_filter_columns.
     #[serde(default)]
     filter: FilterExpr,
+    /// Group-by column(s). Comma-separate for multi-column (e.g. ProcessName,Path).
     #[serde(default)]
     group_by: Option<String>,
+    /// Numeric column to roll up per group — adds sum/avg/min/max + first/last time
+    /// (e.g. NetBytes for network bytes per endpoint). Only used with group_by.
+    #[serde(default)]
+    metric: Option<String>,
     /// Apply the default noise filter (default true).
     #[serde(default = "default_true")]
     exclude_noise: bool,
@@ -332,6 +337,7 @@ impl ProcmonServer {
                 &reader,
                 None,
                 &core::default_noise(),
+                &[],
                 None,
                 0,
                 sample,
@@ -536,19 +542,23 @@ impl ProcmonServer {
         'Category == \"File System\" && Operation == WriteFile'. Operators: == != ~ (contains) \
         !~ (excludes) ^= (begins) $= (ends) < > and `Column in (a, b)` for OR over values. With \
         group_by, returns distinct values + counts of that column (e.g. files written: \
-        'Category == \"File System\" && Operation == WriteFile' group_by=Path). Without group_by, \
-        a page of events (each with a seq for get_event). exclude_noise (default true) drops \
-        NTFS-metadata / monitoring-tool / bookkeeping noise. Call list_filter_columns for the \
-        exact column / operator / operation names."
+        'Category == \"File System\" && Operation == WriteFile' group_by=Path). Comma-separate \
+        group_by for multi-column (group_by=ProcessName,Path); add metric=<numeric column> for \
+        sum/avg/min/max + first/last time per group (e.g. group_by=RemoteAddress metric=NetBytes \
+        for network bytes per endpoint) — prefer this over exporting CSV to total things yourself. \
+        Without group_by, a page of events (each with a seq for get_event). exclude_noise \
+        (default true) drops NTFS-metadata / monitoring-tool / bookkeeping noise. Call \
+        list_filter_columns for the exact column / operator / operation names."
     )]
     async fn query_events(
         &self,
         Parameters(a): Parameters<QueryArgs>,
     ) -> Result<CallToolResult, McpError> {
         let filter = parse_filter_opt(&a.filter)?;
-        let group =
-            match a.group_by.as_deref() {
-                Some(c) => Some(core::parse_column(c).ok_or_else(|| {
+        let group = parse_columns(a.group_by.as_deref())?;
+        let metric =
+            match a.metric.as_deref() {
+                Some(c) => Some(core::parse_field(c).ok_or_else(|| {
                     McpError::invalid_params(format!("unknown column: {c}"), None)
                 })?),
                 None => None,
@@ -561,7 +571,16 @@ impl ProcmonServer {
             } else {
                 Vec::new()
             };
-            let mut res = core::query(r, filter.as_ref(), &noise, group, offset, limit, detail);
+            let mut res = core::query(
+                r,
+                filter.as_ref(),
+                &noise,
+                &group,
+                metric,
+                offset,
+                limit,
+                detail,
+            );
             // Clip unbounded per-row strings so a detail-heavy or long-path page
             // can't trip the response-size guard; full values are in get_event.
             for e in &mut res.events {
@@ -571,7 +590,9 @@ impl ProcmonServer {
                 }
             }
             for g in &mut res.groups {
-                clip(&mut g.value, MAX_FIELD);
+                for v in &mut g.values {
+                    clip(v, MAX_FIELD);
+                }
             }
             // Return as many rows as fit the budget (marking truncated) rather
             // than letting an oversized page trip the all-or-nothing guard.
@@ -661,7 +682,12 @@ impl ProcmonServer {
         self.analyze(a.source, move |r| Ok(core::pml_info(r))).await
     }
 
-    #[tool(description = "Export a (filtered) capture to PML / CSV / XML at out_path.")]
+    #[tool(
+        description = "Export a (filtered) capture to PML / CSV / XML at out_path — for handing \
+        the full data to another tool or archiving it, NOT for in-context analysis. For counts / \
+        sums / top-N, use query_events with group_by (+ metric); don't dump CSV and compute \
+        yourself."
+    )]
     async fn export(
         &self,
         Parameters(a): Parameters<ExportArgs>,
@@ -784,19 +810,68 @@ special characters. Operators:
   ==  is            !=  is not          ~   contains       !~  excludes
   ^=  begins with   $=  ends with       <   less than      >   more than
   Column in (a, b, c)   matches ANY of the listed values (OR)
-group_by returns distinct values + counts of a column (use it to avoid flooding). Recipes:
+group_by returns distinct values + counts of a column — summarize instead of flooding.
+Comma-separate for multi-column (group_by=ProcessName,Path). Add metric=<numeric column> for
+sum/avg/min/max + first/last time per group. Do NOT export CSV to count or total things yourself
+— group_by/metric already does it.
+
+File "writes" are not just WriteFile — they span WriteFile, SetEndOfFileInformationFile,
+SetAllocationInformationFile, SetRenameInformationFile, DeleteFile. Network columns:
+RemoteAddress, RemotePort, LocalAddress, LocalPort, NetBytes.
+
+Operation semantics (most names are self-evident; these are the traps): CreateFile is a file
+OPEN — how a process opens ANY file — not necessarily a creation; whether it created / opened /
+overwrote is in the Detail. So "touched a file" == CreateFile, and a reads-only view undercounts
+(stealers open then memory-map). SetEndOfFileInformationFile / SetAllocationInformationFile =
+truncate or extend (a write); SetRenameInformationFile = rename / move;
+SetDispositionInformationFile = mark for delete.
+
+Data model: NetBytes (network transfer size) is accurate to sum. File IO byte counts are NOT
+exposed — memory-mapped (section) reads/writes emit no IO event, so a file byte total would
+silently undercount; use operation counts (group_by=Path) for file activity, not byte sums.
+Procmon records which file/endpoint was touched, never payload bytes.
+
+Recipes:
 - What files did X write?  'Category == "File System" && ProcessName == X
                             && Operation in (WriteFile, SetEndOfFileInformationFile, DeleteFile)'
                             group_by=Path
 - Registry persistence:    'Category == Registry && Operation in (RegSetValue, RegCreateKey)
                             && Path ~ Run'   group_by=Path
-- Network endpoints of X:  'Category == Network && ProcessName == X'   group_by=Path
+- Network endpoints of X:  'Category == Network && ProcessName == X'   group_by=RemoteAddress
+- Bytes per endpoint:      'Category == Network && ProcessName == X'
+                            group_by=RemoteAddress metric=NetBytes
 - Failed operations:       'Result != SUCCESS'
+
+Summaries (the GUI's summary views are all just group_by — reproduce any of them here):
+- Busiest processes:       group_by=ProcessName   (add ,Category for a per-category breakdown)
+- File summary:            'Category == "File System"'   group_by=Path
+- Registry summary:        'Category == Registry'   group_by=Path
+- Network summary:         'Category == Network'   group_by=RemoteAddress metric=NetBytes
+- Cross-reference / who touched a file:  'Path ~ "Local State"'   group_by=ProcessName
+                           (Path group rows also carry a distinct-process count)
+- Operation / result mix:  group_by=Operation   /   group_by=Result
 
 Call list_filter_columns for the exact column / operator / operation names — do not guess them.
 Live capture (capture/start_capture) requires Administrator; PML analysis does not."#;
 
 // --- helpers ----------------------------------------------------------------
+
+/// Parses a comma-separated `group_by` spec into columns (`None`/empty = no
+/// grouping), mapping an unknown column to `invalid_params`.
+fn parse_columns(spec: Option<&str>) -> Result<Vec<core::Field>, McpError> {
+    match spec {
+        Some(s) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|c| {
+                core::parse_field(c)
+                    .ok_or_else(|| McpError::invalid_params(format!("unknown column: {c}"), None))
+            })
+            .collect(),
+        None => Ok(Vec::new()),
+    }
+}
 
 /// Parses an optional filter expression (`None`/empty = match all) into an
 /// [`core::Expr`], mapping a parse error to `invalid_params`.

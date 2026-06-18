@@ -742,6 +742,28 @@ impl Event {
             },
         }
     }
+
+    /// A structured, category-specific field by name (e.g. network `RemoteAddress`
+    /// / `NetBytes`), read straight from the decoded event. These are the query
+    /// layer's extension fields — kept out of the Procmon-mirrored `Column` set so
+    /// per-category detail doesn't bloat it. `None` if this event has no such field.
+    pub fn struct_field(&self, name: &str) -> Option<std::borrow::Cow<'_, str>> {
+        match &self.backing {
+            Backing::Network(n) => crate::parse::network::NetView::new(n)
+                .field(name)
+                .map(std::borrow::Cow::Owned),
+            _ => None,
+        }
+    }
+
+    /// The numeric value of a structured field (for numeric compare / aggregation);
+    /// `None` for a non-numeric or unknown field.
+    pub fn struct_number(&self, name: &str) -> Option<i64> {
+        match &self.backing {
+            Backing::Network(n) => crate::parse::network::NetView::new(n).number(name),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
