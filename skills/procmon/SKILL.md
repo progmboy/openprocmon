@@ -159,7 +159,15 @@ Each event row from `query` has a `seq`. Get its full detail + call stack:
 procmon-cli get-event --pml cap.pml --seq 1234 --part event,process,stack
 procmon-cli get-process --pml cap.pml --pid 4321   # identity + loaded modules
 procmon-cli tree --pml cap.pml                       # parent→child process tree
+procmon-cli timeline --pml cap.pml --pid 1464        # a PID's key activity, time-ordered
+                                                     #   (+ --include-reads for everything)
+procmon-cli window --pml cap.pml --seq 1234 --before 25 --after 25  # context around an event
 ```
+
+`timeline` is the quick "what did this PID do" — state-changing ops (writes /
+deletes / creates, registry writes, process / image load) plus all network, in
+time order, reads/queries folded away. `window` shows the events surrounding one
+`seq` (same process by default) to explain what led up to or followed it.
 
 ### Export / metadata
 
@@ -185,9 +193,9 @@ procmon-cli pml-info --pml cap.pml      # event count, computer, OS
 ## As an MCP server
 
 `procmon-cli mcp` serves the same operations as MCP tools over stdio
-(`capture`, `start_capture`/`stop_capture`, `query_events`, `get_event`,
-`get_process`, `list_processes`, `process_tree`, `summary`, `export`,
-`pml_info`, `list_filter_columns`, `driver_status`). Tools take a `source` of a
+(`capture`, `start_capture`/`stop_capture`, `query_events`, `process_timeline`,
+`event_window`, `get_event`, `get_process`, `list_processes`, `process_tree`,
+`summary`, `export`, `pml_info`, `list_filter_columns`, `driver_status`). Tools take a `source` of a
 finished `session_id` or a `pml_path`, and `query_events`/`export`/`capture` take
 the same `filter` expression string described above. The server's `instructions`
 and the `list_filter_columns` tool carry the same syntax and recipes as this skill.

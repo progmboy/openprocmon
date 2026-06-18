@@ -116,6 +116,10 @@ ask for.
 
 - **`query_events`** — the workhorse. Find events, or summarize a column into
   distinct values + counts (e.g. "what files were written").
+- **`process_timeline`** — a PID's key activity (state-changing ops + network),
+  time-ordered, reads/queries folded away — a quick "what did this process do".
+- **`event_window`** — the events surrounding one `seq` (same process by default),
+  to see what led up to / followed it.
 - **`process_tree`** — the parent→child spawn tree (structure + names).
 - **`list_processes`** — processes with identity + a clipped command line
   (paginated; the full command line is in `get_process`).

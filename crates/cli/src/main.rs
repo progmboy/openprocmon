@@ -120,6 +120,32 @@ enum Command {
         #[arg(long, value_delimiter = ',', default_value = "event,process,stack")]
         part: Vec<String>,
     },
+    /// Process timeline: a PID's state-changing activity (+ all network), time-ordered.
+    Timeline {
+        #[command(flatten)]
+        src: PmlArg,
+        #[arg(long)]
+        pid: u32,
+        /// Include reads / queries / closes too (default: only key operations).
+        #[arg(long)]
+        include_reads: bool,
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+    },
+    /// Event window: the events around a `seq` (same process unless --all-processes).
+    Window {
+        #[command(flatten)]
+        src: PmlArg,
+        #[arg(long)]
+        seq: usize,
+        #[arg(long, default_value_t = 25)]
+        before: usize,
+        #[arg(long, default_value_t = 25)]
+        after: usize,
+        /// Don't restrict to the center event's process.
+        #[arg(long)]
+        all_processes: bool,
+    },
     /// Full detail (+ modules) of one process by pid.
     GetProcess {
         #[command(flatten)]
@@ -250,6 +276,28 @@ fn run() -> Result<()> {
             let d = core::get_event(&src.open()?, seq, &part)
                 .with_context(|| format!("no event with seq {seq}"))?;
             print(&d)
+        }
+        Command::Timeline {
+            src,
+            pid,
+            include_reads,
+            limit,
+        } => print(&core::process_timeline(
+            &src.open()?,
+            pid,
+            include_reads,
+            limit,
+        )),
+        Command::Window {
+            src,
+            seq,
+            before,
+            after,
+            all_processes,
+        } => {
+            let w = core::event_window(&src.open()?, seq, before, after, !all_processes)
+                .with_context(|| format!("no event with seq {seq}"))?;
+            print(&w)
         }
         Command::GetProcess { src, pid } => {
             let p = core::get_process(&src.open()?, pid)

@@ -4,10 +4,11 @@
 //! the file. `PmlReader` already provides random access, the process table with
 //! modules, and lazy mmap, so these are thin projections over it.
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
-use procmon_sdk::{Event, PmlReader, Result};
+use procmon_sdk::{Column, Event, PmlReader, Relation, Result};
 use serde::Serialize;
 
 use crate::query::{Clause, Expr, Field, GroupRow, Grouper};
@@ -90,6 +91,121 @@ pub fn query(
             groups: Vec::new(),
         }
     }
+}
+
+/// State-changing file / registry / process operations — the "significant"
+/// activity a timeline keeps when reads / queries / closes are folded away.
+/// Network is kept wholesale (every endpoint touch matters), handled separately.
+const SIGNIFICANT_OPS: &[&str] = &[
+    "CreateFile",
+    "WriteFile",
+    "SetEndOfFileInformationFile",
+    "SetAllocationInformationFile",
+    "SetRenameInformationFile",
+    "SetBasicInformationFile",
+    "SetDispositionInformationFile",
+    "DeleteFile",
+    "RegCreateKey",
+    "RegSetValue",
+    "RegDeleteKey",
+    "RegDeleteValue",
+    "RegRenameKey",
+    "RegSetInfoKey",
+    "Process Create",
+    "Process Exit",
+    "Process Start",
+    "Thread Create",
+    "Load Image",
+];
+
+/// A process's activity as a time-ordered list (the "process timeline"). By
+/// default (`include_reads = false`) only state-changing file/registry/process
+/// operations plus all network activity are kept — reads / queries / closes are
+/// folded away — and the default noise filter is applied. `include_reads = true`
+/// returns every event for the pid. Events come back in capture (= time) order.
+pub fn process_timeline(
+    reader: &Arc<PmlReader>,
+    pid: u32,
+    include_reads: bool,
+    limit: usize,
+) -> QueryResult {
+    let pid_clause = Expr::Clause(Clause {
+        column: Field::Col(Column::Pid),
+        relation: Relation::Is,
+        values: vec![pid.to_string()],
+    });
+    let filter = if include_reads {
+        pid_clause
+    } else {
+        // All network activity OR any state-changing file/registry/process op.
+        let network = Expr::Clause(Clause {
+            column: Field::Col(Column::Class),
+            relation: Relation::Is,
+            values: vec!["Network".to_string()],
+        });
+        let significant = Expr::Clause(Clause {
+            column: Field::Col(Column::Operation),
+            relation: Relation::Is,
+            values: SIGNIFICANT_OPS.iter().map(|s| s.to_string()).collect(),
+        });
+        Expr::And(vec![pid_clause, Expr::Or(vec![network, significant])])
+    };
+    let noise = crate::default_noise();
+    query(reader, Some(&filter), &noise, &[], None, 0, limit, false)
+}
+
+/// A window of events around a center `seq` (the "context" view): the events just
+/// before and after it, optionally restricted to the same process.
+#[derive(Clone, Debug, Serialize)]
+pub struct EventWindow {
+    pub center_seq: u64,
+    pub events: Vec<EventRecord>,
+}
+
+/// Up to `before` events preceding `seq` and `after` following it (plus `seq`
+/// itself), optionally restricted to the center event's process. Uses a sliding
+/// pre-window and stops once `after` are collected, so it never scans the whole
+/// file past the window. `None` if `seq` is out of range.
+pub fn event_window(
+    reader: &Arc<PmlReader>,
+    seq: usize,
+    before: usize,
+    after: usize,
+    same_process: bool,
+) -> Option<EventWindow> {
+    let pid = reader.event_as_event(seq).ok()?.pid();
+    let mut pre: VecDeque<EventRecord> = VecDeque::with_capacity(before + 1);
+    let mut center = None;
+    let mut post: Vec<EventRecord> = Vec::with_capacity(after);
+    for (i, ev) in reader.events().enumerate() {
+        if same_process && ev.pid() != pid {
+            continue;
+        }
+        match i.cmp(&seq) {
+            std::cmp::Ordering::Less => {
+                pre.push_back(EventRecord::from_event(&ev, i as u64, false));
+                if pre.len() > before {
+                    pre.pop_front();
+                }
+            }
+            std::cmp::Ordering::Equal => {
+                center = Some(EventRecord::from_event(&ev, i as u64, false));
+            }
+            std::cmp::Ordering::Greater => {
+                if post.len() >= after {
+                    break;
+                }
+                post.push(EventRecord::from_event(&ev, i as u64, false));
+            }
+        }
+    }
+    let mut events: Vec<EventRecord> = pre.into_iter().collect();
+    events.extend(center);
+    events.extend(post);
+    Some(EventWindow {
+        center_seq: seq as u64,
+        events,
+    })
 }
 
 /// Full detail of one event (the "detail panel"): the event, its originating

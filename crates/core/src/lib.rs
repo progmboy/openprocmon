@@ -24,8 +24,8 @@ pub mod summary;
 pub mod vocab;
 
 pub use analyze::{
-    get_event, get_process, list_processes, open_pml, pml_info, process_tree, query, EventDetail,
-    PmlInfo, QueryResult,
+    event_window, get_event, get_process, list_processes, open_pml, pml_info, process_timeline,
+    process_tree, query, EventDetail, EventWindow, PmlInfo, QueryResult,
 };
 pub use capture::{
     capture, parse_monitors, CaptureLimits, CaptureOutcome, CaptureSession, StoppedReason,

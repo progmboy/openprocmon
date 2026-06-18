@@ -6,8 +6,8 @@ use std::io::Read;
 use std::sync::Arc;
 
 use procmon_core::{
-    filter_vocab, get_event, get_process, list_processes, parse_filter, pml_info, process_tree,
-    query, summary, Field,
+    event_window, filter_vocab, get_event, get_process, list_processes, parse_filter, pml_info,
+    process_timeline, process_tree, query, summary, Field,
 };
 use procmon_sdk::{Column, PmlReader};
 
@@ -143,6 +143,40 @@ fn group_by_multi_column_and_metric() {
         assert!(sum >= max, "sum of non-negative sequences >= max");
         assert!(g.avg.is_some() && g.first_time.is_some() && g.last_time.is_some());
     }
+}
+
+#[test]
+fn timeline_and_window() {
+    let f = fixture();
+    let pid = get_event(&f.reader, 0, &["event".to_string()])
+        .expect("event 0")
+        .event
+        .pid;
+
+    // Timeline: single-process, time-ordered; folding reads never adds events.
+    let key = process_timeline(&f.reader, pid, false, 500);
+    let all = process_timeline(&f.reader, pid, true, 500);
+    assert!(
+        all.total_matched >= key.total_matched,
+        "folding reads never adds"
+    );
+    let mut last = 0u64;
+    for e in &key.events {
+        assert_eq!(e.pid, pid, "timeline is single-process");
+        assert!(e.seq >= last, "time-ordered");
+        last = e.seq;
+    }
+
+    // Window around the first event: contains the center, same process, bounded.
+    let w = event_window(&f.reader, 0, 5, 5, true).expect("window");
+    assert_eq!(w.center_seq, 0);
+    assert!(
+        w.events.iter().any(|e| e.seq == 0),
+        "window contains the center"
+    );
+    assert!(w.events.iter().all(|e| e.pid == pid), "same-process window");
+    assert!(w.events.len() <= 11, "<= before + center + after");
+    serde_json::to_string(&w).unwrap();
 }
 
 #[test]

@@ -161,6 +161,37 @@ struct QueryArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct TimelineArgs {
+    #[serde(flatten)]
+    source: Source,
+    /// Process id whose timeline to build.
+    pid: u32,
+    /// Include reads / queries / closes too (default: only state-changing
+    /// operations plus all network activity).
+    #[serde(default)]
+    include_reads: bool,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct WindowArgs {
+    #[serde(flatten)]
+    source: Source,
+    /// Center event seq (from query_events / get_event).
+    seq: usize,
+    /// Events to include before the center (default 25).
+    #[serde(default = "default_window")]
+    before: usize,
+    /// Events to include after the center (default 25).
+    #[serde(default = "default_window")]
+    after: usize,
+    /// Restrict to the center event's process (default true).
+    #[serde(default = "default_true")]
+    same_process: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct GetEventArgs {
     #[serde(flatten)]
     source: Source,
@@ -222,6 +253,9 @@ fn default_top() -> usize {
 }
 fn default_limit() -> usize {
     100
+}
+fn default_window() -> usize {
+    25
 }
 
 // --- tools ------------------------------------------------------------------
@@ -610,6 +644,51 @@ impl ProcmonServer {
         let (seq, parts) = (a.seq, a.parts);
         self.analyze(a.source, move |r| {
             core::get_event(r, seq, &parts).ok_or_else(|| format!("no event with seq {seq}"))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "A process's activity as a time-ordered timeline. By default keeps only \
+        state-changing operations (writes / deletes / creates, registry writes, process / image \
+        load) plus all network activity — reads / queries / closes are folded away; set \
+        include_reads=true for everything. Noise is excluded. A quick 'what did this PID do'."
+    )]
+    async fn process_timeline(
+        &self,
+        Parameters(a): Parameters<TimelineArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let (pid, include_reads) = (a.pid, a.include_reads);
+        let limit = a.limit.min(MAX_QUERY_LIMIT);
+        self.analyze(a.source, move |r| {
+            let mut res = core::process_timeline(r, pid, include_reads, limit);
+            for e in &mut res.events {
+                clip(&mut e.path, MAX_FIELD);
+                if let Some(d) = e.detail.as_mut() {
+                    clip(d, MAX_FIELD);
+                }
+            }
+            fit_within_budget(&mut res);
+            Ok(res)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Context around one event: the events just before and after seq, by \
+        default within the same process. Use it to see what led up to / followed a specific \
+        event (get a seq from query_events / get_event)."
+    )]
+    async fn event_window(
+        &self,
+        Parameters(a): Parameters<WindowArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let (seq, same) = (a.seq, a.same_process);
+        let before = a.before.min(MAX_QUERY_LIMIT);
+        let after = a.after.min(MAX_QUERY_LIMIT);
+        self.analyze(a.source, move |r| {
+            core::event_window(r, seq, before, after, same)
+                .ok_or_else(|| format!("no event with seq {seq}"))
         })
         .await
     }
