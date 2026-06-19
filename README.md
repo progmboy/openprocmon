@@ -10,7 +10,7 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 
 > **This is a ground-up Rust rewrite** of the SDK and GUI. The kernel driver is unchanged, and the original C++ implementation is kept under [`cpp-backup/`](cpp-backup/) for reference. The Rust SDK is wire-compatible with the original Process Monitor driver and can read/write Procmon `.PML` logs.
 
-The desktop GUI is powered by [GPUI] and [GPUI-Component].
+An **AI agent can drive capture and analysis** through an MCP server or a skill — see [MCP / Skill](#mcp--skill). The desktop GUI is powered by [GPUI] and [GPUI-Component].
 
 ![Main window](docs/snapshots/main.png)
 
@@ -57,6 +57,8 @@ openprocmon/
 ├── cpp-backup/   # Original C++ SDK + WTL GUI, kept for reference
 ├── crates/       # Rust workspace
 │   ├── sdk/      #   procmon-sdk — driver comms, event parsing, PML read/write, symbols
+│   ├── core/     #   procmon-core — PML analysis layer (query / group-by / timeline)
+│   ├── cli/      #   procmon-cli — command-line + MCP server (the AI agent front-end)
 │   ├── gui/      #   procmon-gui — GPUI desktop app (live capture + .PML viewing)
 │   └── example/  #   procmon-example — console SDK demo (capture / save / replay)
 ├── docs/         # Design docs, logo, and screenshots

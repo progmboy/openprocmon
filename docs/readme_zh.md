@@ -10,7 +10,7 @@
 
 > **SDK 与 GUI 的全新 Rust 重写版本。** 内核驱动保持不变，原始 C++ 实现保留在 [`cpp-backup/`](../cpp-backup/) 中供参考。Rust SDK 与原版 Process Monitor 驱动二进制兼容，并可读写 Procmon 的 `.PML` 日志。
 
-桌面 GUI 由 [GPUI] 和 [GPUI-Component] 驱动。
+**AI agent 可通过 MCP 服务器或 skill 驱动捕获与分析**——详见 [MCP / Skill](#mcp--skill)。桌面 GUI 由 [GPUI] 和 [GPUI-Component] 驱动。
 
 ![主窗口](snapshots/main.png)
 
@@ -57,6 +57,8 @@ openprocmon/
 ├── cpp-backup/   # 原始 C++ SDK + WTL GUI，保留供参考
 ├── crates/       # Rust 工作区
 │   ├── sdk/      #   procmon-sdk — 驱动通信、事件解析、PML 读写、符号
+│   ├── core/     #   procmon-core — PML 分析层（查询 / 分组聚合 / 时间线）
+│   ├── cli/      #   procmon-cli — 命令行 + MCP 服务器（AI agent 前端）
 │   ├── gui/      #   procmon-gui — GPUI 桌面应用（实时捕获 + .PML 查看）
 │   └── example/  #   procmon-example — 控制台 SDK 演示（捕获 / 保存 / 回放）
 ├── docs/         # 设计文档、logo 和截图
