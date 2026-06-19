@@ -73,6 +73,7 @@ openprocmon/
 - 带每帧模块解析的 **调用栈** 视图。
 - **与 Sysinternals Process Monitor 完全互通的 `.PML`**——文件双向互通：用 OpenProcMon 捕获并在原版 Process Monitor 中打开（事件列表、单进程 **属性** 对话框、内核解析的 **调用栈** 均正常），也可在本工具中打开原版 Procmon 抓取的 `.PML`。
 - **功能完整的 Rust SDK**——以编程方式驱动一切：加载/连接驱动、选择监控内容、推送过滤器、消费解析后的事件流。GUI 只是其中一个消费者（见 [SDK 示例](#sdk-示例)）。
+- **AI agent 集成（MCP + skill）**——让 AI agent 通过 **MCP** 服务器（`procmon-cli mcp`）或一份开箱即用的 **skill** 来捕获与分析；一个通用查询原语（过滤 + 分组/数值聚合）即可回答"X 写了什么 / 连了哪里"等问题，而不会用海量事件淹没模型（见 [MCP / Skill](#mcp--skill)）。
 - **现代化、GPU 加速的 UI**（GPUI），设计简洁——支持浅色/深色主题和中英文本地化。
 
 ## 截图

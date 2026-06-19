@@ -73,6 +73,7 @@ openprocmon/
 - **Call stack** view with per-frame module resolution.
 - **Full `.PML` interoperability with Sysinternals Process Monitor** — files open both ways: capture with OpenProcMon and open the log in the real Process Monitor (event list, the per-process **Properties** dialog, and kernel-resolved **call stacks** all work), or open a Procmon-captured `.PML` here.
 - **Full-control Rust SDK** — drive everything programmatically: load/connect the driver, choose what to monitor, push filters, and consume the parsed event stream. The GUI is just one consumer (see [SDK example](#sdk-example)).
+- **AI agent integration (MCP + skill)** — capture and analyze from an AI agent over an **MCP** server (`procmon-cli mcp`) or a drop-in **skill**; one query primitive (filter + group-by / numeric-metric aggregation) answers questions like "what did X write / connect to" without flooding the model (see [MCP / Skill](#mcp--skill)).
 - **Modern, GPU-accelerated UI** (GPUI) with a clean, contemporary design — light/dark themes and English/Chinese localization.
 
 ## Screenshots
