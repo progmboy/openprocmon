@@ -25,7 +25,7 @@ An **AI agent can drive capture and analysis** through an MCP server or a skill 
 - [SDK example](#sdk-example)
 - [PML logs](#pml-logs)
 - [MCP / Skill](#mcp--skill)
-- [Driver compatibility](#driver-compatibility)
+- [Kernel driver](#kernel-driver)
 - [Known issues](#known-issues)
 - [Status & roadmap](#status--roadmap)
 - [License](#license)
@@ -103,11 +103,6 @@ cargo build
 # Release build of the GUI
 cargo build -p procmon-gui --release
 ```
-
-### Kernel driver
-
-The driver is built with the WDK (see `kernel/`). After building, either test-sign
-it or enable test signing / disable driver signature enforcement before loading.
 
 ## Run
 
@@ -258,12 +253,23 @@ Two ways to wire it to an agent:
 Live capture requires Administrator (it loads the driver); analyzing a `.PML`
 does not.
 
-## Driver compatibility
+## Kernel driver
 
-You don't need your own code-signing certificate: the SDK is 100% compatible with
-the original Process Monitor driver, so you can drive it with the stock Procmon
-driver. Conversely, this driver can replace the original to study how Process
-Monitor works, or as a starting point for your own EDR-style tooling.
+The miniFilter driver source is under [`kernel/`](kernel/); build it with the WDK.
+The GUI and CLI load a driver image named `PROCMON24.SYS`: with the
+`embedded-driver` feature (on by default) it is embedded from `bin/PROCMON24.SYS` at
+build time and dropped to `System32\Drivers` on demand; with `--no-default-features`
+they instead load a `procmon.sys` from next to the executable.
+
+To use your own driver: build `kernel/`, sign it (or test-sign it), place the signed
+`.sys` at `bin/PROCMON24.SYS`, then rebuild the GUI / CLI to embed it. A test-signed
+driver requires test signing enabled / signature enforcement disabled on the machine
+that loads it.
+
+The SDK is wire-compatible with the original Process Monitor driver — it consumes the
+same event stream from either — and conversely this driver can stand in for the
+original to study how Process Monitor works, or as a starting point for your own
+EDR-style tooling.
 
 ## Known issues
 

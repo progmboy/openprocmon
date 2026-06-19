@@ -25,7 +25,7 @@
 - [SDK 示例](#sdk-示例)
 - [PML 日志](#pml-日志)
 - [MCP / Skill](#mcp--skill)
-- [驱动兼容性](#驱动兼容性)
+- [内核驱动](#内核驱动)
 - [已知问题](#已知问题)
 - [状态与路线图](#状态与路线图)
 - [许可证](#许可证)
@@ -103,10 +103,6 @@ cargo build
 # GUI 的 release 构建
 cargo build -p procmon-gui --release
 ```
-
-### 内核驱动
-
-驱动使用 WDK 构建（见 `kernel/`）。构建完成后，需要对其进行测试签名，或在加载前启用测试签名 / 禁用驱动签名强制。
 
 ## 运行
 
@@ -251,9 +247,13 @@ procmon-cli --help           # 全部子命令
 
 实时捕获需要管理员权限（要加载驱动）；分析 `.PML` 不需要。
 
-## 驱动兼容性
+## 内核驱动
 
-你不需要自己的代码签名证书：SDK 与原版 Process Monitor 驱动 100% 兼容，因此可以直接用原版 Procmon 驱动来驱动它。反过来，本驱动也可以替换原版，用于研究 Process Monitor 的工作原理，或作为你自己 EDR 类工具的起点。
+miniFilter 驱动源码位于 [`kernel/`](../kernel/)，使用 WDK 构建。GUI 和 CLI 会加载名为 `PROCMON24.SYS` 的驱动镜像：在 `embedded-driver` 特性（默认开启）下，它在构建时从 `bin/PROCMON24.SYS` 嵌入，并在需要时释放到 `System32\Drivers`；若用 `--no-default-features` 构建，则改为从可执行文件同目录加载 `procmon.sys`。
+
+使用自己编译的驱动：构建 `kernel/`，对其签名（或测试签名），把签名后的 `.sys` 放到 `bin/PROCMON24.SYS`，然后重新编译 GUI / CLI 即可嵌入。测试签名的驱动需在加载它的机器上启用测试签名 / 禁用驱动签名强制。
+
+SDK 与原版 Process Monitor 驱动 wire 兼容——能消费任一方的同一事件流；反过来，本驱动也可以替换原版，用于研究 Process Monitor 的工作原理，或作为你自己 EDR 类工具的起点。
 
 ## 已知问题
 
