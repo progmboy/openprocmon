@@ -104,16 +104,22 @@ impl PmlWriter {
         self.ram_bytes = host.ram_bytes;
     }
 
-    /// Finalizes a **live** capture and writes it to `path`: appends the System
-    /// (PID 4) process with this machine's loaded kernel modules (the step that
-    /// must come after the last pushed event — see [`add_system_process`]
-    /// (Self::add_system_process)), then writes the file. Not for re-saving a
-    /// PML-sourced view — that's [`crate::PmlReader::write_subset`], which keeps
+    /// Finalizes a **live** capture and writes it to `path`: ensures a System
+    /// (PID 4) process carrying the loaded kernel drivers is present (so
+    /// kernel-mode stack frames resolve), then writes the file. Not for re-saving
+    /// a PML-sourced view — that's [`crate::PmlReader::write_subset`], which keeps
     /// the *capture's* host header and process table byte-faithfully.
+    ///
+    /// If an event was attributed to PID 4 during the capture, the System process
+    /// was already interned and its (kernel-seeded, image-load-updated) module
+    /// list is written at finalize — so a synthetic entry is only appended when
+    /// System is otherwise absent, avoiding a duplicate PID 4 process.
     pub fn finish_live_to_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
-        let kmods = crate::system::kernel_modules();
-        if !kmods.is_empty() {
-            self.add_system_process(&kmods);
+        if !self.processes.iter().any(|p| p.pid == 4) {
+            let kmods = crate::system::kernel_modules();
+            if !kmods.is_empty() {
+                self.add_system_process(&kmods);
+            }
         }
         self.write_to_path(path)
     }

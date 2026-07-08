@@ -34,19 +34,16 @@ pub(crate) fn track(
                 let rec = ProcessRecord::new(info);
                 if let Some(metadata) = metadata {
                     rec.set_meta(metadata.resolve(&rec.info.image_path));
-                    // Seed the module list from a live Toolhelp snapshot only for
-                    // INIT — a process already running at capture start, whose
-                    // image-loads predate capture, so the snapshot is the only
-                    // source for its modules. A CREATE process's modules all
-                    // arrive as image-load events, so Procmon and the C++ both
-                    // deliberately skip the snapshot for it (`v21 = notify==0`
-                    // gate in IDA `sub_140085160`; `IsProcessFromInit()` branch
-                    // in `propstack.cpp`). Live capture only (`metadata` is None
-                    // for offline PML replay, where a live PID query is wrong).
+                    // Seed the module list only for INIT — a process already
+                    // running at capture start, whose image-loads predate capture,
+                    // so an enumeration is the only source for its pre-existing
+                    // modules. A CREATE process's modules all arrive as image-load
+                    // events, so Procmon and the C++ both deliberately skip the
+                    // snapshot for it (`v21 = notify==0` gate in IDA
+                    // `sub_140085160`; `IsProcessFromInit()` in `propstack.cpp`).
+                    // Live capture only (`metadata` is None for offline PML replay).
                     if entry.notify() == pn::INIT {
-                        for module in crate::system::snapshot_modules(pid) {
-                            rec.add_module(module);
-                        }
+                        seed_init_modules(&rec, pid);
                     }
                 }
                 mgr.insert(rec);
@@ -68,6 +65,31 @@ pub(crate) fn track(
             }
         }
         _ => {}
+    }
+}
+
+/// The System process PID, which owns the loaded kernel drivers.
+const SYSTEM_PID: u32 = 4;
+
+/// Seeds an INIT (already-running) process's loaded modules for later call-stack
+/// resolution. The System process (PID 4) holds the *kernel* drivers, which
+/// Toolhelp can't enumerate — seed those from `NtQuerySystemInformation`; the
+/// driver then attributes every driver loaded *during* capture to PID 4 as an
+/// image-load event, which appends here and keeps the list current. Every other
+/// process seeds its user-mode modules from a Toolhelp snapshot.
+fn seed_init_modules(rec: &ProcessRecord, pid: u32) {
+    if pid == SYSTEM_PID {
+        for m in crate::system::kernel_modules() {
+            rec.add_module(Module {
+                base: m.base,
+                size: m.size,
+                path: m.path,
+            });
+        }
+    } else {
+        for module in crate::system::snapshot_modules(pid) {
+            rec.add_module(module);
+        }
     }
 }
 
