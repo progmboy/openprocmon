@@ -36,6 +36,12 @@ pub struct SdkSource {
     handle: Option<JoinHandle<()>>,
     /// The output channel, kept so a deferred connect (first play) can relay onto it.
     tx: Option<Sender<SourceEvent>>,
+    /// Loaded kernel drivers (System PID 4), for resolving kernel-mode stack
+    /// frames. Filled once from `system::kernel_modules()` (NtQuerySystemInformation);
+    /// driver base addresses are stable for the boot session. The live process
+    /// table's PID 4 record is *not* usable here — its modules come from a
+    /// Toolhelp snapshot, which cannot enumerate kernel drivers.
+    kernel_mods: std::sync::OnceLock<Vec<ModuleRow>>,
 }
 
 impl SdkSource {
@@ -48,7 +54,26 @@ impl SdkSource {
             stop: Arc::new(AtomicBool::new(false)),
             handle: None,
             tx: None,
+            kernel_mods: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The loaded kernel drivers (System PID 4 modules) for kernel-frame
+    /// resolution, computed once from `system::kernel_modules()` and cached
+    /// (driver bases are boot-stable). Empty if enumeration fails (unelevated
+    /// or before capture).
+    fn kernel_module_rows(&self) -> &[ModuleRow] {
+        self.kernel_mods.get_or_init(|| {
+            procmon_sdk::system::kernel_modules()
+                .into_iter()
+                .map(|m| ModuleRow {
+                    name: basename(&m.path).into(),
+                    path: m.path.as_str().into(),
+                    base: m.base,
+                    size: m.size as u64,
+                })
+                .collect()
+        })
     }
 
     /// Connects the driver and spawns the relay thread. Called from `start()` only
@@ -152,14 +177,9 @@ impl EventSource for SdkSource {
     }
 
     fn detail_for(&self, row: &CapturedEvent) -> EventDetail {
-        // Kernel call-stack frames resolve against System (PID 4) drivers.
-        let kernel_mods = self
-            .controller
-            .as_ref()
-            .and_then(|c| c.processes().by_pid(4))
-            .map(|r| sdk_modules(&r))
-            .unwrap_or_default();
-        event_detail(row.event(), row, &kernel_mods)
+        // Kernel call-stack frames resolve against the loaded kernel drivers,
+        // from NtQuerySystemInformation (not the PID 4 Toolhelp snapshot).
+        event_detail(row.event(), row, self.kernel_module_rows())
     }
 
     fn process_tree(&self) -> Vec<ProcessNode> {
@@ -170,11 +190,7 @@ impl EventSource for SdkSource {
     }
 
     fn kernel_modules(&self) -> Vec<ModuleRow> {
-        self.controller
-            .as_ref()
-            .and_then(|c| c.processes().by_pid(4))
-            .map(|r| sdk_modules(&r))
-            .unwrap_or_default()
+        self.kernel_module_rows().to_vec()
     }
 }
 
@@ -292,11 +308,6 @@ fn sdk_process_node(ev: &procmon_sdk::Event) -> ProcessNode {
         icon: ev.icon_large().map(crate::components::app_image),
         children: Vec::new(),
     }
-}
-
-/// Loaded modules of a live process as `ModuleRow`s (kernel/PID 4 frame resolution).
-fn sdk_modules(rec: &ProcessRecord) -> Vec<ModuleRow> {
-    rows_from_modules(rec.modules())
 }
 
 /// Converts shared SDK [`procmon_sdk::Module`]s to display `ModuleRow`s. The
