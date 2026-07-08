@@ -331,35 +331,21 @@ fn resolve_stack(
     proc_mods: &[ModuleRow],
     kernel_mods: &[ModuleRow],
 ) -> Vec<StackFrameRow> {
-    fn views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
-        mods.iter()
-            .map(|m| procmon_sdk::SymModule {
-                base: m.base,
-                size: m.size,
-                path: &m.path,
-            })
-            .collect()
-    }
-    let proc_mods = views(proc_mods);
-    let kernel_mods = views(kernel_mods);
+    let proc_mods = crate::record::sym_views(proc_mods);
+    let kernel_mods = crate::record::sym_views(kernel_mods);
     ev.call_stack()
         .iter()
         .enumerate()
         .map(|(i, f)| {
             let addr = f.address();
-            let kind = if procmon_sdk::is_kernel_address(addr) {
-                "K"
-            } else {
-                "U"
-            };
-            let (module, location, path) = procmon_sdk::resolve_frame(addr, &proc_mods, &kernel_mods);
+            let r = procmon_sdk::resolve_frame_full(addr, &proc_mods, &kernel_mods);
             StackFrameRow {
                 frame: i as u32,
-                kind,
-                module: module.to_string(),
-                location,
+                kind: if r.kernel { "K" } else { "U" },
+                module: r.module.to_string(),
+                location: r.location,
                 address: format!("0x{addr:x}"),
-                path: path.to_string(),
+                path: r.path.to_string(),
             }
         })
         .collect()

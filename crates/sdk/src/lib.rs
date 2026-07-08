@@ -46,4 +46,6 @@ pub use process::{build_forest, Module, ProcessInfo, ProcessManager, ProcessMeta
 pub use resolver::AddressResolver;
 pub use source::EventSource;
 pub use path::basename;
-pub use symbols::{is_kernel_address, resolve_frame, SymModule, SymbolResolver};
+pub use symbols::{
+    is_kernel_address, resolve_frame, resolve_frame_full, ResolvedFrame, SymModule, SymbolResolver,
+};

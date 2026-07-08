@@ -5,10 +5,9 @@
 
 use std::sync::Arc;
 
-use procmon_sdk::{Event, PmlReader, Result};
+use procmon_sdk::{Event, PmlReader, Result, SymModule};
 
 use crate::query::Expr;
-use crate::record::ModuleRow;
 
 /// Output format for [`export`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,13 +29,46 @@ impl Format {
     }
 }
 
-/// Stack-frame resolution context for [`export_xml`]: the System (PID 4)
-/// kernel-driver modules (so kernel-mode frames resolve) and an optional
-/// dbghelp symbol resolver (frames fall back to `module+offset` without it).
+/// Stack-frame resolution context for [`export_xml`]: prebuilt [`SymModule`]
+/// views of the System (PID 4) kernel-driver modules (so kernel frames resolve
+/// without rebuilding the list per event) and an optional dbghelp symbol
+/// resolver (frames fall back to `module + offset` without it).
 #[derive(Default)]
 pub struct StackSymbolizer<'a> {
-    pub kernel_mods: &'a [ModuleRow],
-    pub symbols: Option<&'a procmon_sdk::SymbolResolver>,
+    kernel: Vec<SymModule<'a>>,
+    symbols: Option<&'a procmon_sdk::SymbolResolver>,
+}
+
+impl<'a> StackSymbolizer<'a> {
+    /// Builds the symbolizer from borrowed [`SymModule`] views — the GUI hands
+    /// in views over its display rows, the CLI over core `ModuleRow`s; neither
+    /// copies its module strings.
+    pub fn new(
+        kernel_mods: impl IntoIterator<Item = SymModule<'a>>,
+        symbols: Option<&'a procmon_sdk::SymbolResolver>,
+    ) -> Self {
+        Self {
+            kernel: kernel_mods.into_iter().collect(),
+            symbols,
+        }
+    }
+
+    /// One frame's `(location, module path)`: a dbghelp symbol when available,
+    /// the `module + 0xoffset` fallback otherwise. Kernel frames resolve
+    /// against the prebuilt kernel list, user frames against `proc_mods`.
+    fn frame_location<'p>(
+        &'p self,
+        addr: u64,
+        proc_mods: &'p [SymModule<'p>],
+    ) -> (String, &'p str) {
+        let f = procmon_sdk::resolve_frame_full(addr, proc_mods, &self.kernel);
+        let location = self
+            .symbols
+            .and_then(|r| r.resolve(addr, if f.kernel { &self.kernel } else { proc_mods }))
+            .map(|s| s.to_string())
+            .unwrap_or(f.location);
+        (location, f.path)
+    }
 }
 
 /// Exports the events matching `filter` (and not `noise`) to `path` in
@@ -55,12 +87,10 @@ pub fn export(
         Format::Pml => export_pml(reader, &passes, path).map_err(|e| e.to_string()),
         Format::Csv => {
             let matched: Vec<Event> = reader.events().filter(&passes).collect();
-            let refs: Vec<&Event> = matched.iter().collect();
-            export_csv(&refs, path)
+            export_csv(&matched, path)
         }
         Format::Xml => {
             let matched: Vec<Event> = reader.events().filter(&passes).collect();
-            let refs: Vec<&Event> = matched.iter().collect();
             // Kernel frames resolve against the capture's System (PID 4) modules.
             let kernel_mods = if include_stacks {
                 crate::analyze::get_process(reader, 4)
@@ -69,11 +99,8 @@ pub fn export(
             } else {
                 Vec::new()
             };
-            let sym = StackSymbolizer {
-                kernel_mods: &kernel_mods,
-                symbols: None,
-            };
-            export_xml(&refs, include_stacks, &sym, path)
+            let sym = StackSymbolizer::new(crate::record::sym_views(&kernel_mods), None);
+            export_xml(&matched, include_stacks, &sym, path)
         }
     }
 }
@@ -93,64 +120,79 @@ fn export_pml(
     })
 }
 
-/// Procmon-style CSV: UTF-8 BOM, fully-quoted, CRLF rows.
-pub fn export_csv(events: &[&Event], path: &str) -> std::result::Result<usize, String> {
-    let mut buf: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+/// Procmon-style CSV: UTF-8 BOM, fully-quoted, CRLF rows. Streams through a
+/// `BufWriter` — rows are encoded straight to the file, never buffered whole.
+/// `events` is any slice of owned or borrowed events (`Vec<Event>` from the
+/// CLI's reader scan, `Vec<&Event>` from the GUI's selected rows).
+pub fn export_csv<E: std::borrow::Borrow<Event>>(
+    events: &[E],
+    path: &str,
+) -> std::result::Result<usize, String> {
+    use std::io::Write;
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut out = std::io::BufWriter::new(file);
+    out.write_all(&[0xEF, 0xBB, 0xBF]) // UTF-8 BOM
+        .map_err(|e| e.to_string())?;
+    let mut w = csv::WriterBuilder::new()
+        .quote_style(csv::QuoteStyle::Always)
+        .terminator(csv::Terminator::CRLF)
+        .from_writer(out);
+    w.write_record([
+        "Time of Day",
+        "Process Name",
+        "PID",
+        "Operation",
+        "Path",
+        "Result",
+        "Detail",
+        "User",
+    ])
+    .map_err(|e| e.to_string())?;
     let mut n = 0;
-    {
-        let mut w = csv::WriterBuilder::new()
-            .quote_style(csv::QuoteStyle::Always)
-            .terminator(csv::Terminator::CRLF)
-            .from_writer(&mut buf);
+    for ev in events {
+        let ev = ev.borrow();
         w.write_record([
-            "Time of Day",
-            "Process Name",
-            "PID",
-            "Operation",
-            "Path",
-            "Result",
-            "Detail",
-            "User",
+            ev.time_of_day().as_str(),
+            ev.process_name().unwrap_or(""),
+            ev.pid().to_string().as_str(),
+            ev.operation_name(),
+            ev.path().unwrap_or_default().as_str(),
+            ev.result().as_ref(),
+            ev.detail().as_str(),
+            ev.user().unwrap_or_default().as_str(),
         ])
         .map_err(|e| e.to_string())?;
-        for ev in events {
-            w.write_record([
-                ev.time_of_day().as_str(),
-                ev.process_name().unwrap_or(""),
-                ev.pid().to_string().as_str(),
-                ev.operation_name(),
-                ev.path().unwrap_or_default().as_str(),
-                ev.result().as_ref(),
-                ev.detail().as_str(),
-                ev.user().unwrap_or_default().as_str(),
-            ])
-            .map_err(|e| e.to_string())?;
-            n += 1;
-        }
-        w.flush().map_err(|e| e.to_string())?;
+        n += 1;
     }
-    std::fs::write(path, buf).map_err(|e| e.to_string())?;
+    // Flush the CSV buffer, then the BufWriter (surfacing IO errors that a
+    // plain drop would swallow).
+    let out = w.into_inner().map_err(|e| e.to_string())?;
+    out.into_inner().map_err(|e| e.to_string())?;
     Ok(n)
 }
 
 /// Procmon-style XML: a process list (one entry per distinct pid, first-seen
 /// order) + an event list, with optional stacks. Frames prefer a dbghelp symbol
-/// (when `sym.symbols` is set) and fall back to `module+offset`; kernel-mode
-/// frames resolve against `sym.kernel_mods`.
-pub fn export_xml(
-    events: &[&Event],
+/// (when the symbolizer has one) and fall back to `module + offset`; kernel
+/// frames resolve against the symbolizer's prebuilt kernel views. Streams
+/// through a `BufWriter`. `events` is any slice of owned or borrowed events.
+pub fn export_xml<E: std::borrow::Borrow<Event>>(
+    events: &[E],
     include_stacks: bool,
     sym: &StackSymbolizer<'_>,
     path: &str,
 ) -> std::result::Result<usize, String> {
     use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event as Xml};
     use quick_xml::writer::Writer;
+    use std::io::Write;
+    type Xw = Writer<std::io::BufWriter<std::fs::File>>;
 
     // 1-based ProcessIndex per distinct pid, in first-seen order.
     let mut order: Vec<u32> = Vec::new();
     let mut index_of: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
     let mut sample: std::collections::HashMap<u32, &Event> = std::collections::HashMap::new();
     for ev in events {
+        let ev = ev.borrow();
         let pid = ev.pid();
         index_of.entry(pid).or_insert_with(|| {
             order.push(pid);
@@ -159,16 +201,20 @@ pub fn export_xml(
         });
     }
 
-    let mut w = Writer::new(Vec::<u8>::new());
-    let start = |w: &mut Writer<Vec<u8>>, n: &str| -> std::result::Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut out = std::io::BufWriter::new(file);
+    out.write_all(&[0xEF, 0xBB, 0xBF]) // UTF-8 BOM
+        .map_err(|e| e.to_string())?;
+    let mut w = Writer::new(out);
+    let start = |w: &mut Xw, n: &str| -> std::result::Result<(), String> {
         w.write_event(Xml::Start(BytesStart::new(n)))
             .map_err(|e| e.to_string())
     };
-    let end = |w: &mut Writer<Vec<u8>>, n: &str| -> std::result::Result<(), String> {
+    let end = |w: &mut Xw, n: &str| -> std::result::Result<(), String> {
         w.write_event(Xml::End(BytesEnd::new(n)))
             .map_err(|e| e.to_string())
     };
-    let leaf = |w: &mut Writer<Vec<u8>>, n: &str, text: &str| -> std::result::Result<(), String> {
+    let leaf = |w: &mut Xw, n: &str, text: &str| -> std::result::Result<(), String> {
         w.create_element(n)
             .write_text_content(BytesText::new(text))
             .map(|_| ())
@@ -233,6 +279,7 @@ pub fn export_xml(
 
     start(&mut w, "eventlist")?;
     for ev in events {
+        let ev = ev.borrow();
         let pidx = index_of.get(&ev.pid()).copied().unwrap_or(0);
         start(&mut w, "event")?;
         leaf(&mut w, "ProcessIndex", &pidx.to_string())?;
@@ -245,31 +292,21 @@ pub fn export_xml(
         leaf(&mut w, "Detail", &ev.detail())?;
         leaf(&mut w, "User", &ev.user().unwrap_or_default())?;
         if include_stacks {
-            // Combined module view: the process's modules + the kernel drivers.
+            // Per-event views over the process's own modules; the kernel list
+            // is prebuilt once inside the symbolizer.
             let modules = ev.modules();
-            let mut symmods: Vec<procmon_sdk::SymModule> = modules
+            let proc_views: Vec<SymModule> = modules
                 .iter()
-                .map(|m| procmon_sdk::SymModule {
+                .map(|m| SymModule {
                     base: m.base,
                     size: m.size as u64,
                     path: &m.path,
                 })
                 .collect();
-            symmods.extend(sym.kernel_mods.iter().map(|m| procmon_sdk::SymModule {
-                base: m.base,
-                size: m.size,
-                path: &m.path,
-            }));
             start(&mut w, "stack")?;
             for (depth, frame) in ev.call_stack().iter().enumerate() {
                 let addr = frame.address();
-                let (_, fallback, fpath) = procmon_sdk::resolve_frame(addr, &symmods, &[]);
-                // Prefer a resolved symbol; fall back to "module+offset".
-                let location = sym
-                    .symbols
-                    .and_then(|r| r.resolve(addr, &symmods))
-                    .map(|s| s.to_string())
-                    .unwrap_or(fallback);
+                let (location, fpath) = sym.frame_location(addr, &proc_views);
                 start(&mut w, "frame")?;
                 leaf(&mut w, "depth", &depth.to_string())?;
                 leaf(&mut w, "address", &format!("0x{addr:x}"))?;
@@ -284,8 +321,7 @@ pub fn export_xml(
     end(&mut w, "eventlist")?;
     end(&mut w, "procmon")?;
 
-    let mut out: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
-    out.extend_from_slice(&w.into_inner());
-    std::fs::write(path, out).map_err(|e| e.to_string())?;
+    // Flush the BufWriter explicitly (surfacing IO errors a drop would swallow).
+    w.into_inner().into_inner().map_err(|e| e.to_string())?;
     Ok(events.len())
 }

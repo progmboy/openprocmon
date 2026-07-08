@@ -312,23 +312,13 @@ impl AppState {
                     .map(|r| r.event())
                     .filter(|e| !e.is_process_defined())
                     .collect();
-                // The core encoder takes owned-string module rows; the kernel
-                // module list is small and fetched once per export.
-                let kernel_mods: Vec<procmon_core::ModuleRow> = self
-                    .source
-                    .kernel_modules()
-                    .iter()
-                    .map(|m| procmon_core::ModuleRow {
-                        name: m.name.to_string(),
-                        path: m.path.to_string(),
-                        base: m.base,
-                        size: m.size,
-                    })
-                    .collect();
-                let sym = procmon_core::StackSymbolizer {
-                    kernel_mods: &kernel_mods,
-                    symbols: resolver.as_deref(),
-                };
+                // Kernel frames resolve against the source's System (PID 4)
+                // modules; the symbolizer borrows views over the rows directly.
+                let kernel_mods = self.source.kernel_modules();
+                let sym = procmon_core::StackSymbolizer::new(
+                    crate::model::sdk_source::sym_views(&kernel_mods),
+                    resolver.as_deref(),
+                );
                 n = procmon_core::export_xml(&events, opts.stacks, &sym, &opts.path)?;
             }
         }

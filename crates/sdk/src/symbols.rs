@@ -76,6 +76,35 @@ pub fn resolve_frame<'a>(
         .unwrap_or_else(|| ("<UNKNOWN>", format!("0x{addr:016x}"), ""))
 }
 
+/// One display-ready call-stack frame: [`resolve_frame`] plus the kernel/user
+/// kind — the per-frame fabric shared by the GUI stack panel, the CLI
+/// `get-event` stack, and the XML export (each maps it into its own row type).
+pub struct ResolvedFrame<'a> {
+    /// Kernel-mode frame ([`is_kernel_address`]).
+    pub kernel: bool,
+    /// Module basename; `"<UNKNOWN>"` outside every module.
+    pub module: &'a str,
+    /// `"module + 0xoffset"`; `"0x{addr:016x}"` outside every module.
+    pub location: String,
+    /// Full module path; `""` outside every module.
+    pub path: &'a str,
+}
+
+/// [`resolve_frame`] + frame kind, as one [`ResolvedFrame`].
+pub fn resolve_frame_full<'a>(
+    addr: u64,
+    proc_mods: &'a [SymModule<'a>],
+    kernel_mods: &'a [SymModule<'a>],
+) -> ResolvedFrame<'a> {
+    let (module, location, path) = resolve_frame(addr, proc_mods, kernel_mods);
+    ResolvedFrame {
+        kernel: is_kernel_address(addr),
+        module,
+        location,
+        path,
+    }
+}
+
 // dbghelp entry points we resolve dynamically from the configured DLL (so the call
 // goes to *that* dbghelp, not whatever the loader would bind statically).
 type FnSymSetOptions = unsafe extern "system" fn(u32) -> u32;

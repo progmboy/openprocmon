@@ -331,26 +331,26 @@ fn sdk_stack(
         .enumerate()
         .map(|(i, f)| {
             let addr = f.address();
-            let kind = if procmon_sdk::is_kernel_address(addr) {
-                FrameKind::Kernel
-            } else {
-                FrameKind::User
-            };
-            let (module, location, path) = procmon_sdk::resolve_frame(addr, &proc_views, &kernel_views);
+            let r = procmon_sdk::resolve_frame_full(addr, &proc_views, &kernel_views);
             StackRow {
                 frame: i as u32,
-                kind,
-                module: module.to_string().into(),
-                location: location.into(),
+                kind: if r.kernel {
+                    FrameKind::Kernel
+                } else {
+                    FrameKind::User
+                },
+                module: r.module.to_string().into(),
+                location: r.location.into(),
                 address: addr,
-                path: path.to_string().into(),
+                path: r.path.to_string().into(),
             }
         })
         .collect()
 }
 
-/// Borrowed [`procmon_sdk::SymModule`] views over display `ModuleRow`s.
-fn sym_views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
+/// Borrowed [`procmon_sdk::SymModule`] views over display `ModuleRow`s (the
+/// one GUI-side adapter; core has its own over its serializable rows).
+pub(crate) fn sym_views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
     mods.iter()
         .map(|m| procmon_sdk::SymModule {
             base: m.base,
