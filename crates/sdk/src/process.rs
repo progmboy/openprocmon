@@ -213,6 +213,11 @@ impl Default for ProcessManager {
 /// Roots are items whose parent is absent from the pid set or self-referential;
 /// a self-parented item never becomes its own child. O(n²) over the process
 /// count, which is small in any capture.
+///
+/// Every item is placed at most once. Process tables are keyed by sequence, so
+/// a reused pid appears as two items — without the guard, the by-pid child
+/// match would attach the same subtree under both same-pid nodes, and a
+/// reused-pid ancestry loop (X → Y → X') would recurse until stack overflow.
 pub fn build_forest<T, N>(
     items: &[T],
     ids: impl Fn(&T) -> (u32, u32) + Copy,
@@ -221,27 +226,32 @@ pub fn build_forest<T, N>(
     fn children_of<T, N>(
         parent: u32,
         items: &[T],
+        placed: &mut [bool],
         ids: impl Fn(&T) -> (u32, u32) + Copy,
         make: impl Fn(&T, Vec<N>) -> N + Copy,
     ) -> Vec<N> {
-        items
-            .iter()
-            .filter(|t| {
-                let (pid, ppid) = ids(t);
-                ppid == parent && pid != parent
-            })
-            .map(|t| make(t, children_of(ids(t).0, items, ids, make)))
-            .collect()
+        let mut out = Vec::new();
+        for (i, t) in items.iter().enumerate() {
+            let (pid, ppid) = ids(t);
+            if placed[i] || ppid != parent || pid == parent {
+                continue;
+            }
+            placed[i] = true; // before recursing: breaks pid-reuse cycles
+            out.push(make(t, children_of(pid, items, placed, ids, make)));
+        }
+        out
     }
     let pids: std::collections::HashSet<u32> = items.iter().map(|t| ids(t).0).collect();
-    items
-        .iter()
-        .filter(|t| {
-            let (pid, ppid) = ids(t);
-            !pids.contains(&ppid) || ppid == pid
-        })
-        .map(|t| make(t, children_of(ids(t).0, items, ids, make)))
-        .collect()
+    let mut placed = vec![false; items.len()];
+    let mut forest = Vec::new();
+    for (i, t) in items.iter().enumerate() {
+        let (pid, ppid) = ids(t);
+        if !pids.contains(&ppid) || ppid == pid {
+            placed[i] = true;
+            forest.push(make(t, children_of(pid, items, &mut placed, ids, make)));
+        }
+    }
+    forest
 }
 
 #[cfg(test)]
@@ -294,6 +304,26 @@ mod tests {
         assert_eq!(one.1[0].1[0].0, 4, "grandchild under 2");
         let five = forest.iter().find(|n| n.0 == 5).expect("root 5");
         assert!(five.1.is_empty(), "self-parent has no children");
+    }
+
+    #[test]
+    fn build_forest_survives_pid_reuse_cycle() {
+        struct Node(u32, Vec<Node>);
+        fn count(n: &Node) -> usize {
+            1 + n.1.iter().map(count).sum::<usize>()
+        }
+        // R(1) → X(2) → Y(3) → X'(pid 2 reused, parent 3): matching children by
+        // pid alone sees X' under Y and Y under X' — an infinite recursion
+        // without the placed guard. Every item must be placed exactly once.
+        let items = [(1u32, 0u32), (2, 1), (3, 2), (2, 3)];
+        let forest = build_forest(&items, |t| (t.0, t.1), |t, c| Node(t.0, c));
+        assert_eq!(forest.len(), 1, "one root");
+        assert_eq!(forest[0].0, 1, "root is R");
+        assert_eq!(
+            forest.iter().map(count).sum::<usize>(),
+            items.len(),
+            "every item placed exactly once"
+        );
     }
 
     #[test]
