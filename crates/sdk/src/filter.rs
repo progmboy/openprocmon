@@ -600,18 +600,26 @@ pub struct StructField {
 }
 
 /// Every structured extension field the query layer understands, beside the
-/// Procmon-mirrored [`Column`] set (network for now; file/registry to follow).
+/// Procmon-mirrored [`Column`] set (network + file for now; registry to follow).
 /// Adding a field is one entry next to its decoder, not a new `Column` variant.
 pub fn struct_fields() -> Vec<StructField> {
-    crate::parse::network::NETWORK_FIELDS
+    let net = crate::parse::network::NETWORK_FIELDS
         .iter()
         .map(|&(name, numeric, description)| StructField {
             name,
             category: "Network",
             numeric,
             description,
-        })
-        .collect()
+        });
+    let file = crate::parse::file::FILE_FIELDS
+        .iter()
+        .map(|&(name, numeric, description)| StructField {
+            name,
+            category: "File System",
+            numeric,
+            description,
+        });
+    net.chain(file).collect()
 }
 
 /// Extracts the comparison string for a column, or `None` if the event has none.

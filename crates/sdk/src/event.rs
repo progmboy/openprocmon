@@ -818,12 +818,18 @@ impl Event {
             Backing::Network(n) => crate::parse::network::NetView::new(n)
                 .field(name)
                 .map(std::borrow::Cow::Owned),
+            Backing::KernelRecord { .. } if self.class() == EventClass::File => {
+                crate::parse::file::FileView::new(self)
+                    .field(name)
+                    .map(std::borrow::Cow::Borrowed)
+            }
             _ => None,
         }
     }
 
     /// The numeric value of a structured field (for numeric compare / aggregation);
-    /// `None` for a non-numeric or unknown field.
+    /// `None` for a non-numeric or unknown field. (The file fields — Disposition /
+    /// OpenResult — are enumerations, so only network fields are numeric today.)
     pub fn struct_number(&self, name: &str) -> Option<i64> {
         match &self.backing {
             Backing::Network(n) => crate::parse::network::NetView::new(n).number(name),

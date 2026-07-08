@@ -118,10 +118,16 @@ subcommand (and the MCP `list_filter_columns` tool) print this same vocabulary.
 `Profiling`), `Operation` (`op`), `Path`, `Detail`, `Result`, `User`, `Duration`,
 `Date & Time`, `Time of Day`, `Sequence`, …
 
-**Network fields** — structured extension fields beyond the Procmon columns,
-usable in filters and `--group-by` (the numeric ones also as `--metric`):
-`RemoteAddress`, `RemotePort`, `LocalAddress`, `LocalPort`, `NetBytes` (bytes
-transferred). `vocab` lists them under `extension_fields` with descriptions.
+**Extension fields** — structured fields beyond the Procmon columns, usable in
+filters and `--group-by` (the numeric ones also as `--metric`). `vocab` lists
+them all under `extension_fields` with descriptions.
+- *Network:* `RemoteAddress`, `RemotePort`, `LocalAddress`, `LocalPort`,
+  `NetBytes` (bytes transferred).
+- *File (CreateFile):* `Disposition` (what was **requested** — Open / Create /
+  OpenIf / Overwrite / OverwriteIf / Supersede) and `OpenResult` (what
+  **happened** — Opened / Created / Overwritten / Superseded / Exists /
+  DoesNotExist). Group by `OpenResult` to split files a process actually
+  **created** (`OpenResult == Created`) from ones it merely opened.
 
 **Operation values** (use exact names; `vocab` lists them all per category):
 - *File:* `CreateFile`, `ReadFile`, `WriteFile`, `CloseFile`, `SetEndOfFileInformationFile`,
@@ -132,8 +138,10 @@ transferred). `vocab` lists them under `extension_fields` with descriptions.
 - *Network:* `TCP Connect`, `TCP Send`, `TCP Receive`, `UDP Send`, `UDP Receive`, …
 
 **Operation gotchas:** `CreateFile` is a file **OPEN** (how a process opens *any*
-file), not necessarily a creation — what it did (created / opened / overwrote) is in
-the Detail. So "touched a file" == `CreateFile`, and a reads-only view undercounts
+file), not necessarily a creation — what it did (created / opened / overwrote) is
+the `OpenResult` extension field (also in Detail). So "touched a file" ==
+`CreateFile`; to find files a process actually **created**, filter
+`Operation == CreateFile && OpenResult == Created`. A reads-only view undercounts
 (stealers open then memory-map). `SetEndOfFileInformationFile` /
 `SetAllocationInformationFile` = truncate or extend (a write);
 `SetRenameInformationFile` = rename / move; `SetDispositionInformationFile` = mark

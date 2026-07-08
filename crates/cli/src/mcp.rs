@@ -145,7 +145,10 @@ struct QueryArgs {
     /// SetEndOfFileInformationFile / SetAllocationInformationFile (truncate/extend),
     /// SetRenameInformationFile (rename/move), SetDispositionInformationFile (mark
     /// for delete), DeleteFile. CreateFile is a file OPEN (how a process opens ANY
-    /// file), not necessarily a creation. See list_filter_columns for exact column /
+    /// file), not necessarily a creation — the OpenResult extension field says what
+    /// happened (Created/Opened/Overwritten/…), so files actually created =
+    /// 'Operation == CreateFile && OpenResult == Created'. Disposition is what was
+    /// requested (Open/Create/OpenIf/…). See list_filter_columns for exact column /
     /// field / operation names and meanings.
     #[serde(default)]
     filter: FilterExpr,
@@ -606,9 +609,11 @@ impl ProcmonServer {
         processes = group_by=ProcessName (add ,Category for a breakdown); file/registry summary = \
         'Category == \"File System\"' (or Registry) group_by=Path; network summary = 'Category == \
         Network' group_by=RemoteAddress metric=NetBytes; who-touched-a-file = 'Path ~ \"...\"' \
-        group_by=ProcessName; operation/result mix = group_by=Operation or group_by=Result. \
-        CreateFile is a file OPEN (not necessarily a creation); NetBytes is summable but file byte \
-        totals are not. Call list_filter_columns for exact column / field / operation names + meanings."
+        group_by=ProcessName; operation/result mix = group_by=Operation or group_by=Result; \
+        files actually created (vs merely opened) = 'Operation == CreateFile && OpenResult == \
+        Created' group_by=Path. CreateFile is a file OPEN (not necessarily a creation — see the \
+        OpenResult extension field); NetBytes is summable but file byte totals are not. Call \
+        list_filter_columns for exact column / field / operation names + meanings."
     )]
     async fn query_events(
         &self,
@@ -811,7 +816,8 @@ impl ProcmonServer {
     #[tool(
         description = "The filter vocabulary for query_events / capture filters: exact column \
         names (each with a description), structured extension fields (network endpoints — \
-        RemoteAddress / RemotePort / NetBytes / …), relations, and per-category operation names. \
+        RemoteAddress / RemotePort / NetBytes / …; file CreateFile — Disposition / OpenResult), \
+        relations, and per-category operation names. \
         Call it instead of guessing names."
     )]
     async fn list_filter_columns(&self) -> Result<CallToolResult, McpError> {
