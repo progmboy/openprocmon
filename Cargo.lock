@@ -4823,7 +4823,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4839,7 +4839,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "crossbeam-channel",
  "csv",
@@ -4854,7 +4854,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-example"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "procmon-sdk",
@@ -4862,7 +4862,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-gui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -4887,7 +4887,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-sdk"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arc-swap",
  "bitflags 2.12.1",
