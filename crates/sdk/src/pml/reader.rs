@@ -14,6 +14,10 @@ use crate::pml::detail::{self, Tables};
 use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
 use crate::EventClass;
 
+/// Size of a PML event's fixed part (`"<IIIHHIQQIHHII"`); the body —
+/// `[stack frames][details]` — follows it.
+const EVENT_FIXED_SIZE: usize = 52;
+
 const HEADER_SIZE: usize = 0x3a8;
 
 /// Parsed PML header fields we keep (subset of the on-disk header).
@@ -36,8 +40,14 @@ pub struct Header {
 }
 
 /// A read-only view over a `.PML` file.
+///
+/// Events borrow their stack/detail bytes straight out of the mmap
+/// (`Arc<Mmap>`-shared, zero copy), so every [`crate::Event`] produced by
+/// [`events`](Self::events)/[`event_as_event`](Self::event_as_event) pins the
+/// mapping: the `.PML` file stays open (and, on Windows, locked against
+/// delete/truncate) until the last such event is dropped.
 pub struct PmlReader {
-    _mmap: Mmap,
+    mmap: Arc<Mmap>,
     header: Header,
     sizeof_pvoid: usize,
     event_offsets: Vec<u32>,
@@ -59,7 +69,7 @@ impl PmlReader {
     }
 
     fn from_mmap(mmap: Mmap) -> Result<Self> {
-        let data = &mmap[..];
+        let data: &[u8] = &mmap;
         let header = parse_header(data)?;
         // 32-bit PML detail parsing is not implemented yet (the SDK detail views
         // assume the host x64 FLT_PARAMETERS / pointer width). Reject up front
@@ -88,7 +98,7 @@ impl PmlReader {
 
         let _ = &strings; // consumed by process parsing above
         Ok(Self {
-            _mmap: mmap,
+            mmap: Arc::new(mmap),
             header,
             sizeof_pvoid,
             event_offsets,
@@ -189,7 +199,7 @@ impl PmlReader {
             .get(i)
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
-        let data = &self._mmap[..];
+        let data: &[u8] = &self.mmap;
         let mut c = Cur::at(data, off)?;
         let process_index = c.u32()?;
         let tid = c.u32()?;
@@ -205,23 +215,17 @@ impl PmlReader {
         let details_size = c.u32()? as usize;
         let extra_off = c.u32()? as usize;
         let class = EventClass::from_u32(class_val);
-        let mut stack = Vec::with_capacity(stack_depth);
-        for _ in 0..stack_depth {
-            stack.push(c.pvoid(self.sizeof_pvoid)?);
-        }
-        let details = c.take(details_size)?;
-        // Extra/completion blob (e.g. CreateFile's OpenResult) — the POST record's data.
-        let extra: Option<&[u8]> = if extra_off > 0 {
-            let mut ec = Cur::at(data, off + extra_off)?;
-            let size = ec.u16()? as usize;
-            Some(ec.take(size)?)
-        } else {
-            None
-        };
+        // The event body — `[stack frames][details]` — follows the 52-byte fixed
+        // part, physically matching a kernel record's `[frames][data]` region.
+        let body = off + EVENT_FIXED_SIZE;
 
         // Network: decode the PML blob into the shared NetworkEvent (same model the
         // live ETW path uses); pid/time come from the event's process/timestamp.
         if class == EventClass::Network {
+            for _ in 0..stack_depth {
+                c.pvoid(self.sizeof_pvoid)?;
+            }
+            let details = c.take(details_size)?;
             let mut net =
                 crate::parse::network::decode_pml(operation, details, &self.hosts, &self.ports)
                     .ok_or_else(|| Error::Parse("PML: malformed network blob".into()))?;
@@ -241,38 +245,56 @@ impl PmlReader {
             EventClass::Profiling => 4,
             _ => 0,
         };
-        let pre = crate::kernel_types::synth_record_full(
-            monitor,
-            operation,
-            result as i32,
-            tid,
-            date_filetime as i64,
-            &stack,
-            details,
-        );
-        // PML stores duration directly; a sentinel value (where start + duration
-        // would overflow) is treated as "no duration".
-        let duration_ticks = (duration != 0 && date_filetime.checked_add(duration).is_some())
-            .then_some(duration as i64);
-        // A POST record only carries the completion (extra) data, if present.
-        let post = extra.map(|e| {
-            crate::kernel_types::synth_record_full(
-                0,
+        // Zero copy: a synthesized 52-byte header (inline, `Copy`) + the frames
+        // and detail borrowed from the mmap. `from_mmap` bounds-checks the body.
+        let pre = crate::event::Record::from_mmap(
+            Arc::clone(&self.mmap),
+            crate::kernel_types::synth_log_entry(
+                monitor,
                 operation,
                 result as i32,
                 tid,
                 date_filetime as i64,
-                &[],
-                e,
+                stack_depth,
+                details_size,
+            ),
+            body,
+        )
+        .ok_or_else(|| Error::Parse("PML: event body extends past the file".into()))?;
+        // PML stores duration directly; a sentinel value (where start + duration
+        // would overflow) is treated as "no duration".
+        let duration_ticks = (duration != 0 && date_filetime.checked_add(duration).is_some())
+            .then_some(duration as i64);
+        // A POST record only carries the completion (extra) data, if present
+        // (u16 size prefix, then the bytes — borrowed in place as well).
+        let post = if extra_off > 0 {
+            let mut ec = Cur::at(data, off + extra_off)?;
+            let size = ec.u16()? as usize;
+            Some(
+                crate::event::Record::from_mmap(
+                    Arc::clone(&self.mmap),
+                    crate::kernel_types::synth_log_entry(
+                        0,
+                        operation,
+                        result as i32,
+                        tid,
+                        date_filetime as i64,
+                        0,
+                        size,
+                    ),
+                    off + extra_off + 2,
+                )
+                .ok_or_else(|| Error::Parse("PML: extra blob extends past the file".into()))?,
             )
-        });
-        crate::event::Event::from_pml_with(
+        } else {
+            None
+        };
+        Ok(crate::event::Event::from_pml_records(
             pre,
             post,
             crate::event::ProcessSource::Pml(Arc::clone(self), process_index),
             duration_ticks,
-        )
-        .ok_or_else(|| Error::Parse("PML: synthesized record too short".into()))
+        ))
     }
 
     /// Like [`event`](Self::event) but also keeps the raw detail/extra blobs (one
@@ -291,7 +313,7 @@ impl PmlReader {
             .get(i)
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
-        let data = &self._mmap[..];
+        let data: &[u8] = &self.mmap;
         let mut c = Cur::at(data, off)?;
 
         // Common event struct: "<IIIHHIQQIHHII" (52 bytes).
@@ -839,6 +861,28 @@ mod tests {
     #[test]
     fn reads_64bit_filesystem_pml() {
         check("CompressedLogFileUTC64FilesystemPML", true);
+    }
+
+    #[test]
+    fn borrowed_record_rejects_out_of_bounds_body() {
+        // A synthesized head describing more frames+data than the map holds must
+        // be rejected at construction — the invariant every accessor (including
+        // the unsafe frame view) relies on.
+        let tmp = tempfile::NamedTempFile::new().expect("temp");
+        std::fs::write(tmp.path(), vec![0u8; 64]).expect("write");
+        let file = std::fs::File::open(tmp.path()).expect("open");
+        // SAFETY: read-only mapping of a private temp file.
+        let map = Arc::new(unsafe { Mmap::map(&file) }.expect("map"));
+        let too_big = crate::kernel_types::synth_log_entry(3, 0, 0, 1, 0, 2, 100);
+        assert!(
+            crate::event::Record::from_mmap(Arc::clone(&map), too_big, 32).is_none(),
+            "2 frames + 100 bytes at offset 32 exceed a 64-byte map"
+        );
+        let fits = crate::kernel_types::synth_log_entry(3, 0, 0, 1, 0, 2, 8);
+        assert!(
+            crate::event::Record::from_mmap(map, fits, 32).is_some(),
+            "2 frames + 8 bytes at offset 32 fit a 64-byte map"
+        );
     }
 
     #[test]

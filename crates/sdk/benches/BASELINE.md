@@ -168,3 +168,37 @@ pml/filter           20.0       19.8         4629         92,512        4.8     
   default noise filter has 13 `Path` rules.
 - Other phases unchanged within noise.
 
+## 2026-07-08 — after mmap-borrowed PML records
+
+`PmlReader::event_as_event` no longer copies each event's header + stack +
+detail into a synthesized `Arc<[u8]>`. A `Record::PmlBorrowed` synthesizes the
+52-byte `LogEntry` head and points `frames()`/`data()` straight into the
+reader's `Arc<Mmap>` (the PML body layout `[stack][detail]` physically matches
+a kernel record's `[frames][data]`; x64-only, and 32-bit PMLs are rejected at
+open). The variant is **boxed**: an inline 52-byte head doubled `Record`'s
+size and slowed **live** ingest ~45% (bigger moves through the scratch vec /
+reorder heap / channel), so PML pays one small box per record instead — the
+measured trade (inline: parse 15.4 ms / 16 allocs but live 14.2 ms; boxed:
+parse 24.5 ms / 1.3 allocs/event and live back at baseline).
+
+```
+phase             med(ms)    min(ms)        kev/s         allocs    allocMB     retainMB    peakMB
+live/ingest          10.8        8.9        11843             24       22.0          0.0      11.0
+live/columns        105.2       89.3         1211        956,172       28.2          0.0       0.0
+pml/open              0.8        0.7            -          3,889        0.8          0.6       0.7
+pml/parse            24.5       18.4         3772        122,190       29.5       18.5       18.5
+pml/columns          51.9       46.4         1782        429,376       16.5        0.0        0.0
+pml/filter           19.6       18.5         4729         92,512        4.8        0.0        0.0
+```
+
+- `pml/parse`: 37.2 → 24.5 ms (**1.5×**), **214,360 → 122,190 allocations**
+  (2.3 → 1.3 per event: the record-payload copies are gone; what remains is
+  one `Box<PmlRec>` per PRE/POST record plus the events vec), allocated bytes
+  76.9 → 29.5 MB, **retained 48.5 → 18.5 MB** (nothing of the payload is
+  duplicated any more — pages stay in the OS-managed mmap).
+- Consequence of borrowing: every `Event` produced from a PML pins the
+  reader's mmap — the `.PML` file stays open (Windows: locked against
+  delete/truncate) until the last row is dropped.
+- `live/*` unchanged within noise (the boxed variant keeps `Record` at its
+  previous size).
+

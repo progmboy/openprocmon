@@ -945,12 +945,51 @@ pub(crate) fn synth_record(
     bytes
 }
 
-/// Builds one complete record (header + frame chain + data) from decoded scalars.
-/// Used by the PML reader to express a `.PML` event as a kernel-record [`Event`],
-/// so it parses through the exact same path as a live record. Returns an
-/// `Arc<[u8]>` written in place — exactly one allocation per record (an `Arc`
-/// cannot be built from a `Vec`/`Box` without re-copying, since its refcount
-/// header precedes the data).
+/// Builds a synthetic [`LogEntry`] header describing `n_frames` stack frames
+/// and `data_len` bytes of trailing data — the PML→kernel-record bridge
+/// (unset fields stay zero). Returned by value: the header is `Copy` and lives
+/// inline in a borrowed [`crate::event::Record`], no allocation.
+pub(crate) fn synth_log_entry(
+    monitor_type: u16,
+    notify_type: u16,
+    status: i32,
+    thread_id: u32,
+    time: i64,
+    n_frames: usize,
+    data_len: usize,
+) -> LogEntry {
+    // SAFETY: `LogEntry` is a packed struct of integers; all-zero is valid.
+    let mut h: LogEntry = unsafe { core::mem::zeroed() };
+    h.monitor_type = monitor_type;
+    h.notify_type = notify_type;
+    h.status = status;
+    h.thread_id = thread_id;
+    h.time = time;
+    h.n_frame_chain = n_frames as u16;
+    h.data_length = data_len as u32;
+    h
+}
+
+/// Borrows `n` packed [`StackFrame`]s from the start of `bytes`, or `None` if
+/// the region is too short — the borrowed analog of [`LogEntry::frame_chain`]
+/// for frame chains living outside a kernel record (a PML event body in the
+/// reader's mmap).
+pub(crate) fn frame_slice(bytes: &[u8], n: usize) -> Option<&[StackFrame]> {
+    if bytes.len() < n.checked_mul(PTR_SIZE)? {
+        return None;
+    }
+    // SAFETY: `StackFrame` is `#[repr(C, packed)]` (alignment 1) over a u64, so
+    // any region holding `n * 8` bytes (checked above) is a valid view.
+    Some(unsafe { core::slice::from_raw_parts(bytes.as_ptr() as *const StackFrame, n) })
+}
+
+/// Builds one complete record (header + frame chain + data) from decoded
+/// scalars, as owned bytes. The PML read path borrows the mmap instead (see
+/// [`crate::event::Record`]); this remains as the reference construction the
+/// borrowed layout is tested against. Returns an `Arc<[u8]>` written in place —
+/// exactly one allocation per record (an `Arc` cannot be built from a
+/// `Vec`/`Box` without re-copying, since its refcount header precedes the data).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn synth_record_full(
     monitor_type: u16,
@@ -963,15 +1002,15 @@ pub(crate) fn synth_record_full(
 ) -> std::sync::Arc<[u8]> {
     use core::mem::MaybeUninit;
 
-    // SAFETY: `LogEntry` is a packed struct of integers; all-zero is valid.
-    let mut h: LogEntry = unsafe { core::mem::zeroed() };
-    h.monitor_type = monitor_type;
-    h.notify_type = notify_type;
-    h.status = status;
-    h.thread_id = thread_id;
-    h.time = time;
-    h.n_frame_chain = frames.len() as u16;
-    h.data_length = data.len() as u32;
+    let h = synth_log_entry(
+        monitor_type,
+        notify_type,
+        status,
+        thread_id,
+        time,
+        frames.len(),
+        data.len(),
+    );
 
     let len = LOG_ENTRY_SIZE + frames.len() * PTR_SIZE + data.len();
     let mut arc = std::sync::Arc::<[u8]>::new_uninit_slice(len);

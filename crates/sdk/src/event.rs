@@ -16,14 +16,33 @@ use crate::parse::OperationView;
 use crate::process::{ProcessInfo, ProcessRecord};
 use std::sync::Arc;
 
-/// One kernel record (header + frame chain + data) inside an `Arc`-shared
-/// buffer. Construction validates that the buffer holds the *complete* record at
-/// `off`, which is the invariant every accessor (including the `unsafe`
-/// data/frame views) relies on; cloning is a refcount bump.
+/// One kernel record (header + frame chain + data). Construction validates
+/// that the backing memory holds the *complete* record, which is the invariant
+/// every accessor (including the `unsafe` data/frame views) relies on; cloning
+/// is a refcount bump.
 #[derive(Clone)]
-pub(crate) struct Record {
-    buf: Arc<[u8]>,
-    off: u32,
+pub(crate) enum Record {
+    /// A record inside an `Arc`-shared buffer at `off` — live driver batches
+    /// and synthesized record bytes.
+    Owned { buf: Arc<[u8]>, off: u32 },
+    /// A PML event borrowed straight from the reader's mmap (see [`PmlRec`]).
+    /// Boxed so `Record` — and with it every **live** `Event` moving through
+    /// the ingest pipeline — keeps its pre-borrow size; inlining the 52-byte
+    /// head measurably slowed live ingest (bigger memcpys through the scratch
+    /// vec / reorder heap / channel). One small allocation per PML event,
+    /// instead of copying its whole stack+detail payload.
+    PmlBorrowed(Box<PmlRec>),
+}
+
+/// A PML event body borrowed from the reader's mmap: the 52-byte [`LogEntry`]
+/// head is synthesized (no payload copy) and `body` points at the event's
+/// `[stack frames][detail]` region in the map — the same physical layout as a
+/// kernel record's `[frames][data]` (x64-only; the reader rejects 32-bit PMLs).
+#[derive(Clone)]
+pub(crate) struct PmlRec {
+    map: Arc<memmap2::Mmap>,
+    head: LogEntry,
+    body: u32,
 }
 
 impl Record {
@@ -35,7 +54,23 @@ impl Record {
         if size == 0 || off.checked_add(size)? > buf.len() {
             return None;
         }
-        u32::try_from(off).ok().map(|off| Self { buf, off })
+        u32::try_from(off).ok().map(|off| Self::Owned { buf, off })
+    }
+
+    /// Wraps a PML event body at `map[body..]` under a synthesized `head`, or
+    /// `None` if the frames + data the head describes extend past the map
+    /// (same construction-validates-everything invariant as [`new`](Self::new)).
+    pub(crate) fn from_mmap(map: Arc<memmap2::Mmap>, head: LogEntry, body: usize) -> Option<Self> {
+        let need = head
+            .frame_count()
+            .checked_mul(crate::kernel_types::PTR_SIZE)?
+            .checked_add(head.data_len())?;
+        if body.checked_add(need)? > map.len() {
+            return None;
+        }
+        u32::try_from(body)
+            .ok()
+            .map(|body| Self::PmlBorrowed(Box::new(PmlRec { map, head, body })))
     }
 
     /// Wraps a buffer holding exactly one record at offset 0 (test paths).
@@ -48,20 +83,40 @@ impl Record {
 
     /// The record header.
     pub(crate) fn entry(&self) -> &LogEntry {
-        LogEntry::view(&self.buf, self.off as usize).expect("validated at construction")
+        match self {
+            Self::Owned { buf, off } => {
+                LogEntry::view(buf, *off as usize).expect("validated at construction")
+            }
+            Self::PmlBorrowed(rec) => &rec.head,
+        }
     }
 
     /// The operation-specific data region.
     pub(crate) fn data(&self) -> &[u8] {
-        // SAFETY: construction validated that the buffer holds the full record
-        // (header + frames + data), so the data region is in bounds.
-        unsafe { self.entry().event_data() }
+        match self {
+            // SAFETY: construction validated that the buffer holds the full
+            // record (header + frames + data), so the data region is in bounds.
+            Self::Owned { .. } => unsafe { self.entry().event_data() },
+            Self::PmlBorrowed(rec) => {
+                // Plain safe indexing; bounds validated at construction.
+                let start =
+                    rec.body as usize + rec.head.frame_count() * crate::kernel_types::PTR_SIZE;
+                &rec.map[start..start + rec.head.data_len()]
+            }
+        }
     }
 
     /// The call-stack frame chain.
     pub(crate) fn frames(&self) -> &[StackFrame] {
-        // SAFETY: as `data` — the full record is in bounds.
-        unsafe { self.entry().frame_chain() }
+        match self {
+            // SAFETY: as `data` — the full record is in bounds.
+            Self::Owned { .. } => unsafe { self.entry().frame_chain() },
+            Self::PmlBorrowed(rec) => crate::kernel_types::frame_slice(
+                &rec.map[rec.body as usize..],
+                rec.head.frame_count(),
+            )
+            .expect("validated at construction"),
+        }
     }
 
     /// The record's size in bytes (header + frames + data).
@@ -156,9 +211,10 @@ pub struct Event {
     duration: Option<i64>,
 }
 
-// SAFETY: `Event` holds shared immutable bytes (`Record`'s `Arc<[u8]>`) /
-// `Arc<NetworkEvent>` and its process source (`Arc<ProcessRecord>` /
-// `Arc<PmlReader>`); all fields are `Send` and there is no interior mutability.
+// SAFETY: `Event` holds shared immutable bytes (`Record`'s `Arc<[u8]>` or a
+// read-only `Arc<memmap2::Mmap>`, both `Send + Sync`) / `Arc<NetworkEvent>` and
+// its process source (`Arc<ProcessRecord>` / `Arc<PmlReader>`); all fields are
+// `Send` and there is no interior mutability.
 unsafe impl Send for Event {}
 
 impl Event {
@@ -198,6 +254,27 @@ impl Event {
         Some(Self::from_records(pre, post, proc))
     }
 
+    /// Builds a PML-form event from already-validated [`Record`]s — the PML
+    /// read hot path (mmap-borrowed records, no copy). `duration` is the
+    /// event's recorded duration in 100-ns ticks (`None` when absent), used
+    /// directly instead of a synthetic POST.
+    pub(crate) fn from_pml_records(
+        pre: Record,
+        post: Option<Record>,
+        proc: ProcessSource,
+        duration: Option<i64>,
+    ) -> Self {
+        Event {
+            backing: Backing::KernelRecord {
+                pre,
+                post,
+                mode: crate::parse::DetailMode::Pml,
+            },
+            proc,
+            duration,
+        }
+    }
+
     /// Builds an event whose detail bytes are in PML form (see [`crate::parse::DetailMode`]).
     /// `proc` carries the PML process source so process columns resolve via the
     /// reader; `duration` is the event's recorded duration in 100-ns ticks (`None`
@@ -213,15 +290,7 @@ impl Event {
             Some(p) => Some(Record::new(p, 0)?),
             None => None,
         };
-        Some(Event {
-            backing: Backing::KernelRecord {
-                pre,
-                post,
-                mode: crate::parse::DetailMode::Pml,
-            },
-            proc,
-            duration,
-        })
+        Some(Self::from_pml_records(pre, post, proc, duration))
     }
 
     /// Builds a PML-form event with no attached process (detail-only parsing).
