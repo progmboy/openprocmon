@@ -493,8 +493,9 @@ pub struct Grouper {
     metric: Option<Field>,
     with_processes: bool,
     buckets: Vec<Acc>,
-    /// values-hash → bucket slots with that hash (>1 only on a hash collision).
-    index: rustc_hash::FxHashMap<u64, Vec<usize>>,
+    /// values-hash → bucket slots with that hash. Inline single slot: a second
+    /// entry (and thus a heap spill) happens only on a real 64-bit collision.
+    index: rustc_hash::FxHashMap<u64, smallvec::SmallVec<[usize; 1]>>,
 }
 
 impl Grouper {
@@ -513,8 +514,10 @@ impl Grouper {
     pub fn observe(&mut self, ev: &Event) {
         use std::hash::{Hash, Hasher};
         // Derive each grouped column once, borrowed where the event already
-        // holds the string (only derived columns like Path allocate).
-        let mut vals: Vec<std::borrow::Cow<'_, str>> = Vec::with_capacity(self.cols.len());
+        // holds the string (only derived columns like Path allocate). Staged
+        // on the stack — group-by keys are 1-3 columns in practice.
+        let mut vals: smallvec::SmallVec<[std::borrow::Cow<'_, str>; 4]> =
+            smallvec::SmallVec::new();
         for f in &self.cols {
             match f.value_str(ev) {
                 Some(v) => vals.push(v),

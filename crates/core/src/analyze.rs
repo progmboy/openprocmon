@@ -103,6 +103,11 @@ pub(crate) fn event_passes(ev: &Event, filter: Option<&Expr>, noise: &[Clause]) 
     if ev.is_process_defined() {
         return false;
     }
+    // No filter and no noise (`query --no-noise` without --filter): don't
+    // zero-initialize a ~600-byte column memo per event just to return true.
+    if filter.is_none() && noise.is_empty() {
+        return true;
+    }
     let mut memo = procmon_sdk::ColumnMemo::new();
     filter.is_none_or(|f| f.matches_memo(ev, &mut memo))
         && !noise.iter().any(|c| c.matches_memo(ev, &mut memo))
