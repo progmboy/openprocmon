@@ -49,8 +49,7 @@ pub fn query(
     limit: usize,
     include_detail: bool,
 ) -> QueryResult {
-    let passes =
-        |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
+    let passes = |ev: &Event| event_passes(ev, filter, noise);
 
     if !group_by.is_empty() {
         let mut grouper = Grouper::new(group_by.to_vec(), metric);
@@ -91,6 +90,15 @@ pub fn query(
             groups: Vec::new(),
         }
     }
+}
+
+/// Whether `ev` passes `filter` and is not matched by any `noise` clause,
+/// sharing one per-event column memo across both (the default noise set alone
+/// has 13 `Path` clauses — without the memo each derives Path independently).
+pub(crate) fn event_passes(ev: &Event, filter: Option<&Expr>, noise: &[Clause]) -> bool {
+    let mut memo = procmon_sdk::ColumnMemo::new();
+    filter.is_none_or(|f| f.matches_memo(ev, &mut memo))
+        && !noise.iter().any(|c| c.matches_memo(ev, &mut memo))
 }
 
 /// State-changing file / registry / process operations — the "significant"

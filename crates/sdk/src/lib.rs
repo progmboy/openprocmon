@@ -33,8 +33,9 @@ pub use driver::{extract_to_system32, DriverLoader};
 pub use error::{Error, Result};
 pub use event::{Event, EventClass};
 pub use filter::{
-    clause_matches, clause_matches_named, default_display_filter, struct_fields, Action, Column,
-    FilterFields, FilterSet, Relation, Rule, StructField,
+    clause_matches, clause_matches_memo, clause_matches_named, default_display_filter,
+    struct_fields, Action, Column, ColumnMemo, FilterFields, FilterSet, Relation, Rule,
+    StructField,
 };
 pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};

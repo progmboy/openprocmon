@@ -8,7 +8,7 @@
 //! `group_by`, with an optional numeric `metric`) subsumes per-path / per-process /
 //! cross-reference aggregations.
 
-use procmon_sdk::{clause_matches, Column, Event, FilterFields, Relation};
+use procmon_sdk::{clause_matches_memo, Column, ColumnMemo, Event, FilterFields, Relation};
 use serde::Serialize;
 
 /// A leaf condition: a field, a relation, and one or more candidate values
@@ -23,9 +23,16 @@ pub struct Clause {
 impl Clause {
     /// Whether `ev` matches (OR over the clause's values).
     pub fn matches(&self, ev: &Event) -> bool {
+        self.matches_memo(ev, &mut ColumnMemo::new())
+    }
+
+    /// [`matches`](Self::matches) with a caller-held per-event memo: derived
+    /// columns (Path, Detail, times) are materialized at most once per event,
+    /// however many clauses or `in (...)` candidates reference them.
+    pub fn matches_memo<'e>(&self, ev: &'e Event, memo: &mut ColumnMemo<'e>) -> bool {
         self.values
             .iter()
-            .any(|v| self.column.matches(ev, self.relation, v))
+            .any(|v| self.column.matches_memo(ev, self.relation, v, memo))
     }
 }
 
@@ -41,11 +48,18 @@ pub enum Expr {
 impl Expr {
     /// Whether `ev` satisfies the expression.
     pub fn matches(&self, ev: &Event) -> bool {
+        self.matches_memo(ev, &mut ColumnMemo::new())
+    }
+
+    /// [`matches`](Self::matches) with a caller-held per-event memo (see
+    /// [`Clause::matches_memo`]); the query engine shares one memo per event
+    /// across the filter expression and the noise filter.
+    pub fn matches_memo<'e>(&self, ev: &'e Event, memo: &mut ColumnMemo<'e>) -> bool {
         match self {
-            Expr::Clause(c) => c.matches(ev),
-            Expr::Not(e) => !e.matches(ev),
-            Expr::And(v) => v.iter().all(|e| e.matches(ev)),
-            Expr::Or(v) => v.iter().any(|e| e.matches(ev)),
+            Expr::Clause(c) => c.matches_memo(ev, memo),
+            Expr::Not(e) => !e.matches_memo(ev, memo),
+            Expr::And(v) => v.iter().all(|e| e.matches_memo(ev, memo)),
+            Expr::Or(v) => v.iter().any(|e| e.matches_memo(ev, memo)),
         }
     }
 }
@@ -388,10 +402,18 @@ impl Field {
             Field::Ext(name) => ev.struct_number(name),
         }
     }
-    /// Whether `ev`'s value for this field satisfies `relation`/`value`.
-    fn matches(&self, ev: &Event, relation: Relation, value: &str) -> bool {
+    /// Whether `ev`'s value for this field satisfies `relation`/`value`,
+    /// through a per-event column memo. Extension fields don't participate in
+    /// the memo (per-category lookups, no `Column`).
+    fn matches_memo<'e>(
+        &self,
+        ev: &'e Event,
+        relation: Relation,
+        value: &str,
+        memo: &mut ColumnMemo<'e>,
+    ) -> bool {
         match self {
-            Field::Col(c) => clause_matches(ev, *c, relation, value),
+            Field::Col(c) => clause_matches_memo(ev, *c, relation, value, memo),
             Field::Ext(name) => procmon_sdk::clause_matches_named(ev, name, relation, value),
         }
     }

@@ -41,8 +41,7 @@ pub fn export(
     include_stacks: bool,
     path: &str,
 ) -> std::result::Result<usize, String> {
-    let passes =
-        |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
+    let passes = |ev: &Event| crate::analyze::event_passes(ev, filter, noise);
     match format {
         Format::Pml => export_pml(reader, &passes, path).map_err(|e| e.to_string()),
         Format::Csv => {
