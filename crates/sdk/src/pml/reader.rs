@@ -28,6 +28,11 @@ pub struct Header {
     pub windows_build: u32,
     pub num_logical_processors: u32,
     pub ram_bytes: u64,
+    /// `SYSTEM_INFO.lpMaximumApplicationAddress` of the capture host.
+    pub max_app_address: u64,
+    /// Raw `OSVERSIONINFOEXW` blob (284 bytes), carried verbatim so a re-save
+    /// ([`PmlReader::write_subset`]) reproduces the capture host's header.
+    pub os_version: Vec<u8>,
     events_offsets_array_offset: u64,
     process_table_offset: u64,
     strings_table_offset: u64,
@@ -137,6 +142,14 @@ impl PmlReader {
         mut keep: impl FnMut(usize) -> bool,
     ) -> Result<usize> {
         let mut w = crate::pml::PmlWriter::new(self.header.is_64bit);
+        // Carry the capture host's header metadata verbatim — the subset
+        // describes the same capture, not the machine doing the re-save.
+        w.computer_name = self.header.computer_name.clone();
+        w.system_root = self.header.system_root.clone();
+        w.os_version = self.header.os_version.clone();
+        w.max_app_address = self.header.max_app_address;
+        w.num_logical_processors = self.header.num_logical_processors;
+        w.ram_bytes = self.header.ram_bytes;
         for p in self.processes.values() {
             w.add_process(p.clone());
         }
@@ -459,13 +472,15 @@ fn parse_header(data: &[u8]) -> Result<Header> {
     let process_table_offset = c.u64()?;
     let strings_table_offset = c.u64()?;
     let icon_table_offset = c.u64()?;
-    c.skip(12)?;
-    let windows_major = c.u32()?;
-    let windows_minor = c.u32()?;
-    let windows_build = c.u32()?;
-    let _windows_build_dec = c.u32()?;
-    let _service_pack = c.utf16(0x32)?;
-    c.skip(0xd6)?;
+    let max_app_address = c.u64()?;
+    // The OSVERSIONINFOEXW blob, taken verbatim (re-saves write it back
+    // unchanged); the version ints are read out of it by field offset.
+    let os_blob = c.take(crate::pml::model::OS_VERSION_LEN)?;
+    let ver_u32 = |off: usize| u32::from_le_bytes(os_blob[off..off + 4].try_into().unwrap());
+    use windows::Win32::System::SystemInformation::OSVERSIONINFOEXW;
+    let windows_major = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwMajorVersion));
+    let windows_minor = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwMinorVersion));
+    let windows_build = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwBuildNumber));
     let num_logical_processors = c.u32()?;
     let ram_bytes = c.u64()?;
     let header_size = c.u64()?;
@@ -494,6 +509,8 @@ fn parse_header(data: &[u8]) -> Result<Header> {
         windows_build,
         num_logical_processors,
         ram_bytes,
+        max_app_address,
+        os_version: os_blob.to_vec(),
         events_offsets_array_offset,
         process_table_offset,
         strings_table_offset,
@@ -891,6 +908,28 @@ mod tests {
     fn reads_64bit_registry_pml() {
         // Registry events carry the key path in their detail blob.
         check("CompressedLogFileUTC64RegistryPML", true);
+    }
+
+    #[test]
+    fn write_subset_preserves_host_header() {
+        // The subset describes the same capture: computer name, OS version blob,
+        // CPU count, RAM and max user address must survive a re-save verbatim
+        // (not be replaced by PmlWriter::new defaults).
+        let r = open_resource("CompressedLogFileUTC64FilesystemPML");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        r.write_subset(tmp.path(), |i| i % 2 == 0).expect("subset");
+        let sub = PmlReader::open(tmp.path()).expect("reopen subset");
+        let (a, b) = (r.header(), sub.header());
+        assert_eq!(a.computer_name, b.computer_name);
+        assert_eq!(a.system_root, b.system_root);
+        assert_eq!(a.os_version, b.os_version);
+        assert_eq!(a.max_app_address, b.max_app_address);
+        assert_eq!(a.num_logical_processors, b.num_logical_processors);
+        assert_eq!(a.ram_bytes, b.ram_bytes);
+        assert_eq!(
+            (a.windows_major, a.windows_minor, a.windows_build),
+            (b.windows_major, b.windows_minor, b.windows_build)
+        );
     }
 
     #[test]

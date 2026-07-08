@@ -19,8 +19,7 @@ use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
 use crate::process::ProcessRecord;
 
 const HEADER_SIZE: usize = 0x3a8;
-/// `sizeof(OSVERSIONINFOEXW)` — the version blob embedded in the header.
-const OS_VERSION_LEN: usize = 0x11c;
+pub(crate) use crate::pml::model::OS_VERSION_LEN;
 
 /// A default `OSVERSIONINFOEXW` blob for writers without a live host snapshot
 /// (tests / offline saves): Win10-ish, NT platform, workstation. The live

@@ -7,6 +7,12 @@ use std::sync::Arc;
 
 use crate::EventClass;
 
+/// Size of the raw `OSVERSIONINFOEXW` blob embedded verbatim in the PML header
+/// (derived from the struct, never a hand-counted constant).
+pub(crate) const OS_VERSION_LEN: usize =
+    std::mem::size_of::<windows::Win32::System::SystemInformation::OSVERSIONINFOEXW>();
+const _: () = assert!(OS_VERSION_LEN == 0x11c);
+
 /// A captured process icon, stored inside the PML so it renders without the
 /// original executable (which may live on another machine). `data` is a Windows
 /// `ICONIMAGE` resource (`BITMAPINFOHEADER` + colors + masks) — load it with
