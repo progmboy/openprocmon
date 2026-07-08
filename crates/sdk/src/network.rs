@@ -20,8 +20,9 @@ use std::thread::JoinHandle;
 use windows::core::{GUID, PWSTR};
 use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::System::Diagnostics::Etw::{
-    CloseTrace, ControlTraceW, OpenTraceW, ProcessTrace, StartTraceW, CONTROLTRACE_HANDLE,
-    EVENT_RECORD, EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_FLAG_NETWORK_TCPIP, EVENT_TRACE_LOGFILEW,
+    CloseTrace, ControlTraceW, OpenTraceW, ProcessTrace, StartTraceW, TraceSetInformation,
+    TraceStackTracingInfo, CLASSIC_EVENT_ID, CONTROLTRACE_HANDLE, EVENT_RECORD,
+    EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_FLAG_NETWORK_TCPIP, EVENT_TRACE_LOGFILEW,
     EVENT_TRACE_PROPERTIES, EVENT_TRACE_REAL_TIME_MODE, KERNEL_LOGGER_NAMEW,
     PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME, WNODE_FLAG_TRACED_GUID,
 };
@@ -30,6 +31,10 @@ use windows::Win32::System::Diagnostics::Etw::{
 const TCPIP_GUID: GUID = GUID::from_u128(0x9a280ac0_c8e0_11d1_84e2_00c04fb998a2);
 /// UDP/IP MOF provider GUID (classic kernel UdpIp events).
 const UDPIP_GUID: GUID = GUID::from_u128(0xbf3a50c5_a9c9_4988_a005_2df0b7c80f80);
+/// StackWalk MOF provider GUID. When stack tracing is enabled for an event, the
+/// kernel emits a separate StackWalk event carrying the call stack, correlated
+/// to its triggering event by timestamp (see [`parse_stackwalk`]).
+const STACKWALK_GUID: GUID = GUID::from_u128(0xdef2fe46_7bd6_4b80_bd94_f57fe20d0ce3);
 
 /// A network operation, independent of protocol (the TCP/UDP distinction is the
 /// [`NetworkEvent::is_tcp`] flag). Covers both the ETW classic events and the
@@ -139,8 +144,56 @@ pub struct NetworkEvent {
 }
 
 /// Context handed to the ETW callback (via `EVENT_RECORD::UserContext`).
+///
+/// `pending` holds network events awaiting their StackWalk event — the kernel
+/// emits the stack as a separate event right after the one that triggered it,
+/// correlated by timestamp (Procmon's exact mechanism). Only the single
+/// consumer thread touches this via the callback, so a `RefCell` suffices (no
+/// cross-thread sharing).
 struct CallbackCtx {
     tx: Sender<NetworkEvent>,
+    pending: std::cell::RefCell<Vec<NetworkEvent>>,
+}
+
+impl CallbackCtx {
+    /// Buffers a network event to await its StackWalk. First flushes any older
+    /// pending event: seeing a newer timestamp is the watermark that its stack
+    /// (which would share the older timestamp) is not coming, so it goes out
+    /// stackless rather than lingering — lossless and bounded (the buffer holds
+    /// ~1 entry in practice, since the StackWalk immediately follows its event).
+    fn push_network(&self, ev: NetworkEvent) {
+        let mut pending = self.pending.borrow_mut();
+        let now = ev.time;
+        let mut i = 0;
+        while i < pending.len() {
+            if pending[i].time < now {
+                let _ = self.tx.try_send(pending.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        pending.push(ev);
+    }
+
+    /// Attaches a decoded StackWalk's frames to the pending network event with
+    /// the matching timestamp, then sends it. A StackWalk for an event we did
+    /// not buffer (a non-network event) simply matches nothing.
+    fn attach_stack(&self, timestamp: i64, frames: Vec<crate::kernel_types::StackFrame>) {
+        let mut pending = self.pending.borrow_mut();
+        if let Some(pos) = pending.iter().position(|p| p.time == timestamp) {
+            let mut ev = pending.remove(pos);
+            ev.stack = frames;
+            let _ = self.tx.try_send(ev);
+        }
+    }
+
+    /// Flushes every still-pending event (the session is stopping, so no more
+    /// StackWalks will arrive).
+    fn flush_pending(&self) {
+        for ev in self.pending.borrow_mut().drain(..) {
+            let _ = self.tx.try_send(ev);
+        }
+    }
 }
 
 /// A running ETW network session and its consumer thread.
@@ -164,7 +217,10 @@ impl NetworkMonitor {
 
         start_session()?;
 
-        let ctx = Box::into_raw(Box::new(CallbackCtx { tx }));
+        let ctx = Box::into_raw(Box::new(CallbackCtx {
+            tx,
+            pending: std::cell::RefCell::new(Vec::new()),
+        }));
         // Raw pointers are not `Send`; move the address as a `usize` instead.
         let ctx_addr = ctx as usize;
         let consumer = std::thread::Builder::new()
@@ -223,8 +279,9 @@ fn properties_buffer() -> Vec<u8> {
     vec![0u8; size_of::<EVENT_TRACE_PROPERTIES>() + name_bytes]
 }
 
-/// Starts the NT Kernel Logger with the TCP/IP flag enabled.
-fn start_session() -> Result<()> {
+/// Starts the NT Kernel Logger with the TCP/IP flag enabled and turns on stack
+/// tracing for the network events, returning the session handle.
+fn start_session() -> Result<CONTROLTRACE_HANDLE> {
     let mut buf = properties_buffer();
     let props = buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
     // SAFETY: `props` points at a zeroed, correctly sized buffer.
@@ -244,7 +301,45 @@ fn start_session() -> Result<()> {
     let mut handle = CONTROLTRACE_HANDLE::default();
     // SAFETY: name is a static wide string; `props` is valid for the call.
     let status = unsafe { StartTraceW(&mut handle, KERNEL_LOGGER_NAMEW, props) };
-    win32_ok(status)
+    win32_ok(status)?;
+    enable_stack_tracing(handle);
+    Ok(handle)
+}
+
+/// Enables stack tracing for the network events, so the kernel emits a
+/// StackWalk event carrying the call stack after each one — exactly how Procmon
+/// captures network stacks. `TraceSetInformation(TraceStackTracingInfo, …)`
+/// takes a list of [`CLASSIC_EVENT_ID`] (event GUID + opcode); we enable every
+/// TcpIp/UdpIp opcode we decode, plus its IPv6 variant (opcode + 16). Best
+/// effort: a failure just means no stacks, not a broken capture.
+fn enable_stack_tracing(handle: CONTROLTRACE_HANDLE) {
+    use crate::parse::network::{ET_ACCEPT, ET_CONNECT, ET_DISCONNECT, ET_RECV, ET_SEND};
+    const IPV6: u8 = 16; // IPv6 opcodes are the IPv4 opcode + this offset.
+    let id = |guid: GUID, ty: u8| CLASSIC_EVENT_ID {
+        EventGuid: guid,
+        Type: ty,
+        Reserved: [0; 7],
+    };
+    let mut ids = Vec::new();
+    for &ty in &[ET_SEND, ET_RECV, ET_CONNECT, ET_DISCONNECT, ET_ACCEPT] {
+        ids.push(id(TCPIP_GUID, ty));
+        ids.push(id(TCPIP_GUID, ty + IPV6));
+    }
+    for &ty in &[ET_SEND, ET_RECV] {
+        ids.push(id(UDPIP_GUID, ty));
+        ids.push(id(UDPIP_GUID, ty + IPV6));
+    }
+    let bytes = std::mem::size_of_val(ids.as_slice()) as u32;
+    // SAFETY: `ids` is a valid, `bytes`-long array of CLASSIC_EVENT_ID for the
+    // live session handle; TraceSetInformation only reads it.
+    let _ = unsafe {
+        TraceSetInformation(
+            handle,
+            TraceStackTracingInfo,
+            ids.as_ptr() as *const core::ffi::c_void,
+            bytes,
+        )
+    };
 }
 
 /// Stops the NT Kernel Logger (by name).
@@ -295,6 +390,10 @@ fn consume(ctx: *mut CallbackCtx) {
         let _ = ProcessTrace(&[handle], None, None);
         let _ = CloseTrace(handle);
     }
+    // The session stopped: no more StackWalk events will arrive, so send any
+    // network events still waiting for a stack. SAFETY: `ctx` outlives the
+    // consumer thread (freed only after this thread joins).
+    unsafe { &*ctx }.flush_pending();
 }
 
 /// ETW per-event callback: decode TCP/UDP records and forward them.
@@ -312,10 +411,54 @@ unsafe extern "system" fn event_callback(record: *mut EVENT_RECORD) {
     // consumer thread (which owns this callback) joins.
     let ctx = unsafe { &*ctx };
 
-    if let Some(ev) = decode(r) {
-        // Never block the ETW callback; drop if the consumer is backed up.
-        let _ = ctx.tx.try_send(ev);
+    // A StackWalk event carries the call stack of an earlier event, keyed by
+    // that event's timestamp — attach it to the matching pending network event.
+    if r.EventHeader.ProviderId == STACKWALK_GUID {
+        if let Some((timestamp, frames)) = parse_stackwalk(r) {
+            ctx.attach_stack(timestamp, frames);
+        }
+        return;
     }
+
+    if let Some(ev) = decode(r) {
+        // Buffer to await its StackWalk (never blocks; a full channel drops the
+        // event via the pending flush's `try_send`).
+        ctx.push_network(ev);
+    }
+}
+
+/// Parses a StackWalk event into `(triggering-event timestamp, frames)`. The
+/// MOF layout is `EventTimeStamp(8) + StackProcess(4) + StackThread(4)` then the
+/// frame addresses (pointer-sized). `EventTimeStamp` is the timestamp of the
+/// event the stack belongs to (matches [`NetworkEvent::time`]). `None` if the
+/// payload is too short.
+fn parse_stackwalk(r: &EVENT_RECORD) -> Option<(i64, Vec<crate::kernel_types::StackFrame>)> {
+    if r.UserData.is_null() {
+        return None;
+    }
+    // SAFETY: ETW provides `UserData`/`UserDataLength` describing a valid buffer.
+    let data =
+        unsafe { core::slice::from_raw_parts(r.UserData as *const u8, r.UserDataLength as usize) };
+    decode_stackwalk(data)
+}
+
+/// The pure byte-layout half of [`parse_stackwalk`] (testable off the FFI
+/// record): `EventTimeStamp(8) + StackProcess(4) + StackThread(4)` then 8-byte
+/// frame addresses. Returns `(timestamp, frames)`; `None` if shorter than the
+/// header.
+fn decode_stackwalk(data: &[u8]) -> Option<(i64, Vec<crate::kernel_types::StackFrame>)> {
+    use crate::kernel_types::StackFrame;
+    const HEADER: usize = 16; // EventTimeStamp(8) + StackProcess(4) + StackThread(4)
+    if data.len() < HEADER {
+        return None;
+    }
+    let timestamp = i64::from_le_bytes(data.get(0..8)?.try_into().ok()?);
+    // x64: each frame is an 8-byte address. `chunks_exact` drops any tail.
+    let frames = data[HEADER..]
+        .chunks_exact(8)
+        .map(|c| StackFrame::from_addr(u64::from_le_bytes(c.try_into().unwrap())))
+        .collect();
+    Some((timestamp, frames))
 }
 
 /// Decodes one ETW record into a [`NetworkEvent`], or `None` if it is not a
@@ -384,5 +527,77 @@ mod tests {
         assert_eq!(NetOp::from_pml(99), NetOp::Unknown);
         assert_eq!(NetOp::Connect.name(), "Connect");
         assert_eq!(NetOp::TcpCopy.name(), "TCPCopy");
+    }
+
+    #[test]
+    fn decode_stackwalk_parses_timestamp_and_frames() {
+        // EventTimeStamp(8) + StackProcess(4) + StackThread(4) + 3 frames(8 each).
+        let mut d = Vec::new();
+        d.extend_from_slice(&0x1122_3344_5566_7788i64.to_le_bytes()); // timestamp
+        d.extend_from_slice(&4u32.to_le_bytes()); // StackProcess
+        d.extend_from_slice(&99u32.to_le_bytes()); // StackThread
+        for a in [
+            0xffff_f800_0000_0011u64,
+            0x7ff6_0000_0000_2222,
+            0x0000_0000_dead_beef,
+        ] {
+            d.extend_from_slice(&a.to_le_bytes());
+        }
+        let (ts, frames) = decode_stackwalk(&d).expect("decode");
+        assert_eq!(ts, 0x1122_3344_5566_7788);
+        assert_eq!(frames.len(), 3);
+        assert_eq!(frames[0].address(), 0xffff_f800_0000_0011);
+        assert_eq!(frames[2].address(), 0x0000_0000_dead_beef);
+        // Too short for the header → None.
+        assert!(decode_stackwalk(&d[..12]).is_none());
+    }
+
+    fn net_at(time: i64) -> NetworkEvent {
+        NetworkEvent {
+            pid: 1,
+            is_tcp: true,
+            op: NetOp::Connect,
+            local: "10.0.0.1:1".parse().unwrap(),
+            remote: "1.2.3.4:2".parse().unwrap(),
+            local_name: None,
+            remote_name: None,
+            length: 0,
+            time,
+            extra: Vec::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn stackwalk_correlates_by_timestamp() {
+        use crate::kernel_types::StackFrame;
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let ctx = CallbackCtx {
+            tx,
+            pending: std::cell::RefCell::new(Vec::new()),
+        };
+        // Event arrives, then its StackWalk (same timestamp) → sent with stack.
+        ctx.push_network(net_at(100));
+        assert!(
+            rx.try_recv().is_err(),
+            "held pending until its stack arrives"
+        );
+        ctx.attach_stack(100, vec![StackFrame::from_addr(0xabc)]);
+        let ev = rx.try_recv().expect("sent after stack");
+        assert_eq!(ev.time, 100);
+        assert_eq!(ev.stack.len(), 1);
+
+        // A later event is the watermark that flushes an older stackless one.
+        ctx.push_network(net_at(200));
+        ctx.push_network(net_at(300));
+        let ev = rx
+            .try_recv()
+            .expect("older event flushed on newer timestamp");
+        assert_eq!(ev.time, 200);
+        assert!(ev.stack.is_empty(), "no stack came for it");
+        // 300 is still pending; flush on session end.
+        assert!(rx.try_recv().is_err());
+        ctx.flush_pending();
+        assert_eq!(rx.try_recv().expect("flushed").time, 300);
     }
 }

@@ -26,11 +26,11 @@ use crate::parse::OperationView;
 // Classic TcpIp/UdpIp event types (EVENT_DESCRIPTOR.Opcode). These are the IPv4
 // opcodes; the IPv6 variants are the same value plus `IPV6_OPCODE_OFFSET`
 // (e.g. Send=10, SendIPV6=26).
-const ET_SEND: u8 = 10;
-const ET_RECV: u8 = 11;
-const ET_CONNECT: u8 = 12;
-const ET_DISCONNECT: u8 = 13;
-const ET_ACCEPT: u8 = 15;
+pub(crate) const ET_SEND: u8 = 10;
+pub(crate) const ET_RECV: u8 = 11;
+pub(crate) const ET_CONNECT: u8 = 12;
+pub(crate) const ET_DISCONNECT: u8 = 13;
+pub(crate) const ET_ACCEPT: u8 = 15;
 const IPV6_OPCODE_OFFSET: u8 = 16;
 
 /// Procmon-style operation label, e.g. `TCP Connect` / `UDP Send` — the base
