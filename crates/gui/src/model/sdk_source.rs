@@ -434,6 +434,10 @@ impl PmlSource {
 }
 
 impl EventSource for PmlSource {
+    fn as_pml_reader(&self) -> Option<Arc<procmon_sdk::PmlReader>> {
+        self.reader.clone()
+    }
+
     fn start(&mut self) -> Receiver<SourceEvent> {
         let (tx, rx): (Sender<SourceEvent>, Receiver<SourceEvent>) = bounded(8192);
 

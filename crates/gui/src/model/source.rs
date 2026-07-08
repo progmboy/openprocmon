@@ -52,4 +52,11 @@ pub trait EventSource: Send + 'static {
     fn kernel_modules(&self) -> Vec<ModuleRow> {
         Vec::new()
     }
+    /// The backing `PmlReader` when this source replays a `.PML` (else `None`).
+    /// Save-as-PML uses it for a byte-faithful subset copy (`write_subset`) that
+    /// keeps the capture's host header and full process table, instead of
+    /// re-encoding rows through a `PmlWriter` stamped with *this* machine.
+    fn as_pml_reader(&self) -> Option<std::sync::Arc<procmon_sdk::PmlReader>> {
+        None
+    }
 }

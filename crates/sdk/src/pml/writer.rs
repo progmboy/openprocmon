@@ -92,6 +92,32 @@ impl PmlWriter {
         self.processes.push(process);
     }
 
+    /// Fills the header metadata Procmon records (computer name, OS version
+    /// blob, max user address, CPU count, RAM) from this machine, making a live
+    /// capture's PML self-describing. Call once when the capture starts.
+    pub fn stamp_host(&mut self) {
+        let host = crate::system::host_info();
+        self.computer_name = host.computer_name;
+        self.os_version = host.os_version;
+        self.max_app_address = host.max_app_address;
+        self.num_logical_processors = host.num_logical_processors;
+        self.ram_bytes = host.ram_bytes;
+    }
+
+    /// Finalizes a **live** capture and writes it to `path`: appends the System
+    /// (PID 4) process with this machine's loaded kernel modules (the step that
+    /// must come after the last pushed event — see [`add_system_process`]
+    /// (Self::add_system_process)), then writes the file. Not for re-saving a
+    /// PML-sourced view — that's [`crate::PmlReader::write_subset`], which keeps
+    /// the *capture's* host header and process table byte-faithfully.
+    pub fn finish_live_to_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let kmods = crate::system::kernel_modules();
+        if !kmods.is_empty() {
+            self.add_system_process(&kmods);
+        }
+        self.write_to_path(path)
+    }
+
     /// Appends a synthetic System (PID 4) process carrying the loaded kernel
     /// modules — exactly what Procmon stores so kernel-mode stack frames resolve.
     /// Without it, Procmon dereferences an uninitialized kernel-module list and

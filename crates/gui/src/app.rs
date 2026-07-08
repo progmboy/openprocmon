@@ -262,13 +262,30 @@ impl AppState {
 
         match opts.format {
             SaveFormat::Pml => {
-                let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
-                for row in &selected {
-                    writer.push_event(row.event());
+                if let Some(reader) = self.source.as_pml_reader() {
+                    // PML-sourced view: byte-faithful subset copy, keeping the
+                    // capture's host header and full process table. Row `seq` is
+                    // 1-based over the reader's event order (see `PmlSource::start`).
+                    let keep: std::collections::HashSet<usize> = selected
+                        .iter()
+                        .map(|r| (r.seq().saturating_sub(1)) as usize)
+                        .collect();
+                    reader
+                        .write_subset(&opts.path, |i| keep.contains(&i))
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    // Live capture: stamp this machine's host metadata and finish
+                    // with the System (PID 4) process so kernel frames resolve.
+                    let mut writer =
+                        procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
+                    writer.stamp_host();
+                    for row in &selected {
+                        writer.push_event(row.event());
+                    }
+                    writer
+                        .finish_live_to_path(&opts.path)
+                        .map_err(|e| e.to_string())?;
                 }
-                writer
-                    .write_to_path(&opts.path)
-                    .map_err(|e| e.to_string())?;
             }
             SaveFormat::Csv => crate::model::sdk_source::export_csv(&selected, &opts.path)?,
             SaveFormat::Xml => crate::model::sdk_source::export_xml(
