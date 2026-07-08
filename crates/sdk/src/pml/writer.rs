@@ -195,7 +195,10 @@ impl PmlWriter {
             result: ev.status_raw() as u32,
             stack,
             category: std::borrow::Cow::Borrowed(""),
-            path: Arc::from(ev.path().unwrap_or_default().as_str()),
+            // Display fields stay empty on writer-side events: `encode_event`
+            // reads only `raw_detail`/`raw_extra` (the path lives inside the
+            // detail blob), so deriving `ev.path()` here would be pure waste.
+            path: Arc::from(""),
             details: Vec::new(),
             op_name: None,
             raw_detail,
@@ -658,11 +661,7 @@ fn encode_event(b: &mut WBuf, e: &PmlEvent, pv: usize) {
     // The detail blob is the event's `raw_detail`: from `push_event` (live →
     // PML, per-category serialized) or from the reader (PML → PML, verbatim).
     // Events with no raw detail (bare from-scratch `PmlEvent`s) get an empty blob.
-    let detail: Vec<u8> = e
-        .raw_detail
-        .as_deref()
-        .map(<[u8]>::to_vec)
-        .unwrap_or_default();
+    let detail: &[u8] = e.raw_detail.as_deref().unwrap_or_default();
     let stack_bytes = e.stack.len() * pv;
     // Extra-detail is written right after the record; its field is the offset from
     // the event start (= common 52 + stack + details), which the reader resolves.
@@ -688,7 +687,7 @@ fn encode_event(b: &mut WBuf, e: &PmlEvent, pv: usize) {
     for &frame in &e.stack {
         b.pvoid(frame, pv);
     }
-    b.bytes(&detail);
+    b.bytes(detail);
     if let Some(raw) = &e.raw_extra {
         b.u16(raw.len() as u16);
         b.bytes(raw);
