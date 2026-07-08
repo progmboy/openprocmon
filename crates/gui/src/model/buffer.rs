@@ -38,6 +38,10 @@ pub struct EventBuffer {
     retention: Option<Retention>,
     /// Sum of `byte_size()` over `all`, maintained for the byte-based limit.
     total_bytes: usize,
+    /// Process INIT ("Process Defined") seed rows currently retained. They are
+    /// never visible, so `total()` excludes them — otherwise the status bar
+    /// would count rows no filter can ever show.
+    seeds: usize,
 }
 
 impl EventBuffer {
@@ -45,9 +49,10 @@ impl EventBuffer {
         Self::default()
     }
 
-    /// Total captured rows (visible or not).
+    /// Total captured rows (visible or not), excluding the never-displayed
+    /// Process INIT seed rows.
     pub fn total(&self) -> usize {
-        self.all.len()
+        self.all.len() - self.seeds
     }
 
     /// Rows currently visible under the active gating.
@@ -95,6 +100,9 @@ impl EventBuffer {
     /// Appends a row, updating counts and the view if it passes gating, then
     /// applies the history limits (live only).
     pub fn push(&mut self, mut row: CapturedEvent) {
+        if row.event().is_process_defined() {
+            self.seeds += 1;
+        }
         self.counts.bump(row.category());
         let highlighted = self.is_highlighted(&row);
         row.set_highlighted(highlighted);
@@ -117,6 +125,7 @@ impl EventBuffer {
         self.view.clear();
         self.counts = CategoryCounts::default();
         self.total_bytes = 0;
+        self.seeds = 0;
     }
 
     /// Sets the history ring-buffer limits (`None` = unbounded). Applied immediately.
@@ -170,6 +179,10 @@ impl EventBuffer {
         }
 
         self.total_bytes = bytes;
+        self.seeds -= self.all[..drop]
+            .iter()
+            .filter(|r| r.event().is_process_defined())
+            .count();
         self.all.drain(0..drop);
         // Rebase the view onto the shifted `all` indices.
         self.view.retain(|&i| i >= drop);
@@ -252,7 +265,12 @@ impl EventBuffer {
         search: &str,
         monitor: &MonitorToggles,
     ) -> bool {
-        category_enabled(row.category(), monitor)
+        // Process INIT ("Process Defined") seed records are never visible —
+        // hardcoded (like the C++ `CDataView::Push`), not a filter rule the
+        // user could edit away. They stay in the buffer so a PML save can
+        // intern their processes; see `Event::is_process_defined`.
+        !row.event().is_process_defined()
+            && category_enabled(row.category(), monitor)
             && filter.matches(row)
             && search_matches(row, search)
     }

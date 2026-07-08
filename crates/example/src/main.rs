@@ -95,7 +95,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             out.display()
         );
         for ev in source.events().take(SAVE_LIMIT) {
-            if source.is_visible(&ev) {
+            // Process INIT ("Process Defined") seed records are always written —
+            // pushing them interns the pre-existing processes into the PML's
+            // process table. They are never displayed.
+            if ev.is_process_defined() || source.is_visible(&ev) {
                 writer.push_event(&ev);
             }
         }
@@ -107,7 +110,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Unified consume loop: stream events (live) or walk them (PML) the same way.
     println!("   PID  Operation               Result            Path");
     for ev in source.events() {
-        if !source.is_visible(&ev) {
+        // Seed records are never displayed (even with --advanced).
+        if ev.is_process_defined() || !source.is_visible(&ev) {
             continue;
         }
         println!(

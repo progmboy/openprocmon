@@ -262,9 +262,14 @@ fn run_capture(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(ev) => {
                 scope.observe(&ev);
+                // Process INIT ("Process Defined") seed records bypass the scope
+                // and the capture filter: pushing them is what interns every
+                // pre-existing process (a scoped target's parents included) into
+                // the PML process table. They are never displayed downstream.
                 if ev.pid() != own_pid
-                    && scope.contains(&ev)
-                    && filter.as_ref().is_none_or(|f| f.matches(&ev))
+                    && (ev.is_process_defined()
+                        || (scope.contains(&ev)
+                            && filter.as_ref().is_none_or(|f| f.matches(&ev))))
                 {
                     writer.push_event(&ev);
                     bytes += ev.byte_size();

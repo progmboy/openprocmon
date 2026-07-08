@@ -95,7 +95,14 @@ pub fn query(
 /// Whether `ev` passes `filter` and is not matched by any `noise` clause,
 /// sharing one per-event column memo across both (the default noise set alone
 /// has 13 `Path` clauses — without the memo each derives Path independently).
+///
+/// Process INIT ("Process Defined") seed records are dropped unconditionally —
+/// they exist only to populate the PML process table and are never surfaced,
+/// regardless of `--no-noise` or the filter (see `Event::is_process_defined`).
 pub(crate) fn event_passes(ev: &Event, filter: Option<&Expr>, noise: &[Clause]) -> bool {
+    if ev.is_process_defined() {
+        return false;
+    }
     let mut memo = procmon_sdk::ColumnMemo::new();
     filter.is_none_or(|f| f.matches_memo(ev, &mut memo))
         && !noise.iter().any(|c| c.matches_memo(ev, &mut memo))
@@ -186,7 +193,7 @@ pub fn event_window(
     let mut center = None;
     let mut post: Vec<EventRecord> = Vec::with_capacity(after);
     for (i, ev) in reader.events().enumerate() {
-        if same_process && ev.pid() != pid {
+        if ev.is_process_defined() || (same_process && ev.pid() != pid) {
             continue;
         }
         match i.cmp(&seq) {

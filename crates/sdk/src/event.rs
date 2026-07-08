@@ -407,6 +407,20 @@ impl Event {
         self.pre_entry().map(|e| e.sequence).unwrap_or(0)
     }
 
+    /// Whether this is a Process INIT ("Process Defined") record — the synthetic
+    /// entry the driver replays for every process already running at capture
+    /// start. It seeds the process table and MUST flow into PML saves (pushing
+    /// it is what interns the pre-existing process into the saved process
+    /// table), but consumers never display it: the drop is hardcoded at each
+    /// display layer (GUI view, CLI/MCP queries, the example's print loop) —
+    /// deliberately NOT a `default_display_filter` rule, which users can edit
+    /// or disable. Mirrors the C++ `CDataView::Push`, which dropped
+    /// `MONITOR_TYPE_PROCESS + NOTIFY_PROCESS_INIT` at the view layer.
+    pub fn is_process_defined(&self) -> bool {
+        self.class() == EventClass::Process
+            && self.notify_type() == crate::kernel_types::proc_notify::INIT
+    }
+
     /// High-level category of the event.
     pub fn class(&self) -> EventClass {
         match &self.backing {

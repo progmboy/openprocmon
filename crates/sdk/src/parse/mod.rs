@@ -254,17 +254,14 @@ impl Correlator {
             // the watermark, update the process table, then stage it.
             self.max_seen = self.max_seen.max(time);
             if monitor == MonitorType::Process {
-                let notify = entry.notify();
                 proc::track(mgr, self.metadata.as_deref(), record.entry(), record.data());
-                // A Process INIT record ("Process Defined") is the synthetic entry
+                // A Process INIT record ("Process Defined") — the synthetic entry
                 // the driver replays for every process already running at capture
-                // start — its only purpose is to seed the process table above. It
-                // is never surfaced as an event (cf. C++ `CDataView::Push`, which
-                // drops `MONITOR_TYPE_PROCESS + NOTIFY_PROCESS_INIT`), so no
-                // consumer — GUI, PML, CLI — shows a flood of them.
-                if notify == crate::kernel_types::proc_notify::INIT {
-                    continue;
-                }
+                // start — seeds the process table above and then flows through
+                // like any other event: a PML save must push it so the writer
+                // interns the pre-existing process into the saved process table.
+                // Displays drop it unconditionally via `Event::is_process_defined`
+                // (cf. the C++ `CDataView::Push`, which dropped it at the view).
             }
 
             if status == STATUS_PENDING {
@@ -576,9 +573,11 @@ mod tests {
     }
 
     #[test]
-    fn process_init_seeds_table_but_emits_no_event() {
-        // A Process INIT ("Process Defined") record seeds the process table but is
-        // never surfaced as an event (like the C++ GUI's dataview, which drops it).
+    fn process_init_seeds_table_and_flows_as_hidden_event() {
+        // A Process INIT ("Process Defined") record seeds the process table AND
+        // flows through as an event, so a PML save pushes it and the writer
+        // interns the pre-existing process. Displays identify and drop it via
+        // `Event::is_process_defined` (hardcoded, not a user-editable filter).
         let image = "\\Device\\HarddiskVolume999\\Windows\\explorer.exe";
         let data = proc_create_data(7, 4321, image, "explorer.exe");
         let mut pre = entry_bytes(1, proc_notify::INIT, 7, 0, &data);
@@ -586,9 +585,49 @@ mod tests {
 
         let mgr = ProcessManager::new();
         let events = parse_block_tracked(&pre, &mgr);
-        assert!(events.is_empty(), "INIT must not emit an event");
-        // But the process table was seeded from it.
+        assert_eq!(events.len(), 1, "INIT must emit an event for PML saves");
+        assert_eq!(events[0].operation_name(), "Process Defined");
+        assert!(events[0].is_process_defined());
+        // The process table was seeded from it.
         assert_eq!(mgr.by_pid(4321).unwrap().info.image_path, image);
+        // A CREATE is a real, displayed event — the predicate must not hit it.
+        let create = entry_bytes(2, proc_notify::CREATE, 8, 0, &data);
+        let created = parse_block_tracked(&create, &mgr);
+        assert!(!created[0].is_process_defined());
+    }
+
+    #[test]
+    fn process_defined_round_trips_into_pml_process_table() {
+        // The reason INIT flows as an event: pushing it into a PmlWriter is what
+        // interns a pre-existing (otherwise silent) process into the saved PML's
+        // process table. Round trip: INIT event -> writer -> reader; the process
+        // table must contain the process, and the read-back row must still be
+        // identified (and thus hidden) as a Process Defined seed.
+        let image = "\\Device\\HarddiskVolume999\\Windows\\explorer.exe";
+        let data = proc_create_data(7, 4321, image, "explorer.exe");
+        let mut pre = entry_bytes(1, proc_notify::INIT, 7, 0, &data);
+        pre[0..4].copy_from_slice(&7i32.to_le_bytes());
+        let mgr = ProcessManager::new();
+        let events = parse_block_tracked(&pre, &mgr);
+
+        let mut w = crate::pml::PmlWriter::new(true);
+        w.push_event(&events[0]);
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        w.write_to_path(tmp.path()).expect("write PML");
+
+        let reader =
+            std::sync::Arc::new(crate::pml::PmlReader::open(tmp.path()).expect("reopen PML"));
+        let proc = reader
+            .processes()
+            .find(|p| p.pid == 4321)
+            .expect("pre-existing process interned into the process table");
+        assert!(proc.image_path.contains("explorer.exe"));
+        let back: Vec<_> = reader.events().collect();
+        assert_eq!(back.len(), 1);
+        assert!(
+            back[0].is_process_defined(),
+            "read-back seed row must still be identified as Process Defined"
+        );
     }
 
     #[test]
