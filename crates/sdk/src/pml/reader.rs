@@ -11,12 +11,8 @@ use memmap2::Mmap;
 
 use crate::error::{Error, Result};
 use crate::pml::detail::{self, Tables};
-use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
+use crate::pml::model::{PmlEvent, PmlEventHeader, PmlIcon, PmlModule, PmlProcess, EVENT_HEADER_SIZE};
 use crate::EventClass;
-
-/// Size of a PML event's fixed part (`"<IIIHHIQQIHHII"`); the body —
-/// `[stack frames][details]` — follows it.
-const EVENT_FIXED_SIZE: usize = 52;
 
 const HEADER_SIZE: usize = 0x3a8;
 
@@ -200,28 +196,22 @@ impl PmlReader {
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
         let data: &[u8] = &self.mmap;
-        let mut c = Cur::at(data, off)?;
-        let process_index = c.u32()?;
-        let tid = c.u32()?;
-        let class_val = c.u32()?;
-        let operation = c.u16()?;
-        let _ = c.u16()?;
-        let _ = c.u32()?;
-        let duration = c.u64()?;
-        let date_filetime = c.u64()?;
-        let result = c.u32()?;
-        let stack_depth = c.u16()? as usize;
-        let _ = c.u16()?;
-        let details_size = c.u32()? as usize;
-        let extra_off = c.u32()? as usize;
-        let class = EventClass::from_u32(class_val);
-        // The event body — `[stack frames][details]` — follows the 52-byte fixed
-        // part, physically matching a kernel record's `[frames][data]` region.
-        let body = off + EVENT_FIXED_SIZE;
+        let h = PmlEventHeader::view(data, off)
+            .ok_or_else(|| Error::Parse("PML: truncated event header".into()))?;
+        let (process_index, tid, operation) = (h.process_index, h.tid, h.operation);
+        let (duration, date_filetime, result) = (h.duration, h.date_filetime, h.result);
+        let stack_depth = h.stack_depth as usize;
+        let details_size = h.details_size as usize;
+        let extra_off = h.extra_offset as usize;
+        let class = EventClass::from_u32(h.class);
+        // The event body — `[stack frames][details]` — follows the fixed part,
+        // physically matching a kernel record's `[frames][data]` region.
+        let body = off + EVENT_HEADER_SIZE;
 
         // Network: decode the PML blob into the shared NetworkEvent (same model the
         // live ETW path uses); pid/time come from the event's process/timestamp.
         if class == EventClass::Network {
+            let mut c = Cur::at(data, body)?;
             for _ in 0..stack_depth {
                 c.pvoid(self.sizeof_pvoid)?;
             }
@@ -245,8 +235,8 @@ impl PmlReader {
             EventClass::Profiling => 4,
             _ => 0,
         };
-        // Zero copy: a synthesized 52-byte header (inline, `Copy`) + the frames
-        // and detail borrowed from the mmap. `from_mmap` bounds-checks the body.
+        // Zero copy: a synthesized kernel header + the frames and detail
+        // borrowed from the mmap. `from_mmap` bounds-checks the body.
         let pre = crate::event::Record::from_mmap(
             Arc::clone(&self.mmap),
             crate::kernel_types::synth_log_entry(
@@ -282,7 +272,7 @@ impl PmlReader {
                         0,
                         size,
                     ),
-                    off + extra_off + 2,
+                    off + extra_off + size_of::<u16>(),
                 )
                 .ok_or_else(|| Error::Parse("PML: extra blob extends past the file".into()))?,
             )
@@ -314,24 +304,15 @@ impl PmlReader {
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
         let data: &[u8] = &self.mmap;
-        let mut c = Cur::at(data, off)?;
-
-        // Common event struct: "<IIIHHIQQIHHII" (52 bytes).
-        let process_index = c.u32()?;
-        let tid = c.u32()?;
-        let class_val = c.u32()?;
-        let operation = c.u16()?;
-        let _ = c.u16()?;
-        let _ = c.u32()?;
-        let duration = c.u64()?;
-        let date_filetime = c.u64()?;
-        let result = c.u32()?;
-        let stack_depth = c.u16()? as usize;
-        let _ = c.u16()?;
-        let details_size = c.u32()? as usize;
-        let extra_details_offset = c.u32()? as usize;
-
-        let class = EventClass::from_u32(class_val);
+        let h = PmlEventHeader::view(data, off)
+            .ok_or_else(|| Error::Parse("PML: truncated event header".into()))?;
+        let (process_index, tid, operation) = (h.process_index, h.tid, h.operation);
+        let (duration, date_filetime, result) = (h.duration, h.date_filetime, h.result);
+        let stack_depth = h.stack_depth as usize;
+        let details_size = h.details_size as usize;
+        let extra_details_offset = h.extra_offset as usize;
+        let class = EventClass::from_u32(h.class);
+        let mut c = Cur::at(data, off + EVENT_HEADER_SIZE)?;
 
         // Stack frames (return addresses), pointer-sized.
         let mut stack = Vec::with_capacity(stack_depth);

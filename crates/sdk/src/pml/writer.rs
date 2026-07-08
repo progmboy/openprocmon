@@ -680,32 +680,33 @@ fn encode_process(p: &PmlProcess, strings: &Interner, pv: usize) -> WBuf {
 // ---------------------------------------------------------------------------
 
 fn encode_event(b: &mut WBuf, e: &PmlEvent, pv: usize) {
+    use crate::pml::model::{PmlEventHeader, EVENT_HEADER_SIZE};
     // The detail blob is the event's `raw_detail`: from `push_event` (live →
     // PML, per-category serialized) or from the reader (PML → PML, verbatim).
     // Events with no raw detail (bare from-scratch `PmlEvent`s) get an empty blob.
     let detail: &[u8] = e.raw_detail.as_deref().unwrap_or_default();
     let stack_bytes = e.stack.len() * pv;
-    // Extra-detail is written right after the record; its field is the offset from
-    // the event start (= common 52 + stack + details), which the reader resolves.
-    let extra_offset = match &e.raw_extra {
-        Some(_) => (52 + stack_bytes + detail.len()) as u32,
-        None => 0,
+    let header = PmlEventHeader {
+        process_index: e.process_index,
+        tid: e.tid,
+        class: e.class.to_u32(),
+        operation: e.operation,
+        reserved0: 0,
+        reserved1: 0,
+        duration: e.duration,
+        date_filetime: e.date_filetime,
+        result: e.result,
+        stack_depth: e.stack.len() as u16,
+        reserved2: 0,
+        details_size: detail.len() as u32,
+        // Extra-detail is written right after the record; its field is the
+        // offset from the event start, which the reader resolves.
+        extra_offset: match &e.raw_extra {
+            Some(_) => (EVENT_HEADER_SIZE + stack_bytes + detail.len()) as u32,
+            None => 0,
+        },
     };
-
-    // Common struct "<IIIHHIQQIHHII" (52 bytes).
-    b.u32(e.process_index);
-    b.u32(e.tid);
-    b.u32(e.class.to_u32());
-    b.u16(e.operation);
-    b.u16(0);
-    b.u32(0);
-    b.u64(e.duration);
-    b.u64(e.date_filetime);
-    b.u32(e.result);
-    b.u16(e.stack.len() as u16);
-    b.u16(0);
-    b.u32(detail.len() as u32);
-    b.u32(extra_offset);
+    b.bytes(header.as_bytes());
     for &frame in &e.stack {
         b.pvoid(frame, pv);
     }
