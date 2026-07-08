@@ -15,6 +15,7 @@ use crate::parse::{read_detail_str, str_field_len, DetailMode, OperationView};
 use crate::process::{Module, ProcessInfo, ProcessManager, ProcessRecord};
 use crate::strings;
 use core::mem::size_of;
+use std::sync::Arc;
 
 /// Applies a process lifecycle record to the process table. `metadata` (live
 /// capture only) resolves the new process's image metadata (version + icon) as
@@ -33,20 +34,30 @@ pub(crate) fn track(
                 let pid = info.pid;
                 let rec = ProcessRecord::new(info);
                 if let Some(metadata) = metadata {
-                    rec.set_meta(metadata.resolve(&rec.info.image_path));
-                    // Seed the module list from a live Toolhelp snapshot only for
-                    // INIT — a process already running at capture start, whose
-                    // image-loads predate capture, so the snapshot is the only
-                    // source for its modules. A CREATE process's modules all
-                    // arrive as image-load events, so Procmon and the C++ both
-                    // deliberately skip the snapshot for it (`v21 = notify==0`
-                    // gate in IDA `sub_140085160`; `IsProcessFromInit()` branch
-                    // in `propstack.cpp`). Live capture only (`metadata` is None
-                    // for offline PML replay, where a live PID query is wrong).
+                    // Off-thread: a cache hit fills the record now; a first
+                    // sighting is queued to the metadata worker so this (parse)
+                    // thread never blocks on image I/O. `rec.meta()` is `None`
+                    // until the worker lands (the GUI re-reads per frame; the
+                    // PML writer backfills at finalize).
+                    metadata.resolve_deferred(Arc::clone(&rec));
+                    // Seed the module list only for INIT — a process already
+                    // running at capture start, whose image-loads predate capture,
+                    // so an enumeration is the only source for its pre-existing
+                    // modules. A CREATE process's modules all arrive as image-load
+                    // events, so Procmon and the C++ both deliberately skip the
+                    // snapshot for it (`v21 = notify==0` gate in IDA
+                    // `sub_140085160`; `IsProcessFromInit()` in `propstack.cpp`).
+                    // Live capture only (`metadata` is None for offline PML replay).
                     if entry.notify() == pn::INIT {
-                        for module in crate::system::snapshot_modules(pid) {
-                            rec.add_module(module);
-                        }
+                        seed_init_modules(&rec, pid);
+                        // Pre-warm the version strings of the whole seeded
+                        // module list off-thread, so a later PML save is all
+                        // cache hits instead of thousands of blocking reads.
+                        metadata.module_versions().prewarm(
+                            rec.modules()
+                                .iter()
+                                .map(|m| crate::path::nt_to_dos(&m.path)),
+                        );
                     }
                 }
                 mgr.insert(rec);
@@ -64,10 +75,43 @@ pub(crate) fn track(
                 u32::try_from(entry.process_seq),
                 image_module(data, DetailMode::Live),
             ) {
+                // Pre-warm this module's version strings off-thread (deduped, so
+                // the ubiquitous ntdll/kernel32 are read once), spreading the
+                // save-time I/O across the capture. `module.path` is already DOS.
+                if let Some(metadata) = metadata {
+                    metadata
+                        .module_versions()
+                        .prewarm([crate::path::nt_to_dos(&module.path)]);
+                }
                 mgr.add_module(seq, module);
             }
         }
         _ => {}
+    }
+}
+
+/// The System process PID, which owns the loaded kernel drivers.
+const SYSTEM_PID: u32 = 4;
+
+/// Seeds an INIT (already-running) process's loaded modules for later call-stack
+/// resolution. The System process (PID 4) holds the *kernel* drivers, which
+/// Toolhelp can't enumerate — seed those from `NtQuerySystemInformation`; the
+/// driver then attributes every driver loaded *during* capture to PID 4 as an
+/// image-load event, which appends here and keeps the list current. Every other
+/// process seeds its user-mode modules from a Toolhelp snapshot.
+fn seed_init_modules(rec: &ProcessRecord, pid: u32) {
+    if pid == SYSTEM_PID {
+        for m in crate::system::kernel_modules() {
+            rec.add_module(Module {
+                base: m.base,
+                size: m.size,
+                path: m.path,
+            });
+        }
+    } else {
+        for module in crate::system::snapshot_modules(pid) {
+            rec.add_module(module);
+        }
     }
 }
 
@@ -243,42 +287,59 @@ impl OperationView for ProcView<'_> {
         }
     }
 
-    fn detail(&self) -> String {
+    fn detail(&self, sep: &str) -> String {
         let data = self.ev.pre_data();
         let mode = self.ev.mode();
         match self.ev.notify_type() {
             pn::INIT | pn::CREATE => match create_info(data, mode) {
-                Some(i) => format!("PID: {}, Command line: {}", i.pid, i.command_line),
+                Some(i) => [
+                    format!("PID: {}", i.pid),
+                    format!("Command line: {}", i.command_line),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             pn::IMAGE_LOAD => match image_module(data, mode) {
-                Some(m) => format!("Image Base: 0x{:x}, Image Size: 0x{:x}", m.base, m.size),
+                Some(m) => [
+                    format!("Image Base: 0x{:x}", m.base),
+                    format!("Image Size: 0x{:x}", m.size),
+                ]
+                .join(sep),
                 None => String::new(),
             },
-            pn::START => start_detail(data, mode),
+            pn::START => start_detail(data, mode, sep),
             pn::THREAD_CREATE => match data.get(0..4) {
-                Some(b) => format!("Thread ID: {}", u32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+                Some(b) => format!(
+                    "Thread ID: {}",
+                    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+                ),
                 None => String::new(),
             },
             pn::THREAD_EXIT => match cast::<LogThreadExit>(data) {
-                Some(t) => format!(
-                    "Exit Status: {}, User Time: {}, Kernel Time: {}",
-                    strings::nt_status_string(t.exit_status as i32),
-                    filetime_secs(t.user_time),
-                    filetime_secs(t.kernel_time),
-                ),
+                Some(t) => [
+                    format!(
+                        "Exit Status: {}",
+                        strings::nt_status_string(t.exit_status as i32)
+                    ),
+                    format!("User Time: {}", filetime_secs(t.user_time)),
+                    format!("Kernel Time: {}", filetime_secs(t.kernel_time)),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             // Process Exit and Process Performance both carry LOG_PROCESSBASIC_INFO.
             pn::EXIT | pn::PERFORMANCE => match cast::<LogProcessBasic>(data) {
-                Some(b) => format!(
-                    "Exit Status: {}, User Time: {}, Kernel Time: {}, Private Bytes: {}, Working Set: {}",
-                    strings::nt_status_string(b.exit_status as i32),
-                    filetime_secs(b.user_time),
-                    filetime_secs(b.kernel_time),
-                    { b.pagefile_usage },
-                    { b.working_set_size },
-                ),
+                Some(b) => [
+                    format!(
+                        "Exit Status: {}",
+                        strings::nt_status_string(b.exit_status as i32)
+                    ),
+                    format!("User Time: {}", filetime_secs(b.user_time)),
+                    format!("Kernel Time: {}", filetime_secs(b.kernel_time)),
+                    format!("Private Bytes: {}", { b.pagefile_usage }),
+                    format!("Working Set: {}", { b.working_set_size }),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             _ => String::new(),
@@ -289,19 +350,19 @@ impl OperationView for ProcView<'_> {
 /// Detail for `NOTIFY_PROCESS_START`: parent PID plus the command line and current
 /// directory that trail the fixed struct (the environment block is skipped). The
 /// string lengths are mode-dependent (PML packs ASCII strings 1 byte/char).
-fn start_detail(data: &[u8], mode: DetailMode) -> String {
+fn start_detail(data: &[u8], mode: DetailMode, sep: &str) -> String {
     let Some(info) = cast::<LogProcessStart>(data) else {
         return String::new();
     };
     let fixed = size_of::<LogProcessStart>();
     let (cmd, cmd_bytes) = read_detail_str(data, fixed, info.command_line_length, mode);
     let (cwd, _) = read_detail_str(data, fixed + cmd_bytes, info.current_directory_length, mode);
-    format!(
-        "Parent PID: {}, Command line: {}, Current directory: {}",
-        { info.parent_id },
-        cmd,
-        cwd
-    )
+    [
+        format!("Parent PID: {}", { info.parent_id }),
+        format!("Command line: {cmd}"),
+        format!("Current directory: {cwd}"),
+    ]
+    .join(sep)
 }
 
 /// Formats a Windows `LARGE_INTEGER` time span (100 ns ticks) as fractional

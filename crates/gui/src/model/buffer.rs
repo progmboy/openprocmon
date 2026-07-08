@@ -184,8 +184,22 @@ impl EventBuffer {
     }
 
     pub fn set_search(&mut self, search: String) {
+        // Typing extends the previous query, and a longer case-insensitive
+        // substring can only narrow the match set — so narrow the current view
+        // in place instead of re-scanning every retained row per keystroke.
+        // Backspace/edit (not an extension) falls back to a full rebuild.
+        let narrows = search.len() >= self.search.len()
+            && search
+                .as_bytes()
+                .get(..self.search.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(self.search.as_bytes()));
         self.search = search;
-        self.rebuild_view();
+        if narrows {
+            let (all, q) = (&self.all, &self.search);
+            self.view.retain(|&i| search_matches(&all[i], q));
+        } else {
+            self.rebuild_view();
+        }
     }
 
     pub fn set_monitor(&mut self, monitor: MonitorToggles) {
@@ -398,6 +412,36 @@ mod tests {
         for i in 0..buf.visible_len() {
             assert!(search_matches(buf.visible(i).unwrap(), &q));
         }
+    }
+
+    #[test]
+    fn incremental_search_matches_full_rebuild() {
+        let (_guard, mut buf) = filled();
+        let op = buf
+            .visible(0)
+            .unwrap()
+            .operation()
+            .to_string()
+            .to_ascii_lowercase();
+        assert!(op.len() >= 2, "need a multi-char operation name");
+        // Type the query one character at a time — each step takes the
+        // narrowing path (previous query is a prefix).
+        for end in 1..=op.len() {
+            buf.set_search(op[..end].to_string());
+        }
+        let narrowed = buf.visible_len();
+        assert!(narrowed > 0);
+        // The same query set in one go from empty (full-rebuild path) must
+        // produce the identical view.
+        buf.set_search(String::new());
+        let all = buf.visible_len();
+        buf.set_search(op.clone());
+        assert_eq!(buf.visible_len(), narrowed, "narrowing == rebuild");
+        // Backspacing to a shorter query falls back to a rebuild and re-widens.
+        buf.set_search(op[..1].to_string());
+        assert!(buf.visible_len() >= narrowed);
+        buf.set_search(String::new());
+        assert_eq!(buf.visible_len(), all, "clearing restores everything");
     }
 
     #[test]

@@ -87,6 +87,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err("--save requires live capture (do not combine with --pml)".into());
         }
         let mut writer = PmlWriter::new(cfg!(target_pointer_width = "64"));
+        // Host metadata + (at finish) the System process with kernel modules make
+        // the PML self-describing, so Procmon resolves kernel stack frames.
+        writer.stamp_host();
         println!(
             "Capturing up to {SAVE_LIMIT} events -> {} ...",
             out.display()
@@ -96,7 +99,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 writer.push_event(&ev);
             }
         }
-        writer.write_to_path(out)?;
+        // Carry the full process table: pre-existing processes emit no events
+        // (their INIT seeds are dropped in the correlator), so event interning
+        // alone would orphan their children in the saved PML.
+        if let Some(ctrl) = source.as_driver() {
+            writer.stamp_processes(ctrl.processes());
+        }
+        writer.finish_live_to_path(out)?;
         println!("Saved {}.", out.display());
         return Ok(());
     }

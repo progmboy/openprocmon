@@ -4823,7 +4823,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4839,7 +4839,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "crossbeam-channel",
  "csv",
@@ -4849,12 +4849,13 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "serde_json",
+ "smallvec",
  "tempfile",
 ]
 
 [[package]]
 name = "procmon-example"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "procmon-sdk",
@@ -4862,19 +4863,18 @@ dependencies = [
 
 [[package]]
 name = "procmon-gui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
- "csv",
  "flate2",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
  "image",
+ "procmon-core",
  "procmon-sdk",
- "quick-xml 0.37.5",
  "raw-window-handle",
  "rfd",
  "rust-embed",
@@ -4888,7 +4888,7 @@ dependencies = [
 
 [[package]]
 name = "procmon-sdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arc-swap",
  "bitflags 2.12.1",

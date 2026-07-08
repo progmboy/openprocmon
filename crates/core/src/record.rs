@@ -84,6 +84,19 @@ pub struct ModuleRow {
     pub size: u64,
 }
 
+/// Borrowed [`procmon_sdk::SymModule`] views over module rows — the shape
+/// `resolve_frame` / `SymbolResolver` take. The one core-side adapter (the GUI
+/// has its own over its display rows).
+pub(crate) fn sym_views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
+    mods.iter()
+        .map(|m| procmon_sdk::SymModule {
+            base: m.base,
+            size: m.size,
+            path: &m.path,
+        })
+        .collect()
+}
+
 /// One call-stack frame, resolved to its module + offset where possible.
 #[derive(Clone, Debug, Serialize)]
 pub struct StackFrameRow {
@@ -139,7 +152,7 @@ impl ProcessDetail {
                 .modules
                 .iter()
                 .map(|m| ModuleRow {
-                    name: basename(&m.image_path),
+                    name: procmon_sdk::basename(&m.image_path).to_string(),
                     path: m.image_path.to_string(),
                     base: m.base_address,
                     size: m.size as u64,
@@ -178,9 +191,4 @@ impl ProcessNode {
             children: Vec::new(),
         }
     }
-}
-
-/// Returns the file-name component of a `\`- or `/`-separated path.
-pub(crate) fn basename(path: &str) -> String {
-    path.rsplit(['\\', '/']).next().unwrap_or(path).to_string()
 }

@@ -8,7 +8,7 @@ license = "MIT"
 # Single source of truth for every shipped crate (gui / cli / example / sdk /
 # core all inherit via `version.workspace = true`). Bump this to cut a release;
 # the git tag must match it (enforced in .github/workflows/release.yml).
-version = "0.3.0"
+version = "0.4.0"
 
 [profile.release]
 debug = "limited"

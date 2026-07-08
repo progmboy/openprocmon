@@ -10,6 +10,9 @@ procmon-sdk = { path = "../sdk" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustc-hash = "2"
+# Group-by hot loop: stack-inline the per-event staged column values and the
+# per-bucket slot list (heap only past 4 columns / on a real hash collision).
+smallvec = "1"
 # The driver event channel (MonitorController::start_with returns this Receiver).
 crossbeam-channel = "0.5"
 # CSV / XML export writers (formats interchangeable with the GUI's Save dialog).

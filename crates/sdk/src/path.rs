@@ -48,6 +48,13 @@ fn load_volume_state() -> VolumeState {
     }
 }
 
+/// The file-name component of a `\`/`/`-separated path (borrowing; the whole
+/// input when it has no separator). The single source for every "basename"
+/// throughout the workspace.
+pub fn basename(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
 /// Converts an NT internal path to its DOS form (cf. C++
 /// `UtilConvertNtInternalPathToDosPath`). Uses a process-wide volume cache; on a
 /// `\Device\...` volume miss it refreshes the cache once and retries (a drive may
@@ -304,5 +311,12 @@ mod tests {
             "HKCR\\CLSID"
         );
         assert_eq!(reg_normalize("unchanged", sid), "unchanged");
+    }
+
+    #[test]
+    fn basename_handles_both_separators() {
+        assert_eq!(basename(r"C:\Windows\System32\ntdll.dll"), "ntdll.dll");
+        assert_eq!(basename("/usr/lib/libc.so"), "libc.so");
+        assert_eq!(basename("kernel32.dll"), "kernel32.dll");
     }
 }

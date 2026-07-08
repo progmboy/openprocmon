@@ -49,8 +49,7 @@ pub fn query(
     limit: usize,
     include_detail: bool,
 ) -> QueryResult {
-    let passes =
-        |ev: &Event| filter.is_none_or(|f| f.matches(ev)) && !noise.iter().any(|c| c.matches(ev));
+    let passes = |ev: &Event| event_passes(ev, filter, noise);
 
     if !group_by.is_empty() {
         let mut grouper = Grouper::new(group_by.to_vec(), metric);
@@ -91,6 +90,20 @@ pub fn query(
             groups: Vec::new(),
         }
     }
+}
+
+/// Whether `ev` passes `filter` and is not matched by any `noise` clause,
+/// sharing one per-event column memo across both (the default noise set alone
+/// has 13 `Path` clauses — without the memo each derives Path independently).
+pub(crate) fn event_passes(ev: &Event, filter: Option<&Expr>, noise: &[Clause]) -> bool {
+    // No filter and no noise (`query --no-noise` without --filter): don't
+    // zero-initialize a ~600-byte column memo per event just to return true.
+    if filter.is_none() && noise.is_empty() {
+        return true;
+    }
+    let mut memo = procmon_sdk::ColumnMemo::new();
+    filter.is_none_or(|f| f.matches_memo(ev, &mut memo))
+        && !noise.iter().any(|c| c.matches_memo(ev, &mut memo))
 }
 
 /// State-changing file / registry / process operations — the "significant"
@@ -275,29 +288,15 @@ pub fn list_processes(reader: &Arc<PmlReader>) -> Vec<ProcessNode> {
 /// itself a captured process (or is self-parented).
 pub fn process_tree(reader: &Arc<PmlReader>) -> Vec<ProcessNode> {
     let nodes: Vec<ProcessNode> = reader.processes().map(ProcessNode::from_pml).collect();
-    let pids: rustc_hash::FxHashSet<u32> = nodes.iter().map(|n| n.pid).collect();
-
-    fn build(parent_pid: u32, nodes: &[ProcessNode]) -> Vec<ProcessNode> {
-        nodes
-            .iter()
-            .filter(|n| n.parent_pid == parent_pid && n.pid != parent_pid)
-            .map(|n| {
-                let mut node = n.clone();
-                node.children = build(n.pid, nodes);
-                node
-            })
-            .collect()
-    }
-
-    nodes
-        .iter()
-        .filter(|n| !pids.contains(&n.parent_pid) || n.parent_pid == n.pid)
-        .map(|n| {
+    procmon_sdk::build_forest(
+        &nodes,
+        |n| (n.pid, n.parent_pid),
+        |n, children| {
             let mut node = n.clone();
-            node.children = build(n.pid, &nodes);
+            node.children = children;
             node
-        })
-        .collect()
+        },
+    )
 }
 
 /// `.PML` metadata, read from the header without scanning events.
@@ -321,51 +320,30 @@ pub fn pml_info(reader: &Arc<PmlReader>) -> PmlInfo {
     }
 }
 
-/// Resolves each call-stack frame address to `module+offset` (cf. the GUI's
-/// `frame_module`). User-mode frames resolve against the originating process's
-/// modules, kernel-mode frames against the System (PID 4) driver modules; both
-/// lists are searched so either kind resolves. Kernel vs user is inferred from the
-/// high address bits.
+/// Resolves each call-stack frame address to `module+offset` via the SDK's
+/// [`procmon_sdk::resolve_frame`]: user-mode frames against the originating
+/// process's modules, kernel-mode frames against the System (PID 4) driver
+/// modules (both lists are searched so either kind resolves).
 fn resolve_stack(
     ev: &Event,
     proc_mods: &[ModuleRow],
     kernel_mods: &[ModuleRow],
 ) -> Vec<StackFrameRow> {
+    let proc_mods = crate::record::sym_views(proc_mods);
+    let kernel_mods = crate::record::sym_views(kernel_mods);
     ev.call_stack()
         .iter()
         .enumerate()
         .map(|(i, f)| {
             let addr = f.address();
-            let kind = if addr >= 0xFFFF_0000_0000_0000 {
-                "K"
-            } else {
-                "U"
-            };
-            let (module, location, path) = proc_mods
-                .iter()
-                .chain(kernel_mods.iter())
-                .find(|m| m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size))
-                .map(|m| {
-                    (
-                        m.name.clone(),
-                        format!("{} + 0x{:x}", m.name, addr - m.base),
-                        m.path.clone(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    (
-                        "<UNKNOWN>".to_string(),
-                        format!("0x{addr:016x}"),
-                        String::new(),
-                    )
-                });
+            let r = procmon_sdk::resolve_frame_full(addr, &proc_mods, &kernel_mods);
             StackFrameRow {
                 frame: i as u32,
-                kind,
-                module,
-                location,
+                kind: if r.kernel { "K" } else { "U" },
+                module: r.module.to_string(),
+                location: r.location,
                 address: format!("0x{addr:x}"),
-                path,
+                path: r.path.to_string(),
             }
         })
         .collect()

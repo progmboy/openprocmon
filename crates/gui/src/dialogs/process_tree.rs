@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, px, AppContext, Context, Entity, Hsla, IntoElement, ParentElement, Render, SharedString,
-    Styled, WeakEntity, Window,
+    div, px, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -28,7 +28,7 @@ use crate::app::AppView;
 use crate::icons::PmIcon;
 use crate::model::domain::ProcessNode;
 use crate::model::filter::{FilterAction, FilterColumn};
-use crate::theme::{palette, ProcmonPalette};
+use crate::theme::palette;
 
 pub(crate) struct ProcessTreeDialog {
     app: WeakEntity<AppView>,
@@ -131,7 +131,7 @@ impl Render for ProcessTreeDialog {
                         .child(crate::components::app_icon(
                             icons.get(&item.id),
                             &name,
-                            appicon_color(&name, &pal),
+                            pal.proc_color(&name),
                             16.,
                         ))
                         .child(div().text_color(fg).font_medium().child(name)) // .tname
@@ -254,17 +254,4 @@ fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<gpui::Image>> {
         walk(node, &mut map);
     }
     map
-}
-
-/// A deterministic accent for a process's app-icon, varied by name.
-fn appicon_color(name: &str, pal: &ProcmonPalette) -> Hsla {
-    let h = name.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32));
-    match h % 6 {
-        0 => pal.op_registry,
-        1 => pal.op_file,
-        2 => pal.op_network,
-        3 => pal.op_process,
-        4 => pal.op_thread,
-        _ => pal.op_perf,
-    }
 }

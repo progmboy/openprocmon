@@ -33,15 +33,20 @@ pub use driver::{extract_to_system32, DriverLoader};
 pub use error::{Error, Result};
 pub use event::{Event, EventClass};
 pub use filter::{
-    clause_matches, clause_matches_named, default_display_filter, struct_fields, Action, Column,
-    FilterFields, FilterSet, Relation, Rule, StructField,
+    clause_matches, clause_matches_memo, clause_matches_named, default_display_filter,
+    struct_fields, Action, Column, ColumnMemo, FilterFields, FilterSet, Relation, Rule,
+    StructField,
 };
+pub use metadata::{MetadataCache, ModuleVersionCache};
 pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};
 
+pub use path::basename;
 pub use pml::{PmlIcon, PmlProcess, PmlReader, PmlWriter};
-pub use process::{Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
+pub use process::{build_forest, Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use resolver::AddressResolver;
 pub use source::EventSource;
-pub use symbols::{SymModule, SymbolResolver};
+pub use symbols::{
+    is_kernel_address, resolve_frame, resolve_frame_full, ResolvedFrame, SymModule, SymbolResolver,
+};

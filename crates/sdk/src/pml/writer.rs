@@ -19,8 +19,7 @@ use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
 use crate::process::ProcessRecord;
 
 const HEADER_SIZE: usize = 0x3a8;
-/// `sizeof(OSVERSIONINFOEXW)` — the version blob embedded in the header.
-const OS_VERSION_LEN: usize = 0x11c;
+pub(crate) use crate::pml::model::OS_VERSION_LEN;
 
 /// A default `OSVERSIONINFOEXW` blob for writers without a live host snapshot
 /// (tests / offline saves): Win10-ish, NT platform, workstation. The live
@@ -68,6 +67,15 @@ pub struct PmlWriter {
     /// / [`add_system_process`](Self::add_system_process) are not here; their
     /// modules are already final.
     proc_records: HashMap<u32, Arc<ProcessRecord>>,
+    /// Per-module version strings (version/company/description). Shared with
+    /// the capture pipeline via [`use_module_versions`](Self::use_module_versions)
+    /// so a live save reuses the paths pre-warmed during the capture; otherwise
+    /// a fresh cache resolved (in parallel) at finalize.
+    module_versions: Arc<crate::metadata::ModuleVersionCache>,
+    /// Finalize fallback for process image metadata: a record whose async
+    /// resolution has not landed by save time is resolved synchronously here,
+    /// so written PMLs never carry half-resolved processes.
+    image_meta: crate::metadata::MetadataCache,
 }
 
 impl PmlWriter {
@@ -85,11 +93,53 @@ impl PmlWriter {
             icons: vec![PmlIcon::default()], // index 0 = empty placeholder
             proc_index: HashMap::new(),
             proc_records: HashMap::new(),
+            module_versions: Arc::new(crate::metadata::ModuleVersionCache::new()),
+            image_meta: crate::metadata::MetadataCache::new(),
         }
+    }
+
+    /// Reuses the capture's shared module-version cache (from
+    /// [`MetadataCache::module_versions`]) instead of a fresh one, so a live
+    /// save's module version strings are the paths already pre-warmed during
+    /// the capture — the finalize warm becomes near-free (all cache hits).
+    pub fn use_module_versions(&mut self, cache: Arc<crate::metadata::ModuleVersionCache>) {
+        self.module_versions = cache;
     }
 
     pub fn add_process(&mut self, process: PmlProcess) {
         self.processes.push(process);
+    }
+
+    /// Fills the header metadata Procmon records (computer name, OS version
+    /// blob, max user address, CPU count, RAM) from this machine, making a live
+    /// capture's PML self-describing. Call once when the capture starts.
+    pub fn stamp_host(&mut self) {
+        let host = crate::system::host_info();
+        self.computer_name = host.computer_name;
+        self.os_version = host.os_version;
+        self.max_app_address = host.max_app_address;
+        self.num_logical_processors = host.num_logical_processors;
+        self.ram_bytes = host.ram_bytes;
+    }
+
+    /// Finalizes a **live** capture and writes it to `path`: ensures a System
+    /// (PID 4) process carrying the loaded kernel drivers is present (so
+    /// kernel-mode stack frames resolve), then writes the file. Not for re-saving
+    /// a PML-sourced view — that's [`crate::PmlReader::write_subset`], which keeps
+    /// the *capture's* host header and process table byte-faithfully.
+    ///
+    /// If an event was attributed to PID 4 during the capture, the System process
+    /// was already interned and its (kernel-seeded, image-load-updated) module
+    /// list is written at finalize — so a synthetic entry is only appended when
+    /// System is otherwise absent, avoiding a duplicate PID 4 process.
+    pub fn finish_live_to_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        if !self.processes.iter().any(|p| p.pid == 4) {
+            let kmods = crate::system::kernel_modules();
+            if !kmods.is_empty() {
+                self.add_system_process(&kmods);
+            }
+        }
+        self.write_to_path(path)
     }
 
     /// Appends a synthetic System (PID 4) process carrying the loaded kernel
@@ -123,16 +173,23 @@ impl PmlWriter {
             .unwrap_or_default();
 
         let process_index = self.processes.len() as u32;
+        let versions = &self.module_versions;
+        // Parallel warm-up first: ~200 driver images resolved serially would
+        // add noticeable latency to every finalize.
+        versions.warm(modules.iter().map(|m| m.path.clone()));
         let modules = modules
             .iter()
-            .map(|m| PmlModule {
-                base_address: m.base,
-                size: m.size,
-                image_path: Arc::from(m.path.as_str()),
-                version: Arc::from(""),
-                company: Arc::from(""),
-                description: Arc::from(""),
-                timestamp: 0,
+            .map(|m| {
+                let v = versions.resolve(&m.path);
+                PmlModule {
+                    base_address: m.base,
+                    size: m.size,
+                    image_path: Arc::from(m.path.as_str()),
+                    version: v.version,
+                    company: v.company,
+                    description: v.description,
+                    timestamp: 0,
+                }
             })
             .collect();
         self.processes.push(PmlProcess {
@@ -195,7 +252,10 @@ impl PmlWriter {
             result: ev.status_raw() as u32,
             stack,
             category: std::borrow::Cow::Borrowed(""),
-            path: Arc::from(ev.path().unwrap_or_default().as_str()),
+            // Display fields stay empty on writer-side events: `encode_event`
+            // reads only `raw_detail`/`raw_extra` (the path lives inside the
+            // detail blob), so deriving `ev.path()` here would be pure waste.
+            path: Arc::from(""),
             details: Vec::new(),
             op_name: None,
             raw_detail,
@@ -205,41 +265,41 @@ impl PmlWriter {
 
     /// Interns an event's process into the table, returning its index.
     fn intern_process(&mut self, proc: Option<&Arc<ProcessRecord>>) -> u32 {
-        let Some(rec) = proc else { return 0 };
+        match proc {
+            Some(rec) => self.intern_record(rec),
+            None => 0,
+        }
+    }
+
+    /// Interns every process `mgr` tracks into the PML process table (records
+    /// already interned by [`push_event`](Self::push_event) keep their slot —
+    /// same seq key). Live captures call this before finalizing: a process
+    /// already running at capture start is seeded into the manager by the
+    /// driver's replayed INIT ("Process Defined") record, which the correlator
+    /// drops rather than surfacing as an event — so event-driven interning
+    /// alone would omit any pre-existing process that stayed silent, orphaning
+    /// its children when the PML is reopened. Procmon PMLs likewise carry the
+    /// full process list with zero "Process Defined" event rows.
+    pub fn stamp_processes(&mut self, mgr: &crate::process::ProcessManager) {
+        for rec in mgr.snapshot() {
+            self.intern_record(&rec);
+        }
+    }
+
+    /// Interns one live process record, keyed by its process seq.
+    fn intern_record(&mut self, rec: &Arc<ProcessRecord>) -> u32 {
         let seq = rec.info.seq;
         if let Some(&i) = self.proc_index.get(&seq) {
             return i;
         }
         let index = self.processes.len() as u32;
         self.proc_index.insert(seq, index);
-        // Keep the live record so its (still-growing) module list is re-read at
-        // finalize, not frozen at this first event.
+        // Keep the live record so its (still-growing) module list — and its
+        // possibly still-pending async metadata — are re-read at finalize, not
+        // frozen at this first event.
         self.proc_records.insert(index, Arc::clone(rec));
-        let mut p = pml_process_from(rec, index);
-        // The PE icon bytes (RT_ICON) are already in ICONIMAGE form — register them
-        // into the icon table so the PML carries them for offline rendering.
-        if let Some(meta) = rec.meta() {
-            p.icon_small = self.intern_icon(meta.icon_small.as_deref(), 16);
-            p.icon_big = self.intern_icon(meta.icon_large.as_deref(), 32);
-        }
-        self.processes.push(p);
+        self.processes.push(pml_process_from(rec, index));
         index
-    }
-
-    /// Adds an icon's `ICONIMAGE` bytes to the icon table, returning its index
-    /// (0 = the empty placeholder when there is no icon).
-    fn intern_icon(&mut self, bytes: Option<&[u8]>, dimension: u32) -> u32 {
-        match bytes {
-            Some(b) if !b.is_empty() => {
-                let idx = self.icons.len() as u32;
-                self.icons.push(PmlIcon {
-                    dimension,
-                    data: Arc::from(b),
-                });
-                idx
-            }
-            _ => 0,
-        }
     }
 
     fn sizeof_pvoid(&self) -> usize {
@@ -250,27 +310,53 @@ impl PmlWriter {
         }
     }
 
-    /// Serializes everything to an in-memory PML image.
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+    /// Serializes everything to an in-memory PML image (`&mut`: finalizing may
+    /// append to the icon table).
+    pub fn to_bytes(&mut self) -> Result<Vec<u8>> {
         let pv = self.sizeof_pvoid();
 
-        // Finalize the process table: a live-interned process re-reads its module
-        // list now, because image-load events arrive after the first event that
-        // interned it (freezing the list at intern time loses every later module).
-        // Records added pre-built (round-trip / System process) pass through.
-        let processes: Vec<PmlProcess> = self
-            .processes
-            .iter()
-            .enumerate()
-            .map(|(i, p)| match self.proc_records.get(&(i as u32)) {
-                Some(rec) => {
-                    let mut p = p.clone();
-                    p.modules = pml_modules_from(rec);
-                    p
-                }
-                None => p.clone(),
-            })
-            .collect();
+        // Finalize the process table: a live-interned process re-reads its
+        // module list now — image-load events arrive after the first event that
+        // interned it — and its image metadata, which the async worker may have
+        // landed at any point since (a record still pending resolves
+        // synchronously here, so saves are always complete). Records added
+        // pre-built (round-trip / System process) pass through.
+        let mut processes: Vec<PmlProcess> = self.processes.clone();
+        let mut interned: Vec<u32> = self.proc_records.keys().copied().collect();
+        interned.sort_unstable(); // deterministic icon-table order
+
+        // Backstop the pre-warm: resolve (in parallel) any module paths not
+        // already warmed during the capture, so the per-process walk below is
+        // all cache hits. With a live save's shared, pre-warmed cache this is
+        // usually a no-op; an offline/round-trip writer resolves here.
+        self.module_versions.warm(interned.iter().flat_map(|i| {
+            self.proc_records[i]
+                .modules()
+                .iter()
+                .map(|m| crate::path::nt_to_dos(&m.path))
+                .collect::<Vec<_>>()
+        }));
+
+        for i in interned {
+            let rec = &self.proc_records[&i];
+            let p = &mut processes[i as usize];
+            p.modules = pml_modules_from(rec, &self.module_versions);
+            if rec.meta().is_none() {
+                rec.set_meta(self.image_meta.resolve(&rec.info.image_path));
+            }
+            let meta = rec.meta().expect("resolved above");
+            let s = |f: Option<&String>| -> Arc<str> {
+                f.map(|v| Arc::from(v.as_str()))
+                    .unwrap_or_else(|| Arc::from(""))
+            };
+            p.company = s(meta.company.as_ref());
+            p.version = s(meta.version.as_ref());
+            p.description = s(meta.description.as_ref());
+            // The PE icon bytes (RT_ICON) are already ICONIMAGE form — register
+            // them so the PML renders icons offline.
+            p.icon_small = intern_icon(&mut self.icons, meta.icon_small.as_deref(), 16);
+            p.icon_big = intern_icon(&mut self.icons, meta.icon_large.as_deref(), 32);
+        }
 
         // Intern every process/module string into the dedup table (index 0 = "").
         let mut strings = Interner::new();
@@ -348,7 +434,7 @@ impl PmlWriter {
     }
 
     /// Writes the PML image to `path`.
-    pub fn write_to_path<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
+    pub fn write_to_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes)
             .map_err(|e| crate::error::Error::Parse(format!("PML write: {e}")))
@@ -393,11 +479,7 @@ impl PmlWriter {
 fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
     let info = &rec.info;
     let image_dos = crate::path::nt_to_dos(&info.image_path);
-    let name = image_dos
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let name = crate::path::basename(&image_dos).to_string();
     let (hi, lo) = info.authentication_id;
     let user = info
         .user_sid
@@ -408,15 +490,6 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         .integrity_rid
         .map(crate::sid::integrity_level)
         .unwrap_or("");
-    // Version metadata from the PE resources (absent fields → empty strings).
-    let meta = rec.meta();
-    let meta_str = |f: Option<&String>| {
-        f.map(|v| Arc::from(v.as_str()))
-            .unwrap_or_else(|| Arc::from(""))
-    };
-    let company = meta_str(meta.and_then(|m| m.company.as_ref()));
-    let version = meta_str(meta.and_then(|m| m.version.as_ref()));
-    let description = meta_str(meta.and_then(|m| m.description.as_ref()));
     PmlProcess {
         process_index: index,
         pid: info.pid,
@@ -432,31 +505,60 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         process_name: Arc::from(name.as_str()),
         image_path: Arc::from(image_dos.as_str()),
         command_line: Arc::from(info.command_line.as_str()),
-        company,
-        version,
-        description,
+        // Metadata-dependent fields (company/version/description, icons) and
+        // the module list stay empty at intern time: the async metadata worker
+        // and image-load events are both still running, so `to_bytes` fills
+        // them at finalize from the then-complete record — keeping the capture
+        // hot path free of version-resource / icon disk reads.
+        company: Arc::from(""),
+        version: Arc::from(""),
+        description: Arc::from(""),
         icon_small: 0,
         icon_big: 0,
-        // Filled at finalize from the (then-complete) record — see `to_bytes`.
-        modules: pml_modules_from(rec),
+        modules: Vec::new(),
     }
 }
 
-/// Converts a record's loaded modules to PML module entries. The SDK module
-/// record carries only base/size/path; PML's per-module version strings are left
-/// empty. Called both when the process is first interned and again at finalize
-/// (`to_bytes`), where the list is complete.
-fn pml_modules_from(rec: &ProcessRecord) -> Vec<PmlModule> {
+/// Adds an icon's `ICONIMAGE` bytes to `icons`, returning its table index
+/// (0 = the empty placeholder when there is no icon).
+fn intern_icon(icons: &mut Vec<PmlIcon>, bytes: Option<&[u8]>, dimension: u32) -> u32 {
+    match bytes {
+        Some(b) if !b.is_empty() => {
+            let idx = icons.len() as u32;
+            icons.push(PmlIcon {
+                dimension,
+                data: Arc::from(b),
+            });
+            idx
+        }
+        _ => 0,
+    }
+}
+
+/// Converts a record's loaded modules to PML module entries at finalize. The
+/// SDK module record carries only base/size/path; the version/company/
+/// description strings PML stores per module (Procmon shows them in a
+/// process's module list) are resolved from each image's version resource via
+/// the writer's [`ModuleVersionCache`] — one disk read per distinct image,
+/// however many processes load it.
+fn pml_modules_from(
+    rec: &ProcessRecord,
+    versions: &crate::metadata::ModuleVersionCache,
+) -> Vec<PmlModule> {
     rec.modules()
         .iter()
-        .map(|m| PmlModule {
-            base_address: m.base,
-            size: m.size,
-            image_path: Arc::from(crate::path::nt_to_dos(&m.path).as_str()),
-            version: Arc::from(""),
-            company: Arc::from(""),
-            description: Arc::from(""),
-            timestamp: 0,
+        .map(|m| {
+            let dos = crate::path::nt_to_dos(&m.path);
+            let v = versions.resolve(&dos);
+            PmlModule {
+                base_address: m.base,
+                size: m.size,
+                image_path: Arc::from(dos.as_str()),
+                version: v.version,
+                company: v.company,
+                description: v.description,
+                timestamp: 0,
+            }
         })
         .collect()
 }
@@ -655,40 +757,37 @@ fn encode_process(p: &PmlProcess, strings: &Interner, pv: usize) -> WBuf {
 // ---------------------------------------------------------------------------
 
 fn encode_event(b: &mut WBuf, e: &PmlEvent, pv: usize) {
+    use crate::pml::model::{PmlEventHeader, EVENT_HEADER_SIZE};
     // The detail blob is the event's `raw_detail`: from `push_event` (live →
     // PML, per-category serialized) or from the reader (PML → PML, verbatim).
     // Events with no raw detail (bare from-scratch `PmlEvent`s) get an empty blob.
-    let detail: Vec<u8> = e
-        .raw_detail
-        .as_deref()
-        .map(<[u8]>::to_vec)
-        .unwrap_or_default();
+    let detail: &[u8] = e.raw_detail.as_deref().unwrap_or_default();
     let stack_bytes = e.stack.len() * pv;
-    // Extra-detail is written right after the record; its field is the offset from
-    // the event start (= common 52 + stack + details), which the reader resolves.
-    let extra_offset = match &e.raw_extra {
-        Some(_) => (52 + stack_bytes + detail.len()) as u32,
-        None => 0,
+    let header = PmlEventHeader {
+        process_index: e.process_index,
+        tid: e.tid,
+        class: e.class.to_u32(),
+        operation: e.operation,
+        reserved0: 0,
+        reserved1: 0,
+        duration: e.duration,
+        date_filetime: e.date_filetime,
+        result: e.result,
+        stack_depth: e.stack.len() as u16,
+        reserved2: 0,
+        details_size: detail.len() as u32,
+        // Extra-detail is written right after the record; its field is the
+        // offset from the event start, which the reader resolves.
+        extra_offset: match &e.raw_extra {
+            Some(_) => (EVENT_HEADER_SIZE + stack_bytes + detail.len()) as u32,
+            None => 0,
+        },
     };
-
-    // Common struct "<IIIHHIQQIHHII" (52 bytes).
-    b.u32(e.process_index);
-    b.u32(e.tid);
-    b.u32(e.class.to_u32());
-    b.u16(e.operation);
-    b.u16(0);
-    b.u32(0);
-    b.u64(e.duration);
-    b.u64(e.date_filetime);
-    b.u32(e.result);
-    b.u16(e.stack.len() as u16);
-    b.u16(0);
-    b.u32(detail.len() as u32);
-    b.u32(extra_offset);
+    b.bytes(header.as_bytes());
     for &frame in &e.stack {
         b.pvoid(frame, pv);
     }
-    b.bytes(&detail);
+    b.bytes(detail);
     if let Some(raw) = &e.raw_extra {
         b.u16(raw.len() as u16);
         b.bytes(raw);
@@ -966,6 +1065,8 @@ mod tests {
             remote_name: None,
             length: 1460,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let ev = Event::from_network(Arc::new(net), crate::event::ProcessSource::Live(None));
 
@@ -1054,6 +1155,97 @@ mod tests {
         let big = r.icon(p.icon_big).expect("big icon");
         assert_eq!(&*big.data, [0xBB; 32].as_slice());
         assert_eq!(big.dimension, 32);
+    }
+
+    /// A record whose async metadata never landed by save time must still save
+    /// complete: the finalize fallback resolves it synchronously.
+    #[test]
+    fn finalize_backfills_pending_metadata() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{ProcessInfo, ProcessRecord};
+
+        // Any real, versioned image works as the "executable".
+        let image = format!(
+            "{}\\System32\\ntdll.dll",
+            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+        );
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 21,
+            pid: 4243,
+            image_path: image,
+            ..Default::default()
+        });
+        // Deliberately no set_meta: the worker "hasn't landed".
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev);
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let e = r.event(0).expect("event");
+        let p = r.process(e.process_index).expect("process");
+        assert!(
+            p.company.contains("Microsoft"),
+            "finalize must backfill pending metadata, got {:?}",
+            p.company
+        );
+        assert!(!p.version.is_empty());
+    }
+
+    /// PML stores version/company/description per module (Procmon shows them
+    /// as the module list's Company/Version columns); the writer resolves them
+    /// from each image's version resource at finalize.
+    #[test]
+    fn module_version_strings_reach_pml() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{Module, ProcessInfo, ProcessRecord};
+
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 11,
+            pid: 4242,
+            image_path: "\\Device\\HarddiskVolume1\\Windows\\notepad.exe".into(),
+            ..Default::default()
+        });
+        // A real, always-present image (a DOS path passes nt_to_dos unchanged).
+        let ntdll = format!(
+            "{}\\System32\\ntdll.dll",
+            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+        );
+        rec.add_module(Module {
+            base: 0x1000,
+            size: 0x2000,
+            path: ntdll.as_str().into(),
+        });
+
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev);
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let e = r.event(0).expect("event");
+        let p = r.process(e.process_index).expect("process");
+        assert_eq!(p.modules.len(), 1);
+        let m = &p.modules[0];
+        assert!(m.image_path.ends_with("ntdll.dll"));
+        assert!(
+            m.company.contains("Microsoft"),
+            "module company should come from the version resource, got {:?}",
+            m.company
+        );
+        assert!(!m.version.is_empty(), "module version should be resolved");
+        assert!(
+            !m.description.is_empty(),
+            "module description should be resolved"
+        );
     }
 
     /// A module that loads *after* the process's first event (the common case:

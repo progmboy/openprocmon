@@ -7,6 +7,12 @@ use std::sync::Arc;
 
 use crate::EventClass;
 
+/// Size of the raw `OSVERSIONINFOEXW` blob embedded verbatim in the PML header
+/// (derived from the struct, never a hand-counted constant).
+pub(crate) const OS_VERSION_LEN: usize =
+    std::mem::size_of::<windows::Win32::System::SystemInformation::OSVERSIONINFOEXW>();
+const _: () = assert!(OS_VERSION_LEN == 0x11c);
+
 /// A captured process icon, stored inside the PML so it renders without the
 /// original executable (which may live on another machine). `data` is a Windows
 /// `ICONIMAGE` resource (`BITMAPINFOHEADER` + colors + masks) — load it with
@@ -15,6 +21,50 @@ use crate::EventClass;
 pub struct PmlIcon {
     pub dimension: u32,
     pub data: Arc<[u8]>,
+}
+
+/// The fixed part of an on-disk PML event record (Python-struct
+/// `"<IIIHHIQQIHHII"`); the variable body — `[stack frames][details]` — and the
+/// optional extra/completion blob follow it. `#[repr(C, packed)]` over plain
+/// little-endian integers, so its size and field offsets *are* the wire layout
+/// (derived via `size_of`, never hand-counted constants).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct PmlEventHeader {
+    pub process_index: u32,
+    pub tid: u32,
+    /// The event class as its PML u32 (see [`EventClass::from_u32`]).
+    pub class: u32,
+    pub operation: u16,
+    pub reserved0: u16,
+    pub reserved1: u32,
+    pub duration: u64,
+    pub date_filetime: u64,
+    pub result: u32,
+    pub stack_depth: u16,
+    pub reserved2: u16,
+    pub details_size: u32,
+    /// Offset of the extra/completion blob from the event start (0 = none).
+    pub extra_offset: u32,
+}
+
+/// Size of the fixed event part; the body follows at this offset.
+pub(crate) const EVENT_HEADER_SIZE: usize = size_of::<PmlEventHeader>();
+// Pin the wire layout: fail the build if the struct drifts from the format.
+const _: () = assert!(EVENT_HEADER_SIZE == 52);
+
+impl PmlEventHeader {
+    /// Borrows the header at `off` in `data`, or `None` if it doesn't fit.
+    pub(crate) fn view(data: &[u8], off: usize) -> Option<&Self> {
+        crate::kernel_types::cast(data.get(off..)?)
+    }
+
+    /// The header's on-disk bytes (the writer emits these verbatim).
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `PmlEventHeader` is `#[repr(C, packed)]` plain integers
+        // (alignment 1, no padding), so its memory is exactly the wire bytes.
+        unsafe { core::slice::from_raw_parts(self as *const Self as *const u8, size_of::<Self>()) }
+    }
 }
 
 /// A loaded module within a process (`logs.py:Module`).

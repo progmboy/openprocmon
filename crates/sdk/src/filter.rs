@@ -364,7 +364,7 @@ impl FilterSet {
         let mut memo = ColumnMemo::new();
 
         for rule in self.rules.iter().filter(|r| r.enabled) {
-            let hit = rule_hits(ev, rule, &mut memo);
+            let hit = clause_matches_memo(ev, rule.column, rule.relation, &rule.value, &mut memo);
             match rule.action {
                 Action::Exclude => {
                     if hit {
@@ -389,7 +389,7 @@ impl FilterSet {
         let mut included = false;
         let mut memo = ColumnMemo::new();
         for rule in self.rules.iter().filter(|r| r.enabled) {
-            let hit = rule_hits(ev, rule, &mut memo);
+            let hit = clause_matches_memo(ev, rule.column, rule.relation, &rule.value, &mut memo);
             match rule.action {
                 Action::Exclude => {
                     if hit {
@@ -411,6 +411,9 @@ impl FilterSet {
 /// `procmon-example.exe`) and the Sysinternals tools, the System process, the
 /// IRP/FastIO bookkeeping operations, and NTFS metadata files. Every rule is an
 /// Exclude, so the set is one OR-of-exclusions.
+///
+/// Process INIT ("Process Defined") records never reach any filter — the
+/// correlator drops them after seeding the process table (see `parse`).
 pub fn default_display_filter() -> Vec<Rule> {
     let proc = |name: &str| Rule::new(Column::ProcessName, Relation::Is, name, Action::Exclude);
     let ends = |name: &str| Rule::new(Column::Path, Relation::EndsWith, name, Action::Exclude);
@@ -467,14 +470,14 @@ pub fn default_display_filter() -> Vec<Rule> {
 /// has 13 `Path` rules). Rules are still evaluated in list order with the
 /// existing exclude short-circuit, so columns past an early exclude hit are
 /// never materialized at all.
-struct ColumnMemo<'e> {
+pub struct ColumnMemo<'e> {
     /// `slots[column as usize]`: `None` = not derived yet; `Some(v)` = the
     /// memoized `filter_field` result (which may itself be `None`).
     slots: [Option<Option<std::borrow::Cow<'e, str>>>; Column::ALL.len()],
 }
 
 impl<'e> ColumnMemo<'e> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             slots: std::array::from_fn(|_| None),
         }
@@ -488,30 +491,62 @@ impl<'e> ColumnMemo<'e> {
     }
 }
 
-/// Whether `rule`'s relation matches `ev`'s value for the rule's column.
-fn rule_hits<'e, E: FilterFields>(ev: &'e E, rule: &Rule, memo: &mut ColumnMemo<'e>) -> bool {
-    // Numeric fast path: equality/ordering on integer columns compares the
-    // numbers directly (no per-evaluation to_string). Substring relations are
-    // inherently textual, and a non-numeric rule value falls back to the
-    // string path (lexicographic, as before).
-    if matches!(
-        rule.relation,
+impl Default for ColumnMemo<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Numeric comparison shared by every clause evaluator.
+fn compare_numbers(relation: Relation, actual: i64, expected: i64) -> bool {
+    match relation {
+        Relation::Is => actual == expected,
+        Relation::IsNot => actual != expected,
+        Relation::LessThan => actual < expected,
+        Relation::MoreThan => actual > expected,
+        _ => unreachable!("callers guard on the numeric relations"),
+    }
+}
+
+/// Numeric fast path: equality/ordering relations compare integers directly
+/// (no per-evaluation to_string). `actual` lazily supplies the number —
+/// `filter_number` for a `Column` clause, `struct_number` for a named
+/// extension field — so both clause kinds share the one guard + parse.
+/// Substring relations are inherently textual, and a missing number or
+/// non-numeric rule value falls back to the string path (lexicographic, as
+/// before). `None` = not applicable.
+fn numeric_fast_path(
+    relation: Relation,
+    value: &str,
+    actual: impl FnOnce() -> Option<i64>,
+) -> Option<bool> {
+    if !matches!(
+        relation,
         Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
     ) {
-        if let (Some(actual), Ok(expected)) =
-            (ev.filter_number(rule.column), rule.value.parse::<i64>())
-        {
-            return match rule.relation {
-                Relation::Is => actual == expected,
-                Relation::IsNot => actual != expected,
-                Relation::LessThan => actual < expected,
-                Relation::MoreThan => actual > expected,
-                _ => unreachable!("guarded by the relation match above"),
-            };
-        }
+        return None;
     }
-    memo.get(ev, rule.column)
-        .map(|actual| relation_matches(rule.relation, actual, &rule.value))
+    let actual = actual()?;
+    let expected = value.parse::<i64>().ok()?;
+    Some(compare_numbers(relation, actual, expected))
+}
+
+/// [`clause_matches`] with a caller-held [`ColumnMemo`]: within one memo's
+/// lifetime (one event evaluation), each referenced column is derived at most
+/// once no matter how many clauses target it — the building block for query
+/// engines that run a filter expression *and* a noise filter per event.
+pub fn clause_matches_memo<'e, E: FilterFields>(
+    ev: &'e E,
+    column: Column,
+    relation: Relation,
+    value: &str,
+    memo: &mut ColumnMemo<'e>,
+) -> bool {
+    if let Some(hit) = numeric_fast_path(relation, value, || ev.filter_number(column)) {
+        return hit;
+    }
+    memo.get(ev, column)
+        .map(|actual| relation_matches(relation, actual, value))
         .unwrap_or(false)
 }
 
@@ -519,31 +554,15 @@ fn rule_hits<'e, E: FilterFields>(ev: &'e E, rule: &Rule, memo: &mut ColumnMemo<
 /// public building block for custom query predicates (e.g. an AND-of-clauses
 /// query engine) over the same column/relation vocabulary and matching
 /// semantics (numeric fast path + ASCII case-insensitive relations) the GUI
-/// filter uses. This is [`rule_hits`] without the per-evaluation column memo;
-/// callers that evaluate many rows should still derive each column value once.
+/// filter uses. This is [`clause_matches_memo`] with a one-shot memo; callers
+/// that evaluate many clauses per row should hold a memo across them instead.
 pub fn clause_matches<E: FilterFields>(
     ev: &E,
     column: Column,
     relation: Relation,
     value: &str,
 ) -> bool {
-    if matches!(
-        relation,
-        Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
-    ) {
-        if let (Some(actual), Ok(expected)) = (ev.filter_number(column), value.parse::<i64>()) {
-            return match relation {
-                Relation::Is => actual == expected,
-                Relation::IsNot => actual != expected,
-                Relation::LessThan => actual < expected,
-                Relation::MoreThan => actual > expected,
-                _ => unreachable!("guarded by the relation match above"),
-            };
-        }
-    }
-    ev.filter_field(column)
-        .map(|actual| relation_matches(relation, &actual, value))
-        .unwrap_or(false)
+    clause_matches_memo(ev, column, relation, value, &mut ColumnMemo::new())
 }
 
 /// Whether a structured (extension) field `name` matches under `relation`/`value`.
@@ -552,19 +571,8 @@ pub fn clause_matches<E: FilterFields>(
 /// An unknown field never matches. These fields (network endpoints, file detail, …)
 /// live beside the Procmon-mirrored `Column` set instead of inflating it.
 pub fn clause_matches_named(ev: &Event, name: &str, relation: Relation, value: &str) -> bool {
-    if matches!(
-        relation,
-        Relation::Is | Relation::IsNot | Relation::LessThan | Relation::MoreThan
-    ) {
-        if let (Some(actual), Ok(expected)) = (ev.struct_number(name), value.parse::<i64>()) {
-            return match relation {
-                Relation::Is => actual == expected,
-                Relation::IsNot => actual != expected,
-                Relation::LessThan => actual < expected,
-                Relation::MoreThan => actual > expected,
-                _ => unreachable!("guarded by the relation match above"),
-            };
-        }
+    if let Some(hit) = numeric_fast_path(relation, value, || ev.struct_number(name)) {
+        return hit;
     }
     ev.struct_field(name)
         .map(|actual| relation_matches(relation, &actual, value))
@@ -582,18 +590,26 @@ pub struct StructField {
 }
 
 /// Every structured extension field the query layer understands, beside the
-/// Procmon-mirrored [`Column`] set (network for now; file/registry to follow).
+/// Procmon-mirrored [`Column`] set (network + file for now; registry to follow).
 /// Adding a field is one entry next to its decoder, not a new `Column` variant.
 pub fn struct_fields() -> Vec<StructField> {
-    crate::parse::network::NETWORK_FIELDS
+    let net = crate::parse::network::NETWORK_FIELDS
         .iter()
         .map(|&(name, numeric, description)| StructField {
             name,
             category: "Network",
             numeric,
             description,
-        })
-        .collect()
+        });
+    let file = crate::parse::file::FILE_FIELDS
+        .iter()
+        .map(|&(name, numeric, description)| StructField {
+            name,
+            category: "File System",
+            numeric,
+            description,
+        });
+    net.chain(file).collect()
 }
 
 /// Extracts the comparison string for a column, or `None` if the event has none.
@@ -794,6 +810,8 @@ mod tests {
             remote_name: None,
             length: 12,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let ev = Event::from_network(
             std::sync::Arc::new(net),
@@ -869,6 +887,8 @@ mod tests {
             local_name: None,
             remote_name: None,
             length: 0,
+            stack: Vec::new(),
+            extra: Vec::new(),
             time: 0,
         };
         let ev = Event::from_network(

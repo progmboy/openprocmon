@@ -317,6 +317,12 @@ impl CapturedEvent {
     pub fn detail(&self) -> SharedString {
         self.detail_column()
     }
+    /// The detail with each field on its own line — the detail panel's
+    /// properties view (the table's Detail column uses the one-line
+    /// [`detail`](Self::detail)). Not cached: only the selected row needs it.
+    pub fn detail_multiline(&self) -> SharedString {
+        self.event().detail_multiline().into()
+    }
     /// Process icon as a prepared render image. Cached once the icon source is
     /// final; while live metadata is still pending it is re-read each render so
     /// the icon appears on the next frame after the async resolve.

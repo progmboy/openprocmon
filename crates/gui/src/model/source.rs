@@ -52,4 +52,25 @@ pub trait EventSource: Send + 'static {
     fn kernel_modules(&self) -> Vec<ModuleRow> {
         Vec::new()
     }
+    /// The backing `PmlReader` when this source replays a `.PML` (else `None`).
+    /// Save-as-PML uses it for a byte-faithful subset copy (`write_subset`) that
+    /// keeps the capture's host header and full process table, instead of
+    /// re-encoding rows through a `PmlWriter` stamped with *this* machine.
+    fn as_pml_reader(&self) -> Option<std::sync::Arc<procmon_sdk::PmlReader>> {
+        None
+    }
+    /// The live process table (`None` for a PML source). Save-as-PML stamps it
+    /// into the writer (`PmlWriter::stamp_processes`) so pre-existing,
+    /// event-silent processes — seeded by INIT records the correlator never
+    /// surfaces — stay in the saved process table.
+    fn live_processes(&self) -> Option<std::sync::Arc<procmon_sdk::ProcessManager>> {
+        None
+    }
+    /// The capture's shared module-version cache (`None` for a PML source),
+    /// pre-warmed as image-load events arrive. Save-as-PML hands it to the
+    /// writer so module version strings are already resolved — the finalize
+    /// warm is near-free instead of seconds of blocking I/O.
+    fn live_module_versions(&self) -> Option<std::sync::Arc<procmon_sdk::ModuleVersionCache>> {
+        None
+    }
 }

@@ -63,25 +63,25 @@ impl<'a> RegView<'a> {
             .unwrap_or(0)
     }
 
-    fn create_open_detail(&self, data: &[u8]) -> String {
+    fn create_open_detail(&self, data: &[u8], sep: &str) -> String {
         let desired = cast::<LogRegCreateOpenKey>(data)
             .map(|i| i.desired_access)
             .unwrap_or(0);
         match self.ev.post_as::<LogRegPostCreateOpenKey>() {
             Some(p) => {
                 let (granted, disposition) = (p.granted_access, p.disposition);
-                format!(
-                    "Desired Access: {}, Granted Access: {}, Disposition: {}",
-                    strings::reg_access_mask(desired),
-                    strings::reg_access_mask(granted),
-                    disposition_name(disposition)
-                )
+                [
+                    format!("Desired Access: {}", strings::reg_access_mask(desired)),
+                    format!("Granted Access: {}", strings::reg_access_mask(granted)),
+                    format!("Disposition: {}", disposition_name(disposition)),
+                ]
+                .join(sep)
             }
             None => format!("Desired Access: {}", strings::reg_access_mask(desired)),
         }
     }
 
-    fn set_value_detail(data: &[u8], mode: DetailMode) -> String {
+    fn set_value_detail(data: &[u8], mode: DetailMode, sep: &str) -> String {
         let Some(i) = cast::<LogRegSetValueKey>(data) else {
             return String::new();
         };
@@ -93,12 +93,12 @@ impl<'a> RegView<'a> {
             .get(value_off..value_off + i.copy_size as usize)
             .map(|b| reg_value_data(value_type, b))
             .unwrap_or_default();
-        format!(
-            "Type: {}, Length: {}, Data: {}",
-            strings::reg_value_type(value_type),
-            data_size,
-            value
-        )
+        [
+            format!("Type: {}", strings::reg_value_type(value_type)),
+            format!("Length: {data_size}"),
+            format!("Data: {value}"),
+        ]
+        .join(sep)
     }
 
     fn query_value_detail(data: &[u8]) -> String {
@@ -207,12 +207,12 @@ impl OperationView for RegView<'_> {
         })
     }
 
-    fn detail(&self) -> String {
+    fn detail(&self, sep: &str) -> String {
         let data = self.ev.pre_data();
         let mode = self.ev.mode();
         match self.ev.notify_type() {
-            rn::CREATEKEYEX | rn::OPENKEYEX => self.create_open_detail(data),
-            rn::SETVALUEKEY => Self::set_value_detail(data, mode),
+            rn::CREATEKEYEX | rn::OPENKEYEX => self.create_open_detail(data, sep),
+            rn::SETVALUEKEY => Self::set_value_detail(data, mode, sep),
             rn::QUERYVALUEKEY => Self::query_value_detail(data),
             rn::ENUMERATEVALUEKEY => Self::enum_value_detail(data),
             rn::ENUMERATEKEY => Self::enum_key_detail(data),

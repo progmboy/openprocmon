@@ -8,7 +8,7 @@
 //! `group_by`, with an optional numeric `metric`) subsumes per-path / per-process /
 //! cross-reference aggregations.
 
-use procmon_sdk::{clause_matches, Column, Event, FilterFields, Relation};
+use procmon_sdk::{clause_matches_memo, Column, ColumnMemo, Event, FilterFields, Relation};
 use serde::Serialize;
 
 /// A leaf condition: a field, a relation, and one or more candidate values
@@ -23,9 +23,16 @@ pub struct Clause {
 impl Clause {
     /// Whether `ev` matches (OR over the clause's values).
     pub fn matches(&self, ev: &Event) -> bool {
+        self.matches_memo(ev, &mut ColumnMemo::new())
+    }
+
+    /// [`matches`](Self::matches) with a caller-held per-event memo: derived
+    /// columns (Path, Detail, times) are materialized at most once per event,
+    /// however many clauses or `in (...)` candidates reference them.
+    pub fn matches_memo<'e>(&self, ev: &'e Event, memo: &mut ColumnMemo<'e>) -> bool {
         self.values
             .iter()
-            .any(|v| self.column.matches(ev, self.relation, v))
+            .any(|v| self.column.matches_memo(ev, self.relation, v, memo))
     }
 }
 
@@ -41,11 +48,18 @@ pub enum Expr {
 impl Expr {
     /// Whether `ev` satisfies the expression.
     pub fn matches(&self, ev: &Event) -> bool {
+        self.matches_memo(ev, &mut ColumnMemo::new())
+    }
+
+    /// [`matches`](Self::matches) with a caller-held per-event memo (see
+    /// [`Clause::matches_memo`]); the query engine shares one memo per event
+    /// across the filter expression and the noise filter.
+    pub fn matches_memo<'e>(&self, ev: &'e Event, memo: &mut ColumnMemo<'e>) -> bool {
         match self {
-            Expr::Clause(c) => c.matches(ev),
-            Expr::Not(e) => !e.matches(ev),
-            Expr::And(v) => v.iter().all(|e| e.matches(ev)),
-            Expr::Or(v) => v.iter().any(|e| e.matches(ev)),
+            Expr::Clause(c) => c.matches_memo(ev, memo),
+            Expr::Not(e) => !e.matches_memo(ev, memo),
+            Expr::And(v) => v.iter().all(|e| e.matches_memo(ev, memo)),
+            Expr::Or(v) => v.iter().any(|e| e.matches_memo(ev, memo)),
         }
     }
 }
@@ -388,10 +402,18 @@ impl Field {
             Field::Ext(name) => ev.struct_number(name),
         }
     }
-    /// Whether `ev`'s value for this field satisfies `relation`/`value`.
-    fn matches(&self, ev: &Event, relation: Relation, value: &str) -> bool {
+    /// Whether `ev`'s value for this field satisfies `relation`/`value`,
+    /// through a per-event column memo. Extension fields don't participate in
+    /// the memo (per-category lookups, no `Column`).
+    fn matches_memo<'e>(
+        &self,
+        ev: &'e Event,
+        relation: Relation,
+        value: &str,
+        memo: &mut ColumnMemo<'e>,
+    ) -> bool {
         match self {
-            Field::Col(c) => clause_matches(ev, *c, relation, value),
+            Field::Col(c) => clause_matches_memo(ev, *c, relation, value, memo),
             Field::Ext(name) => procmon_sdk::clause_matches_named(ev, name, relation, value),
         }
     }
@@ -444,24 +466,36 @@ pub struct GroupRow {
 /// Per-bucket accumulator.
 #[derive(Default)]
 struct Acc {
+    /// The bucket's display values (one per group-by column), owned once when
+    /// the bucket is first seen.
+    values: Vec<String>,
     count: u64,
     procs: rustc_hash::FxHashSet<String>,
     sum: i64,
     n: u64,
     min: Option<i64>,
     max: Option<i64>,
-    first_time: Option<String>,
-    last_time: Option<String>,
+    /// First/last event time in raw 100-ns ticks; formatted once in `into_rows`.
+    first_time: Option<i64>,
+    last_time: Option<i64>,
 }
 
 /// Accumulates group-by buckets keyed on one or more columns. With a numeric
 /// `metric` column it also rolls up sum/avg/min/max and the first/last event time
 /// (computed only in that mode, so a plain count group-by stays light).
+///
+/// Buckets are looked up by a hash of the borrowed column values and verified by
+/// comparison (correct under collisions), so the common case — another event for
+/// an existing bucket — owns no strings; a key is materialized only at first
+/// sight of its bucket.
 pub struct Grouper {
     cols: Vec<Field>,
     metric: Option<Field>,
     with_processes: bool,
-    groups: rustc_hash::FxHashMap<Vec<String>, Acc>,
+    buckets: Vec<Acc>,
+    /// values-hash → bucket slots with that hash. Inline single slot: a second
+    /// entry (and thus a heap spill) happens only on a real 64-bit collision.
+    index: rustc_hash::FxHashMap<u64, smallvec::SmallVec<[usize; 1]>>,
 }
 
 impl Grouper {
@@ -471,24 +505,58 @@ impl Grouper {
             cols,
             metric,
             with_processes,
-            groups: rustc_hash::FxHashMap::default(),
+            buckets: Vec::new(),
+            index: rustc_hash::FxHashMap::default(),
         }
     }
 
     /// Records `ev`. Skipped if it lacks a value for any group-by column.
     pub fn observe(&mut self, ev: &Event) {
-        let mut key = Vec::with_capacity(self.cols.len());
+        use std::hash::{Hash, Hasher};
+        // Derive each grouped column once, borrowed where the event already
+        // holds the string (only derived columns like Path allocate). Staged
+        // on the stack — group-by keys are 1-3 columns in practice.
+        let mut vals: smallvec::SmallVec<[std::borrow::Cow<'_, str>; 4]> =
+            smallvec::SmallVec::new();
         for f in &self.cols {
             match f.value_str(ev) {
-                Some(v) => key.push(v.into_owned()),
+                Some(v) => vals.push(v),
                 None => return, // event lacks one of the grouped dimensions
             }
         }
-        let acc = self.groups.entry(key).or_default();
+        let mut h = rustc_hash::FxHasher::default();
+        for v in &vals {
+            // `str::hash` length-prefixes, so multi-column keys are unambiguous.
+            v.as_ref().hash(&mut h);
+        }
+        let slots = self.index.entry(h.finish()).or_default();
+        let buckets = &self.buckets;
+        let slot = slots.iter().copied().find(|&i| {
+            buckets[i]
+                .values
+                .iter()
+                .map(String::as_str)
+                .eq(vals.iter().map(|v| v.as_ref()))
+        });
+        let i = match slot {
+            Some(i) => i,
+            None => {
+                let i = self.buckets.len();
+                self.buckets.push(Acc {
+                    values: vals.into_iter().map(|v| v.into_owned()).collect(),
+                    ..Acc::default()
+                });
+                slots.push(i);
+                i
+            }
+        };
+        let acc = &mut self.buckets[i];
         acc.count += 1;
         if self.with_processes {
             if let Some(pn) = ev.process_name() {
-                acc.procs.insert(pn.to_string());
+                if !acc.procs.contains(pn) {
+                    acc.procs.insert(pn.to_string());
+                }
             }
         }
         if let Some(m) = &self.metric {
@@ -499,13 +567,11 @@ impl Grouper {
                 acc.max = Some(acc.max.map_or(n, |x| x.max(n)));
             }
             // Events stream in file (= time) order, so first/last seen == min/max.
-            if let Some(t) = ev.filter_field(Column::Date) {
-                let t = t.into_owned();
-                if acc.first_time.is_none() {
-                    acc.first_time = Some(t.clone());
-                }
-                acc.last_time = Some(t);
+            let t = ev.time_raw();
+            if acc.first_time.is_none() {
+                acc.first_time = Some(t);
             }
+            acc.last_time = Some(t);
         }
     }
 
@@ -514,10 +580,10 @@ impl Grouper {
         let has_metric = self.metric.is_some();
         let with_processes = self.with_processes;
         let mut rows: Vec<GroupRow> = self
-            .groups
+            .buckets
             .into_iter()
-            .map(|(values, a)| GroupRow {
-                values,
+            .map(|a| GroupRow {
+                values: a.values,
                 count: a.count,
                 processes: with_processes.then_some(a.procs.len() as u64),
                 sum: has_metric.then_some(a.sum),
@@ -530,8 +596,18 @@ impl Grouper {
                 }),
                 min: if has_metric { a.min } else { None },
                 max: if has_metric { a.max } else { None },
-                first_time: if has_metric { a.first_time } else { None },
-                last_time: if has_metric { a.last_time } else { None },
+                // Same format `filter_field(Date)` produced when these were
+                // captured as strings per event.
+                first_time: if has_metric {
+                    a.first_time.map(procmon_sdk::time::date_precise)
+                } else {
+                    None
+                },
+                last_time: if has_metric {
+                    a.last_time.map(procmon_sdk::time::date_precise)
+                } else {
+                    None
+                },
             })
             .collect();
         rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.values.cmp(&b.values)));

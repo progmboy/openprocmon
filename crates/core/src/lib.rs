@@ -9,9 +9,8 @@
 //!
 //! The one query primitive is [`analyze::query`] (filter + optional group-by),
 //! which subsumes per-path / per-process / cross-reference aggregations; the
-//! filter vocabulary is in [`vocab`]. The GUI is intentionally left untouched —
-//! the aggregation/export math here is a parity-tested re-port, not a shared
-//! extraction.
+//! filter vocabulary is in [`vocab`]. The CSV/XML encoders in [`export`] are
+//! the single implementation — the GUI's Save dialog calls them too.
 
 pub mod analyze;
 pub mod capture;
@@ -31,9 +30,9 @@ pub use capture::{
     capture, parse_monitors, CaptureLimits, CaptureOutcome, CaptureSession, StoppedReason,
     TargetSpec,
 };
-pub use export::{export, Format};
+pub use export::{export, export_csv, export_xml, Format, StackSymbolizer};
 pub use noise::default_noise;
 pub use query::{parse_column, parse_field, parse_filter, Clause, Expr, Field, GroupRow};
 pub use record::{Category, EventRecord, ModuleRow, ProcessDetail, ProcessNode, StackFrameRow};
-pub use summary::{summary, ProcCount, Summary};
+pub use summary::{bin_index, summary, ProcCount, Summary, BINS};
 pub use vocab::{filter_vocab, FilterVocab};

@@ -30,8 +30,14 @@ use std::sync::Arc;
 pub(crate) trait OperationView {
     /// Target path/key/image, or `None` if the operation carries none.
     fn path(&self) -> Option<String>;
-    /// Operation-specific detail, or empty if there is none to show.
-    fn detail(&self) -> String;
+    /// Operation-specific detail, or empty if there is none to show. `sep`
+    /// joins the individual fields: `", "` for the one-line table/CLI form,
+    /// `"\n"` for the detail panel's one-field-per-line view (Procmon's
+    /// properties dialog). Passing the separator here — rather than joining
+    /// with a fixed delimiter and splitting later — keeps field values that
+    /// themselves contain commas or newlines (a registry `REG_SZ`, a command
+    /// line) unambiguous.
+    fn detail(&self, sep: &str) -> String;
 }
 
 /// Where an event's detail bytes came from. The two forms differ ONLY in string
@@ -255,6 +261,16 @@ impl Correlator {
             self.max_seen = self.max_seen.max(time);
             if monitor == MonitorType::Process {
                 proc::track(mgr, self.metadata.as_deref(), record.entry(), record.data());
+                // A Process INIT record ("Process Defined") is the synthetic entry
+                // the driver replays for every process already running at capture
+                // start — its only purpose is to seed the process table above; it
+                // is never surfaced as an event (cf. C++ `CDataView::Push`, which
+                // drops `MONITOR_TYPE_PROCESS + NOTIFY_PROCESS_INIT`). PML saves
+                // carry those processes anyway: live finalize stamps the manager's
+                // full table via `PmlWriter::stamp_processes`.
+                if entry.notify() == crate::kernel_types::proc_notify::INIT {
+                    continue;
+                }
             }
 
             if status == STATUS_PENDING {
@@ -563,6 +579,50 @@ mod tests {
         assert_eq!(mgr.by_pid(1234).unwrap().info.image_path, image);
         // And the event carries the process snapshot.
         assert_eq!(ev.process().unwrap().info.pid, 1234);
+    }
+
+    #[test]
+    fn process_init_seeds_table_but_emits_no_event() {
+        // A Process INIT ("Process Defined") record seeds the process table but is
+        // never surfaced as an event (like the C++ GUI's dataview, which drops it).
+        let image = "\\Device\\HarddiskVolume999\\Windows\\explorer.exe";
+        let data = proc_create_data(7, 4321, image, "explorer.exe");
+        let mut pre = entry_bytes(1, proc_notify::INIT, 7, 0, &data);
+        pre[0..4].copy_from_slice(&7i32.to_le_bytes());
+
+        let mgr = ProcessManager::new();
+        let events = parse_block_tracked(&pre, &mgr);
+        assert!(events.is_empty(), "INIT must not emit an event");
+        // But the process table was seeded from it.
+        assert_eq!(mgr.by_pid(4321).unwrap().info.image_path, image);
+    }
+
+    #[test]
+    fn stamp_processes_carries_event_silent_processes_into_pml() {
+        // INIT seeds the manager without emitting an event, so a pre-existing
+        // process that stays silent would be missing from an event-interned
+        // process table — stamp_processes at finalize is what carries it (and
+        // it must not duplicate a process push_event already interned).
+        let image = "\\Device\\HarddiskVolume999\\Windows\\explorer.exe";
+        let data = proc_create_data(7, 4321, image, "explorer.exe");
+        let mut pre = entry_bytes(1, proc_notify::INIT, 7, 0, &data);
+        pre[0..4].copy_from_slice(&7i32.to_le_bytes());
+        let mgr = ProcessManager::new();
+        assert!(parse_block_tracked(&pre, &mgr).is_empty());
+
+        let mut w = crate::pml::PmlWriter::new(true);
+        w.stamp_processes(&mgr);
+        w.stamp_processes(&mgr); // idempotent: same seq -> same slot
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        w.write_to_path(tmp.path()).expect("write PML");
+
+        let reader =
+            std::sync::Arc::new(crate::pml::PmlReader::open(tmp.path()).expect("reopen PML"));
+        let procs: Vec<_> = reader.processes().filter(|p| p.pid == 4321).collect();
+        assert_eq!(procs.len(), 1, "stamped once, however often it runs");
+        assert!(procs[0].image_path.contains("explorer.exe"));
+        // And the PML carries no "Process Defined" event rows, like Procmon's.
+        assert_eq!(reader.len(), 0);
     }
 
     #[test]

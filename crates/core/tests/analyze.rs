@@ -367,6 +367,28 @@ fn export_csv_and_xml_and_pml_roundtrip() {
 }
 
 #[test]
+fn memoized_matching_is_equivalent() {
+    // The memo-shared evaluation path (one ColumnMemo per event across filter +
+    // noise) must agree with independent per-clause evaluation on every event,
+    // including negations (IsNot / Excludes) under `!`/`any(!…)`.
+    use procmon_sdk::ColumnMemo;
+    let f = fixture();
+    let filter = parse_filter(
+        r#"Path ~ "\" && (Operation in (WriteFile, ReadFile, CreateFile, RegQueryValue)
+           || Result != SUCCESS) && !(Detail !~ "")"#,
+    )
+    .expect("parse");
+    let noise = procmon_core::default_noise();
+    for (i, ev) in f.reader.events().enumerate() {
+        let mut memo = ColumnMemo::new();
+        let memoized = filter.matches_memo(&ev, &mut memo)
+            && !noise.iter().any(|c| c.matches_memo(&ev, &mut memo));
+        let plain = filter.matches(&ev) && !noise.iter().any(|c| c.matches(&ev));
+        assert_eq!(memoized, plain, "event {i} diverged");
+    }
+}
+
+#[test]
 fn vocab_lists_real_operations() {
     let v = filter_vocab();
     assert!(v

@@ -11,7 +11,9 @@ use memmap2::Mmap;
 
 use crate::error::{Error, Result};
 use crate::pml::detail::{self, Tables};
-use crate::pml::model::{PmlEvent, PmlIcon, PmlModule, PmlProcess};
+use crate::pml::model::{
+    PmlEvent, PmlEventHeader, PmlIcon, PmlModule, PmlProcess, EVENT_HEADER_SIZE,
+};
 use crate::EventClass;
 
 const HEADER_SIZE: usize = 0x3a8;
@@ -28,6 +30,11 @@ pub struct Header {
     pub windows_build: u32,
     pub num_logical_processors: u32,
     pub ram_bytes: u64,
+    /// `SYSTEM_INFO.lpMaximumApplicationAddress` of the capture host.
+    pub max_app_address: u64,
+    /// Raw `OSVERSIONINFOEXW` blob (284 bytes), carried verbatim so a re-save
+    /// ([`PmlReader::write_subset`]) reproduces the capture host's header.
+    pub os_version: Vec<u8>,
     events_offsets_array_offset: u64,
     process_table_offset: u64,
     strings_table_offset: u64,
@@ -36,8 +43,14 @@ pub struct Header {
 }
 
 /// A read-only view over a `.PML` file.
+///
+/// Events borrow their stack/detail bytes straight out of the mmap
+/// (`Arc<Mmap>`-shared, zero copy), so every [`crate::Event`] produced by
+/// [`events`](Self::events)/[`event_as_event`](Self::event_as_event) pins the
+/// mapping: the `.PML` file stays open (and, on Windows, locked against
+/// delete/truncate) until the last such event is dropped.
 pub struct PmlReader {
-    _mmap: Mmap,
+    mmap: Arc<Mmap>,
     header: Header,
     sizeof_pvoid: usize,
     event_offsets: Vec<u32>,
@@ -59,7 +72,7 @@ impl PmlReader {
     }
 
     fn from_mmap(mmap: Mmap) -> Result<Self> {
-        let data = &mmap[..];
+        let data: &[u8] = &mmap;
         let header = parse_header(data)?;
         // 32-bit PML detail parsing is not implemented yet (the SDK detail views
         // assume the host x64 FLT_PARAMETERS / pointer width). Reject up front
@@ -88,7 +101,7 @@ impl PmlReader {
 
         let _ = &strings; // consumed by process parsing above
         Ok(Self {
-            _mmap: mmap,
+            mmap: Arc::new(mmap),
             header,
             sizeof_pvoid,
             event_offsets,
@@ -131,6 +144,14 @@ impl PmlReader {
         mut keep: impl FnMut(usize) -> bool,
     ) -> Result<usize> {
         let mut w = crate::pml::PmlWriter::new(self.header.is_64bit);
+        // Carry the capture host's header metadata verbatim — the subset
+        // describes the same capture, not the machine doing the re-save.
+        w.computer_name = self.header.computer_name.clone();
+        w.system_root = self.header.system_root.clone();
+        w.os_version = self.header.os_version.clone();
+        w.max_app_address = self.header.max_app_address;
+        w.num_logical_processors = self.header.num_logical_processors;
+        w.ram_bytes = self.header.ram_bytes;
         for p in self.processes.values() {
             w.add_process(p.clone());
         }
@@ -189,44 +210,38 @@ impl PmlReader {
             .get(i)
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
-        let data = &self._mmap[..];
-        let mut c = Cur::at(data, off)?;
-        let process_index = c.u32()?;
-        let tid = c.u32()?;
-        let class_val = c.u32()?;
-        let operation = c.u16()?;
-        let _ = c.u16()?;
-        let _ = c.u32()?;
-        let duration = c.u64()?;
-        let date_filetime = c.u64()?;
-        let result = c.u32()?;
-        let stack_depth = c.u16()? as usize;
-        let _ = c.u16()?;
-        let details_size = c.u32()? as usize;
-        let extra_off = c.u32()? as usize;
-        let class = EventClass::from_u32(class_val);
-        let mut stack = Vec::with_capacity(stack_depth);
-        for _ in 0..stack_depth {
-            stack.push(c.pvoid(self.sizeof_pvoid)?);
-        }
-        let details = c.take(details_size)?;
-        // Extra/completion blob (e.g. CreateFile's OpenResult) — the POST record's data.
-        let extra: Option<&[u8]> = if extra_off > 0 {
-            let mut ec = Cur::at(data, off + extra_off)?;
-            let size = ec.u16()? as usize;
-            Some(ec.take(size)?)
-        } else {
-            None
-        };
+        let data: &[u8] = &self.mmap;
+        let h = PmlEventHeader::view(data, off)
+            .ok_or_else(|| Error::Parse("PML: truncated event header".into()))?;
+        let (process_index, tid, operation) = (h.process_index, h.tid, h.operation);
+        let (duration, date_filetime, result) = (h.duration, h.date_filetime, h.result);
+        let stack_depth = h.stack_depth as usize;
+        let details_size = h.details_size as usize;
+        let extra_off = h.extra_offset as usize;
+        let class = EventClass::from_u32(h.class);
+        // The event body — `[stack frames][details]` — follows the fixed part,
+        // physically matching a kernel record's `[frames][data]` region.
+        let body = off + EVENT_HEADER_SIZE;
 
         // Network: decode the PML blob into the shared NetworkEvent (same model the
         // live ETW path uses); pid/time come from the event's process/timestamp.
         if class == EventClass::Network {
+            let mut c = Cur::at(data, body)?;
+            // Frames precede the detail blob (like a kernel record); Procmon
+            // records a stack for network events, so decode them too.
+            let mut stack = Vec::with_capacity(stack_depth);
+            for _ in 0..stack_depth {
+                stack.push(crate::kernel_types::StackFrame::from_addr(
+                    c.pvoid(self.sizeof_pvoid)?,
+                ));
+            }
+            let details = c.take(details_size)?;
             let mut net =
                 crate::parse::network::decode_pml(operation, details, &self.hosts, &self.ports)
                     .ok_or_else(|| Error::Parse("PML: malformed network blob".into()))?;
             net.pid = self.process(process_index).map(|p| p.pid).unwrap_or(0);
             net.time = date_filetime as i64;
+            net.stack = stack;
             return Ok(crate::event::Event::from_network(
                 std::sync::Arc::new(net),
                 crate::event::ProcessSource::Pml(Arc::clone(self), process_index),
@@ -241,38 +256,56 @@ impl PmlReader {
             EventClass::Profiling => 4,
             _ => 0,
         };
-        let pre = crate::kernel_types::synth_record_full(
-            monitor,
-            operation,
-            result as i32,
-            tid,
-            date_filetime as i64,
-            &stack,
-            details,
-        );
-        // PML stores duration directly; a sentinel value (where start + duration
-        // would overflow) is treated as "no duration".
-        let duration_ticks = (duration != 0 && date_filetime.checked_add(duration).is_some())
-            .then_some(duration as i64);
-        // A POST record only carries the completion (extra) data, if present.
-        let post = extra.map(|e| {
-            crate::kernel_types::synth_record_full(
-                0,
+        // Zero copy: a synthesized kernel header + the frames and detail
+        // borrowed from the mmap. `from_mmap` bounds-checks the body.
+        let pre = crate::event::Record::from_mmap(
+            Arc::clone(&self.mmap),
+            crate::kernel_types::synth_log_entry(
+                monitor,
                 operation,
                 result as i32,
                 tid,
                 date_filetime as i64,
-                &[],
-                e,
+                stack_depth,
+                details_size,
+            ),
+            body,
+        )
+        .ok_or_else(|| Error::Parse("PML: event body extends past the file".into()))?;
+        // PML stores duration directly; a sentinel value (where start + duration
+        // would overflow) is treated as "no duration".
+        let duration_ticks = (duration != 0 && date_filetime.checked_add(duration).is_some())
+            .then_some(duration as i64);
+        // A POST record only carries the completion (extra) data, if present
+        // (u16 size prefix, then the bytes — borrowed in place as well).
+        let post = if extra_off > 0 {
+            let mut ec = Cur::at(data, off + extra_off)?;
+            let size = ec.u16()? as usize;
+            Some(
+                crate::event::Record::from_mmap(
+                    Arc::clone(&self.mmap),
+                    crate::kernel_types::synth_log_entry(
+                        0,
+                        operation,
+                        result as i32,
+                        tid,
+                        date_filetime as i64,
+                        0,
+                        size,
+                    ),
+                    off + extra_off + size_of::<u16>(),
+                )
+                .ok_or_else(|| Error::Parse("PML: extra blob extends past the file".into()))?,
             )
-        });
-        crate::event::Event::from_pml_with(
+        } else {
+            None
+        };
+        Ok(crate::event::Event::from_pml_records(
             pre,
             post,
             crate::event::ProcessSource::Pml(Arc::clone(self), process_index),
             duration_ticks,
-        )
-        .ok_or_else(|| Error::Parse("PML: synthesized record too short".into()))
+        ))
     }
 
     /// Like [`event`](Self::event) but also keeps the raw detail/extra blobs (one
@@ -291,25 +324,16 @@ impl PmlReader {
             .get(i)
             .ok_or_else(|| Error::Parse(format!("PML: event index {i} out of range")))?
             as usize;
-        let data = &self._mmap[..];
-        let mut c = Cur::at(data, off)?;
-
-        // Common event struct: "<IIIHHIQQIHHII" (52 bytes).
-        let process_index = c.u32()?;
-        let tid = c.u32()?;
-        let class_val = c.u32()?;
-        let operation = c.u16()?;
-        let _ = c.u16()?;
-        let _ = c.u32()?;
-        let duration = c.u64()?;
-        let date_filetime = c.u64()?;
-        let result = c.u32()?;
-        let stack_depth = c.u16()? as usize;
-        let _ = c.u16()?;
-        let details_size = c.u32()? as usize;
-        let extra_details_offset = c.u32()? as usize;
-
-        let class = EventClass::from_u32(class_val);
+        let data: &[u8] = &self.mmap;
+        let h = PmlEventHeader::view(data, off)
+            .ok_or_else(|| Error::Parse("PML: truncated event header".into()))?;
+        let (process_index, tid, operation) = (h.process_index, h.tid, h.operation);
+        let (duration, date_filetime, result) = (h.duration, h.date_filetime, h.result);
+        let stack_depth = h.stack_depth as usize;
+        let details_size = h.details_size as usize;
+        let extra_details_offset = h.extra_offset as usize;
+        let class = EventClass::from_u32(h.class);
+        let mut c = Cur::at(data, off + EVENT_HEADER_SIZE)?;
 
         // Stack frames (return addresses), pointer-sized.
         let mut stack = Vec::with_capacity(stack_depth);
@@ -456,13 +480,15 @@ fn parse_header(data: &[u8]) -> Result<Header> {
     let process_table_offset = c.u64()?;
     let strings_table_offset = c.u64()?;
     let icon_table_offset = c.u64()?;
-    c.skip(12)?;
-    let windows_major = c.u32()?;
-    let windows_minor = c.u32()?;
-    let windows_build = c.u32()?;
-    let _windows_build_dec = c.u32()?;
-    let _service_pack = c.utf16(0x32)?;
-    c.skip(0xd6)?;
+    let max_app_address = c.u64()?;
+    // The OSVERSIONINFOEXW blob, taken verbatim (re-saves write it back
+    // unchanged); the version ints are read out of it by field offset.
+    let os_blob = c.take(crate::pml::model::OS_VERSION_LEN)?;
+    let ver_u32 = |off: usize| u32::from_le_bytes(os_blob[off..off + 4].try_into().unwrap());
+    use windows::Win32::System::SystemInformation::OSVERSIONINFOEXW;
+    let windows_major = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwMajorVersion));
+    let windows_minor = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwMinorVersion));
+    let windows_build = ver_u32(core::mem::offset_of!(OSVERSIONINFOEXW, dwBuildNumber));
     let num_logical_processors = c.u32()?;
     let ram_bytes = c.u64()?;
     let header_size = c.u64()?;
@@ -491,6 +517,8 @@ fn parse_header(data: &[u8]) -> Result<Header> {
         windows_build,
         num_logical_processors,
         ram_bytes,
+        max_app_address,
+        os_version: os_blob.to_vec(),
         events_offsets_array_offset,
         process_table_offset,
         strings_table_offset,
@@ -842,6 +870,28 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_record_rejects_out_of_bounds_body() {
+        // A synthesized head describing more frames+data than the map holds must
+        // be rejected at construction — the invariant every accessor (including
+        // the unsafe frame view) relies on.
+        let tmp = tempfile::NamedTempFile::new().expect("temp");
+        std::fs::write(tmp.path(), vec![0u8; 64]).expect("write");
+        let file = std::fs::File::open(tmp.path()).expect("open");
+        // SAFETY: read-only mapping of a private temp file.
+        let map = Arc::new(unsafe { Mmap::map(&file) }.expect("map"));
+        let too_big = crate::kernel_types::synth_log_entry(3, 0, 0, 1, 0, 2, 100);
+        assert!(
+            crate::event::Record::from_mmap(Arc::clone(&map), too_big, 32).is_none(),
+            "2 frames + 100 bytes at offset 32 exceed a 64-byte map"
+        );
+        let fits = crate::kernel_types::synth_log_entry(3, 0, 0, 1, 0, 2, 8);
+        assert!(
+            crate::event::Record::from_mmap(map, fits, 32).is_some(),
+            "2 frames + 8 bytes at offset 32 fit a 64-byte map"
+        );
+    }
+
+    #[test]
     fn rejects_32bit_pml() {
         // 32-bit detail parsing is not implemented yet; opening must fail cleanly
         // rather than return half-parsed events.
@@ -866,6 +916,28 @@ mod tests {
     fn reads_64bit_registry_pml() {
         // Registry events carry the key path in their detail blob.
         check("CompressedLogFileUTC64RegistryPML", true);
+    }
+
+    #[test]
+    fn write_subset_preserves_host_header() {
+        // The subset describes the same capture: computer name, OS version blob,
+        // CPU count, RAM and max user address must survive a re-save verbatim
+        // (not be replaced by PmlWriter::new defaults).
+        let r = open_resource("CompressedLogFileUTC64FilesystemPML");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        r.write_subset(tmp.path(), |i| i % 2 == 0).expect("subset");
+        let sub = PmlReader::open(tmp.path()).expect("reopen subset");
+        let (a, b) = (r.header(), sub.header());
+        assert_eq!(a.computer_name, b.computer_name);
+        assert_eq!(a.system_root, b.system_root);
+        assert_eq!(a.os_version, b.os_version);
+        assert_eq!(a.max_app_address, b.max_app_address);
+        assert_eq!(a.num_logical_processors, b.num_logical_processors);
+        assert_eq!(a.ram_bytes, b.ram_bytes);
+        assert_eq!(
+            (a.windows_major, a.windows_minor, a.windows_build),
+            (b.windows_major, b.windows_minor, b.windows_build)
+        );
     }
 
     #[test]

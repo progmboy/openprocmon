@@ -258,26 +258,61 @@ impl AppState {
                 .collect(),
             SaveScope::Highlighted => rows.iter().filter(|r| r.highlighted()).collect(),
         };
-        let n = selected.len();
+        let mut n = selected.len();
 
         match opts.format {
             SaveFormat::Pml => {
-                let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
-                for row in &selected {
-                    writer.push_event(row.event());
+                if let Some(reader) = self.source.as_pml_reader() {
+                    // PML-sourced view: byte-faithful subset copy, keeping the
+                    // capture's host header and full process table. Row `seq` is
+                    // 1-based over the reader's event order (see `PmlSource::start`).
+                    let keep: std::collections::HashSet<usize> = selected
+                        .iter()
+                        .map(|r| (r.seq().saturating_sub(1)) as usize)
+                        .collect();
+                    reader
+                        .write_subset(&opts.path, |i| keep.contains(&i))
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    // Live capture: stamp this machine's host metadata, the rows,
+                    // and the full process table (pre-existing processes emit no
+                    // events, so event interning alone would orphan their
+                    // children), then finish with the System (PID 4) process so
+                    // kernel frames resolve.
+                    let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
+                    writer.stamp_host();
+                    // Reuse the capture's module-version cache (pre-warmed as
+                    // image-load events arrived), so the finalize warm is all
+                    // cache hits instead of resolving thousands of DLLs now.
+                    if let Some(mv) = self.source.live_module_versions() {
+                        writer.use_module_versions(mv);
+                    }
+                    for row in &selected {
+                        writer.push_event(row.event());
+                    }
+                    if let Some(mgr) = self.source.live_processes() {
+                        writer.stamp_processes(&mgr);
+                    }
+                    writer
+                        .finish_live_to_path(&opts.path)
+                        .map_err(|e| e.to_string())?;
                 }
-                writer
-                    .write_to_path(&opts.path)
-                    .map_err(|e| e.to_string())?;
             }
-            SaveFormat::Csv => crate::model::sdk_source::export_csv(&selected, &opts.path)?,
-            SaveFormat::Xml => crate::model::sdk_source::export_xml(
-                &selected,
-                opts.stacks,
-                &self.source.kernel_modules(),
-                resolver.as_deref(),
-                &opts.path,
-            )?,
+            SaveFormat::Csv => {
+                let events: Vec<&procmon_sdk::Event> = selected.iter().map(|r| r.event()).collect();
+                n = procmon_core::export_csv(&events, &opts.path)?;
+            }
+            SaveFormat::Xml => {
+                let events: Vec<&procmon_sdk::Event> = selected.iter().map(|r| r.event()).collect();
+                // Kernel frames resolve against the source's System (PID 4)
+                // modules; the symbolizer borrows views over the rows directly.
+                let kernel_mods = self.source.kernel_modules();
+                let sym = procmon_core::StackSymbolizer::new(
+                    crate::model::sdk_source::sym_views(&kernel_mods),
+                    resolver.as_deref(),
+                );
+                n = procmon_core::export_xml(&events, opts.stacks, &sym, &opts.path)?;
+            }
         }
         Ok(n)
     }

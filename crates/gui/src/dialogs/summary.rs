@@ -22,7 +22,9 @@ use rust_i18n::t;
 use crate::model::domain::{EventCategory, EventSummaryRow};
 use crate::theme::{palette, ProcmonPalette};
 
-const BINS: usize = 24;
+// Bin count + index-binning formula are shared with the CLI's `summary` (the
+// parity contract: both views bin identically).
+use procmon_core::{bin_index, BINS};
 
 /// A "top process" aggregate row: name, event count and (optional) app icon.
 type TopProc = (SharedString, usize, Option<Arc<gpui::Image>>);
@@ -60,7 +62,7 @@ impl SummaryStats {
         let mut proc: HashMap<SharedString, ProcStat> = HashMap::new();
 
         for (i, row) in rows.iter().enumerate() {
-            let bin = (i * BINS).checked_div(total).map_or(0, |b| b.min(BINS - 1));
+            let bin = bin_index(i, total);
             rate[bin] += 1.0;
             cat_counts[cat_index(row.category)] += 1;
             if row.category == EventCategory::Network {
@@ -309,7 +311,7 @@ fn top_procs(co: &Co, stats: &SummaryStats) -> impl IntoElement {
         .max(1) as f32;
     v_flex().children(stats.top_proc.iter().map(|(name, n, icon)| {
         let ratio = *n as f32 / max;
-        let color = proc_color(name, &co.pal);
+        let color = co.pal.proc_color(name);
         h_flex()
             .items_center()
             .gap(px(10.))
@@ -353,16 +355,4 @@ fn track(co: &Co, ratio: f32, color: Hsla) -> impl IntoElement {
                 .rounded(px(4.))
                 .bg(color),
         )
-}
-
-fn proc_color(name: &str, pal: &ProcmonPalette) -> Hsla {
-    let h = name.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32));
-    match h % 6 {
-        0 => pal.op_registry,
-        1 => pal.op_file,
-        2 => pal.op_network,
-        3 => pal.op_process,
-        4 => pal.op_thread,
-        _ => pal.op_perf,
-    }
 }

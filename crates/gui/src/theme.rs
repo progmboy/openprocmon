@@ -49,6 +49,22 @@ pub struct ProcmonPalette {
     pub frame_user: Hsla,
 }
 
+impl ProcmonPalette {
+    /// A stable per-process accent color: hash the name into one of the six
+    /// operation colors (used for process avatars in the summaries and tree).
+    pub fn proc_color(&self, name: &str) -> Hsla {
+        let h = name.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32));
+        match h % 6 {
+            0 => self.op_registry,
+            1 => self.op_file,
+            2 => self.op_network,
+            3 => self.op_process,
+            4 => self.op_thread,
+            _ => self.op_perf,
+        }
+    }
+}
+
 impl Global for ProcmonPalette {}
 
 /// Reads the active palette. Cheap (`Copy`) — callers may clone freely.

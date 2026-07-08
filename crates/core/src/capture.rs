@@ -14,7 +14,9 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use procmon_sdk::{DriverLoader, Event, MonitorController, MonitorFlags, PmlWriter, Result};
+use procmon_sdk::{
+    DriverLoader, Event, EventClass, MonitorController, MonitorFlags, PmlWriter, Result,
+};
 use serde::Serialize;
 
 use crate::query::Expr;
@@ -134,7 +136,7 @@ impl CaptureSession {
         // launched process (if any). Name matches also grow dynamically.
         let mut scope = PidScope::new(&spec.process_names, &spec.pids, spec.include_children);
         for rec in controller.processes().snapshot() {
-            let base = rec.info.image_path.rsplit(['\\', '/']).next().unwrap_or("");
+            let base = procmon_sdk::basename(&rec.info.image_path);
             if spec
                 .process_names
                 .iter()
@@ -153,6 +155,7 @@ impl CaptureSession {
         let thread_stop = Arc::clone(&stop);
         let thread_out = out_path.clone();
         let filter = spec.filter;
+        let monitors = spec.monitors;
         let handle = std::thread::Builder::new()
             .name("procmon-capture".into())
             .spawn(move || {
@@ -161,6 +164,7 @@ impl CaptureSession {
                     rx,
                     scope,
                     filter,
+                    monitors,
                     limits,
                     thread_stop,
                     thread_out,
@@ -229,6 +233,21 @@ pub fn capture(
     CaptureSession::start(loader, spec, limits, out_path)?.wait()
 }
 
+/// Whether an event of `class` should be written, given the user's `--monitor`
+/// selection. Process monitoring is always on at the kernel (infrastructure),
+/// so its events reach here even when the user did not select Process — this
+/// gate keeps them out of the PML unless they asked. Profiling / Other are not
+/// source-selectable, so they pass through.
+fn category_selected(class: EventClass, monitors: MonitorFlags) -> bool {
+    match class {
+        EventClass::Process => monitors.contains(MonitorFlags::PROCESS),
+        EventClass::File => monitors.contains(MonitorFlags::FILE),
+        EventClass::Registry => monitors.contains(MonitorFlags::REGISTRY),
+        EventClass::Network => monitors.contains(MonitorFlags::NETWORK),
+        EventClass::Profiling | EventClass::Other => true,
+    }
+}
+
 /// The relay thread body: drain events into the scoped, filtered PML writer.
 #[allow(clippy::too_many_arguments)]
 fn run_capture(
@@ -236,20 +255,17 @@ fn run_capture(
     rx: crossbeam_channel::Receiver<Event>,
     mut scope: PidScope,
     filter: Option<Expr>,
+    monitors: MonitorFlags,
     limits: CaptureLimits,
     stop: Arc<AtomicBool>,
     out_path: PathBuf,
 ) -> Result<CaptureOutcome> {
     let own_pid = std::process::id();
     let mut writer = PmlWriter::new(cfg!(target_pointer_width = "64"));
-    // Populate the PML header metadata Procmon records (computer name, OS version
-    // blob, CPU count, RAM, max user address), so the capture is self-describing.
-    let host = procmon_sdk::system::host_info();
-    writer.computer_name = host.computer_name;
-    writer.os_version = host.os_version;
-    writer.max_app_address = host.max_app_address;
-    writer.num_logical_processors = host.num_logical_processors;
-    writer.ram_bytes = host.ram_bytes;
+    writer.stamp_host();
+    // Reuse the capture's module-version cache (pre-warmed from image-load
+    // events) so finalize doesn't block on thousands of version-resource reads.
+    writer.use_module_versions(Arc::clone(controller.metadata().module_versions()));
     let mut bytes = 0usize;
     let mut written = 0usize;
     let start = Instant::now();
@@ -269,7 +285,14 @@ fn run_capture(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(ev) => {
                 scope.observe(&ev);
+                // Process monitoring is always on at the kernel (infrastructure:
+                // process table + module list for stack resolution), but only the
+                // categories the user selected via `--monitor` are written — so a
+                // network-only capture gets process metadata/stacks without the
+                // process/image-load event rows. This is the write-side mirror of
+                // the GUI's per-category display filter.
                 if ev.pid() != own_pid
+                    && category_selected(ev.class(), monitors)
                     && scope.contains(&ev)
                     && filter.as_ref().is_none_or(|f| f.matches(&ev))
                 {
@@ -286,13 +309,11 @@ fn run_capture(
     };
 
     controller.stop();
-    // Append the System (PID 4) process with kernel modules, like Procmon, so
-    // kernel-mode stack frames resolve and Procmon doesn't crash on them.
-    let kmods = procmon_sdk::system::kernel_modules();
-    if !kmods.is_empty() {
-        writer.add_system_process(&kmods);
-    }
-    writer.write_to_path(&out_path)?;
+    // Carry the full process table (pre-existing, event-silent processes
+    // included — their INIT seeds never surface as events) so parent chains
+    // survive when the PML is reopened.
+    writer.stamp_processes(controller.processes());
+    writer.finish_live_to_path(&out_path)?;
     Ok(CaptureOutcome {
         pml_path: out_path.to_string_lossy().into_owned(),
         events_written: written,

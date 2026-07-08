@@ -71,6 +71,39 @@ impl EventSource {
         self.filter.load().matches(ev)
     }
 
+    /// The event's process image metadata (version strings + icons), resolved
+    /// **now** — the force-resolve companion to the non-blocking tri-state
+    /// `ProcessRecord::meta()`.
+    ///
+    /// Live: returns the async metadata worker's result if it already landed;
+    /// otherwise resolves synchronously on this thread (one disk read, written
+    /// back to the record and the shared cache, so every later reader hits).
+    /// PML: assembled from the capture's process table, which is complete by
+    /// construction. `None` only when a live event carries no process record.
+    pub fn process_meta(&self, ev: &Event) -> Option<Arc<crate::process::ProcessMeta>> {
+        match &self.inner {
+            Source::Driver(ctrl, _) => {
+                let rec = ev.process()?;
+                if let Some(m) = rec.meta_arc() {
+                    return Some(m);
+                }
+                let m = ctrl.metadata().resolve(&rec.info.image_path);
+                rec.set_meta(Arc::clone(&m));
+                Some(m)
+            }
+            Source::Pml(_) => {
+                let non_empty = |s: Option<&str>| s.filter(|s| !s.is_empty()).map(str::to_string);
+                Some(Arc::new(crate::process::ProcessMeta {
+                    description: non_empty(ev.description()),
+                    company: non_empty(ev.company()),
+                    version: non_empty(ev.version()),
+                    icon_small: ev.icon_small().map(<[u8]>::to_vec),
+                    icon_large: ev.icon_large().map(<[u8]>::to_vec),
+                }))
+            }
+        }
+    }
+
     /// The live controller, for source-specific control (pause/stop/set_monitor).
     pub fn as_driver(&self) -> Option<&MonitorController> {
         match &self.inner {
@@ -120,5 +153,21 @@ mod tests {
         assert!(src.events().count() > 0);
         assert!(src.as_pml().is_some());
         assert!(src.as_driver().is_none());
+    }
+
+    #[test]
+    fn process_meta_is_complete_for_pml() {
+        // PML metadata comes from the capture's process table — complete by
+        // construction, so `process_meta` always answers without resolving.
+        let path = test_pml_path();
+        let src = EventSource::from_pml(&path).expect("open");
+        let any_company = src
+            .events()
+            .take(200)
+            .any(|ev| src.process_meta(&ev).is_some_and(|m| m.company.is_some()));
+        assert!(
+            any_company,
+            "a real capture's process table carries company strings"
+        );
     }
 }
