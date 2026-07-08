@@ -136,6 +136,17 @@ impl MonitorController {
             return Err(Error::Parse("monitor already started".into()));
         }
 
+        // Enable SeDebugPrivilege *before* events flow: the driver replays an INIT
+        // record for every pre-existing process the moment monitoring starts, and
+        // the parse thread snapshots each one's loaded modules (for call-stack
+        // resolution). Opening a process in another session / at a higher
+        // integrity (services.exe and the SYSTEM svchosts run as SYSTEM/System IL)
+        // for that snapshot needs SeDebug — without it those snapshots come back
+        // empty and every user-mode frame in those processes stays `<UNKNOWN>`.
+        // Token privileges are process-wide, so enabling it here covers the parse
+        // thread too. Best-effort: an unelevated caller can't capture anyway.
+        let _ = crate::system::enable_privilege(windows::Win32::Security::SE_DEBUG_NAME);
+
         let (network, net_rx) = if self.flags.contains(MonitorFlags::NETWORK) {
             let (tx, rx) = crossbeam_channel::unbounded::<NetworkEvent>();
             (Some(NetworkMonitor::start(tx)?), Some(rx))
