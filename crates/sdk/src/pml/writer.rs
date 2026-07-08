@@ -164,6 +164,9 @@ impl PmlWriter {
 
         let process_index = self.processes.len() as u32;
         let versions = &self.module_versions;
+        // Parallel warm-up first: ~200 driver images resolved serially would
+        // add noticeable latency to every finalize.
+        versions.warm(modules.iter().map(|m| m.path.clone()));
         let modules = modules
             .iter()
             .map(|m| {
@@ -311,6 +314,19 @@ impl PmlWriter {
         let mut processes: Vec<PmlProcess> = self.processes.clone();
         let mut interned: Vec<u32> = self.proc_records.keys().copied().collect();
         interned.sort_unstable(); // deterministic icon-table order
+
+        // Warm the module-version cache in parallel before the per-process
+        // walk: a system-wide capture references thousands of distinct images
+        // (~1ms of version-resource I/O each — seconds per save if resolved
+        // serially inside the loop).
+        self.module_versions.warm(interned.iter().flat_map(|i| {
+            self.proc_records[i]
+                .modules()
+                .iter()
+                .map(|m| crate::path::nt_to_dos(&m.path))
+                .collect::<Vec<_>>()
+        }));
+
         for i in interned {
             let rec = &self.proc_records[&i];
             let p = &mut processes[i as usize];

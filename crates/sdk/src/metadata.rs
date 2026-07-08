@@ -190,6 +190,46 @@ impl ModuleVersionCache {
         };
         self.cache.write().entry(key).or_insert(v).clone()
     }
+
+    /// Pre-resolves `paths` with a bounded thread pool so subsequent
+    /// [`resolve`](Self::resolve) calls all hit the cache. A system-wide PML
+    /// finalize references thousands of distinct images at ~1ms of version-
+    /// resource I/O each — resolved serially that is seconds per save; the
+    /// reads parallelize well (page cache), so warming cuts it to a fraction.
+    pub fn warm<I: IntoIterator<Item = String>>(&self, paths: I) {
+        // Distinct, not-yet-cached paths only (case-insensitive key).
+        let todo: Vec<String> = {
+            let seen = self.cache.read();
+            let mut keys = std::collections::HashSet::new();
+            paths
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .filter(|p| {
+                    let k = p.to_ascii_lowercase();
+                    !seen.contains_key(&k) && keys.insert(k)
+                })
+                .collect()
+        };
+        if todo.is_empty() {
+            return;
+        }
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get().min(8))
+            .unwrap_or(4)
+            .min(todo.len());
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..workers {
+                s.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(p) = todo.get(i) else { break };
+                    // `resolve` re-checks the cache and inserts — idempotent
+                    // under the pool and against concurrent resolvers.
+                    let _ = self.resolve(p);
+                });
+            }
+        });
+    }
 }
 
 impl Default for ModuleVersionCache {
