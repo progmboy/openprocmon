@@ -70,6 +70,10 @@ pub struct PmlWriter {
     /// Per-module version strings (version/company/description), resolved from
     /// each image's version resource at finalize and cached by path.
     module_versions: crate::metadata::ModuleVersionCache,
+    /// Finalize fallback for process image metadata: a record whose async
+    /// resolution has not landed by save time is resolved synchronously here,
+    /// so written PMLs never carry half-resolved processes.
+    image_meta: crate::metadata::MetadataCache,
 }
 
 impl PmlWriter {
@@ -88,6 +92,7 @@ impl PmlWriter {
             proc_index: HashMap::new(),
             proc_records: HashMap::new(),
             module_versions: crate::metadata::ModuleVersionCache::new(),
+            image_meta: crate::metadata::MetadataCache::new(),
         }
     }
 
@@ -276,34 +281,12 @@ impl PmlWriter {
         }
         let index = self.processes.len() as u32;
         self.proc_index.insert(seq, index);
-        // Keep the live record so its (still-growing) module list is re-read at
-        // finalize, not frozen at this first event.
+        // Keep the live record so its (still-growing) module list — and its
+        // possibly still-pending async metadata — are re-read at finalize, not
+        // frozen at this first event.
         self.proc_records.insert(index, Arc::clone(rec));
-        let mut p = pml_process_from(rec, index);
-        // The PE icon bytes (RT_ICON) are already in ICONIMAGE form — register them
-        // into the icon table so the PML carries them for offline rendering.
-        if let Some(meta) = rec.meta() {
-            p.icon_small = self.intern_icon(meta.icon_small.as_deref(), 16);
-            p.icon_big = self.intern_icon(meta.icon_large.as_deref(), 32);
-        }
-        self.processes.push(p);
+        self.processes.push(pml_process_from(rec, index));
         index
-    }
-
-    /// Adds an icon's `ICONIMAGE` bytes to the icon table, returning its index
-    /// (0 = the empty placeholder when there is no icon).
-    fn intern_icon(&mut self, bytes: Option<&[u8]>, dimension: u32) -> u32 {
-        match bytes {
-            Some(b) if !b.is_empty() => {
-                let idx = self.icons.len() as u32;
-                self.icons.push(PmlIcon {
-                    dimension,
-                    data: Arc::from(b),
-                });
-                idx
-            }
-            _ => 0,
-        }
     }
 
     fn sizeof_pvoid(&self) -> usize {
@@ -314,27 +297,40 @@ impl PmlWriter {
         }
     }
 
-    /// Serializes everything to an in-memory PML image.
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+    /// Serializes everything to an in-memory PML image (`&mut`: finalizing may
+    /// append to the icon table).
+    pub fn to_bytes(&mut self) -> Result<Vec<u8>> {
         let pv = self.sizeof_pvoid();
 
-        // Finalize the process table: a live-interned process re-reads its module
-        // list now, because image-load events arrive after the first event that
-        // interned it (freezing the list at intern time loses every later module).
-        // Records added pre-built (round-trip / System process) pass through.
-        let processes: Vec<PmlProcess> = self
-            .processes
-            .iter()
-            .enumerate()
-            .map(|(i, p)| match self.proc_records.get(&(i as u32)) {
-                Some(rec) => {
-                    let mut p = p.clone();
-                    p.modules = pml_modules_from(rec, &self.module_versions);
-                    p
-                }
-                None => p.clone(),
-            })
-            .collect();
+        // Finalize the process table: a live-interned process re-reads its
+        // module list now — image-load events arrive after the first event that
+        // interned it — and its image metadata, which the async worker may have
+        // landed at any point since (a record still pending resolves
+        // synchronously here, so saves are always complete). Records added
+        // pre-built (round-trip / System process) pass through.
+        let mut processes: Vec<PmlProcess> = self.processes.clone();
+        let mut interned: Vec<u32> = self.proc_records.keys().copied().collect();
+        interned.sort_unstable(); // deterministic icon-table order
+        for i in interned {
+            let rec = &self.proc_records[&i];
+            let p = &mut processes[i as usize];
+            p.modules = pml_modules_from(rec, &self.module_versions);
+            if rec.meta().is_none() {
+                rec.set_meta(self.image_meta.resolve(&rec.info.image_path));
+            }
+            let meta = rec.meta().expect("resolved above");
+            let s = |f: Option<&String>| -> Arc<str> {
+                f.map(|v| Arc::from(v.as_str()))
+                    .unwrap_or_else(|| Arc::from(""))
+            };
+            p.company = s(meta.company.as_ref());
+            p.version = s(meta.version.as_ref());
+            p.description = s(meta.description.as_ref());
+            // The PE icon bytes (RT_ICON) are already ICONIMAGE form — register
+            // them so the PML renders icons offline.
+            p.icon_small = intern_icon(&mut self.icons, meta.icon_small.as_deref(), 16);
+            p.icon_big = intern_icon(&mut self.icons, meta.icon_large.as_deref(), 32);
+        }
 
         // Intern every process/module string into the dedup table (index 0 = "").
         let mut strings = Interner::new();
@@ -412,7 +408,7 @@ impl PmlWriter {
     }
 
     /// Writes the PML image to `path`.
-    pub fn write_to_path<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
+    pub fn write_to_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes)
             .map_err(|e| crate::error::Error::Parse(format!("PML write: {e}")))
@@ -468,15 +464,6 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         .integrity_rid
         .map(crate::sid::integrity_level)
         .unwrap_or("");
-    // Version metadata from the PE resources (absent fields → empty strings).
-    let meta = rec.meta();
-    let meta_str = |f: Option<&String>| {
-        f.map(|v| Arc::from(v.as_str()))
-            .unwrap_or_else(|| Arc::from(""))
-    };
-    let company = meta_str(meta.and_then(|m| m.company.as_ref()));
-    let version = meta_str(meta.and_then(|m| m.version.as_ref()));
-    let description = meta_str(meta.and_then(|m| m.description.as_ref()));
     PmlProcess {
         process_index: index,
         pid: info.pid,
@@ -492,15 +479,33 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         process_name: Arc::from(name.as_str()),
         image_path: Arc::from(image_dos.as_str()),
         command_line: Arc::from(info.command_line.as_str()),
-        company,
-        version,
-        description,
+        // Metadata-dependent fields (company/version/description, icons) and
+        // the module list stay empty at intern time: the async metadata worker
+        // and image-load events are both still running, so `to_bytes` fills
+        // them at finalize from the then-complete record — keeping the capture
+        // hot path free of version-resource / icon disk reads.
+        company: Arc::from(""),
+        version: Arc::from(""),
+        description: Arc::from(""),
         icon_small: 0,
         icon_big: 0,
-        // Left empty at intern time — `to_bytes` rebuilds the list from the
-        // (then-complete) record and resolves the per-module version strings,
-        // keeping the capture hot path free of version-resource disk reads.
         modules: Vec::new(),
+    }
+}
+
+/// Adds an icon's `ICONIMAGE` bytes to `icons`, returning its table index
+/// (0 = the empty placeholder when there is no icon).
+fn intern_icon(icons: &mut Vec<PmlIcon>, bytes: Option<&[u8]>, dimension: u32) -> u32 {
+    match bytes {
+        Some(b) if !b.is_empty() => {
+            let idx = icons.len() as u32;
+            icons.push(PmlIcon {
+                dimension,
+                data: Arc::from(b),
+            });
+            idx
+        }
+        _ => 0,
     }
 }
 
@@ -1122,6 +1127,45 @@ mod tests {
         let big = r.icon(p.icon_big).expect("big icon");
         assert_eq!(&*big.data, [0xBB; 32].as_slice());
         assert_eq!(big.dimension, 32);
+    }
+
+    /// A record whose async metadata never landed by save time must still save
+    /// complete: the finalize fallback resolves it synchronously.
+    #[test]
+    fn finalize_backfills_pending_metadata() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{ProcessInfo, ProcessRecord};
+
+        // Any real, versioned image works as the "executable".
+        let image = format!(
+            "{}\\System32\\ntdll.dll",
+            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+        );
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 21,
+            pid: 4243,
+            image_path: image,
+            ..Default::default()
+        });
+        // Deliberately no set_meta: the worker "hasn't landed".
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev);
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let e = r.event(0).expect("event");
+        let p = r.process(e.process_index).expect("process");
+        assert!(
+            p.company.contains("Microsoft"),
+            "finalize must backfill pending metadata, got {:?}",
+            p.company
+        );
+        assert!(!p.version.is_empty());
     }
 
     /// PML stores version/company/description per module (Procmon shows them

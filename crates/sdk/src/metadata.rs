@@ -1,17 +1,27 @@
 //! Executable metadata extraction (cf. design §7, C++ `CProcInfo`).
 //!
 //! Both the version strings (description/company/version) and the small/large
-//! icons come from the image's PE resources, so both are read **synchronously**
-//! when a process is first seen and cached by image path — only the first process
-//! of each image pays the disk read. Version strings are filterable, so resolving
-//! them synchronously also keeps filtering deterministic.
+//! icons come from the image's PE resources — a disk read (plus `LoadLibraryEx`
+//! for icons) per distinct image. Live capture resolves them **off-thread**
+//! ([`MetadataCache::resolve_deferred`], Procmon-style): a cache hit is applied
+//! to the record immediately, a miss is queued to a background worker, so the
+//! parse thread never blocks on image I/O during the capture-start INIT burst.
+//!
+//! Late-arrival semantics: `ProcessRecord::meta()` is the tri-state — `None`
+//! while pending, `Some` once final (a `Some` with empty fields means the image
+//! really has none). The GUI reads icons per frame, so late metadata appears on
+//! the next frame; the PML writer prefers the worker's result and resolves
+//! synchronously at finalize for records still pending (saves stay complete);
+//! `EventSource::process_meta` is the resolve-it-now accessor for consumers
+//! that want the value immediately. Filters on Company/Version/Description
+//! evaluate against the resolved-so-far state, exactly like Procmon.
 //!
 //! Icons are raw `RT_ICON` resource bytes (no GDI), mirroring C++ `UtilExtractIcon`.
 
-use crate::process::ProcessMeta;
+use crate::process::{ProcessMeta, ProcessRecord};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{FreeLibrary, BOOL, HMODULE};
@@ -27,41 +37,95 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON,
 };
 
-/// Synchronously resolves and caches executable metadata, keyed by image path.
+/// Resolves and caches executable metadata, keyed by image path.
 ///
 /// Entries are shared via `Arc`: `resolve` hands out a clone of the `Arc` (a
 /// refcount bump), so all processes of the same image — and the cache itself —
 /// share one allocation of the version strings and icon bytes rather than each
 /// holding a deep copy.
+///
+/// The map itself is `Arc`-shared with the lazily spawned background worker
+/// ([`resolve_deferred`](Self::resolve_deferred)); dropping the cache drops the
+/// job channel's sender, which ends the worker thread.
 pub struct MetadataCache {
-    cache: RwLock<HashMap<String, Arc<ProcessMeta>>>,
+    cache: Arc<RwLock<HashMap<String, Arc<ProcessMeta>>>>,
+    /// Background resolver, spawned on the first deferred miss. Jobs are the
+    /// process records to fill; the worker extracts, caches, and `set_meta`s.
+    worker: OnceLock<crossbeam_channel::Sender<Arc<ProcessRecord>>>,
 }
 
 impl MetadataCache {
     pub fn new() -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: Arc::new(RwLock::new(HashMap::new())),
+            worker: OnceLock::new(),
         }
     }
 
-    /// Resolves an image's metadata (version strings + icons), caching by path so
-    /// only the first process of each image reads from disk. The returned `Arc` is
-    /// shared with the cache (and every other process of the same image), so this
-    /// is a refcount bump, not a deep copy. Empty path yields an all-`None` result.
+    /// Resolves an image's metadata (version strings + icons) **synchronously**,
+    /// caching by path so only the first request per image reads from disk. The
+    /// returned `Arc` is shared with the cache (and every other process of the
+    /// same image), so this is a refcount bump, not a deep copy. Empty path
+    /// yields an all-`None` result.
     pub fn resolve(&self, image_path: &str) -> Arc<ProcessMeta> {
-        if image_path.is_empty() {
-            return Arc::new(ProcessMeta::default());
-        }
-        let key = image_path.to_ascii_lowercase();
-        if let Some(m) = self.cache.read().get(&key) {
-            return Arc::clone(m);
-        }
-        let meta = Arc::new(extract(image_path));
-        // Another thread may have inserted the same key between the read above and
-        // this write; keep the first entry so all callers share one allocation.
-        let mut cache = self.cache.write();
-        Arc::clone(cache.entry(key).or_insert(meta))
+        resolve_in(&self.cache, image_path)
     }
+
+    /// Resolves `rec`'s image metadata without blocking the calling thread: a
+    /// cache hit (or empty path) is applied to the record immediately — so
+    /// respawns of a known image stay deterministic — while a miss is queued to
+    /// the background worker, which extracts, caches, and `set_meta`s. Until
+    /// then `rec.meta()` reads `None` ("still pending"); once set it is final.
+    pub fn resolve_deferred(&self, rec: Arc<ProcessRecord>) {
+        let path = &rec.info.image_path;
+        if path.is_empty() {
+            rec.set_meta(Arc::new(ProcessMeta::default()));
+            return;
+        }
+        if let Some(m) = self.cache.read().get(&path.to_ascii_lowercase()) {
+            rec.set_meta(Arc::clone(m));
+            return;
+        }
+        let tx = self.worker.get_or_init(|| {
+            let (tx, rx) = crossbeam_channel::unbounded::<Arc<ProcessRecord>>();
+            let cache = Arc::clone(&self.cache);
+            // Ends when the sender (owned by this cache) is dropped. Failure to
+            // spawn (thread exhaustion) falls back to inline resolution below.
+            let _ = std::thread::Builder::new()
+                .name("procmon-metadata".into())
+                .spawn(move || {
+                    for rec in rx {
+                        rec.set_meta(resolve_in(&cache, &rec.info.image_path));
+                    }
+                });
+            tx
+        });
+        if let Err(e) = tx.send(rec) {
+            // Worker unavailable (thread spawn failed, so the receiver is
+            // gone): resolve inline rather than losing the record.
+            let rec = e.into_inner();
+            rec.set_meta(resolve_in(&self.cache, &rec.info.image_path));
+        }
+    }
+}
+
+/// The shared body of [`MetadataCache::resolve`]: look up, extract on miss,
+/// insert-or-share (a concurrent inserter's entry wins so all callers share
+/// one allocation).
+fn resolve_in(
+    cache: &RwLock<HashMap<String, Arc<ProcessMeta>>>,
+    image_path: &str,
+) -> Arc<ProcessMeta> {
+    if image_path.is_empty() {
+        return Arc::new(ProcessMeta::default());
+    }
+    let key = image_path.to_ascii_lowercase();
+    if let Some(m) = cache.read().get(&key) {
+        return Arc::clone(m);
+    }
+    let meta = Arc::new(extract(image_path));
+    let mut cache = cache.write();
+    Arc::clone(cache.entry(key).or_insert(meta))
 }
 
 impl Default for MetadataCache {
@@ -340,4 +404,62 @@ unsafe fn lock_resource(module: HMODULE, name: PCWSTR, ty: PCWSTR) -> Option<(*c
         return None;
     }
     Some((ptr as *const u8, size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::{ProcessInfo, ProcessRecord};
+
+    fn system_image(name: &str) -> String {
+        format!(
+            "{}\\System32\\{name}",
+            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+        )
+    }
+
+    #[test]
+    fn resolve_deferred_fills_meta_off_thread_then_hits_cache() {
+        let cache = MetadataCache::new();
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 1,
+            pid: 100,
+            image_path: system_image("ntdll.dll"),
+            ..Default::default()
+        });
+        cache.resolve_deferred(Arc::clone(&rec));
+        // Bounded wait: the first sighting of an image resolves off-thread.
+        for _ in 0..500 {
+            if rec.meta().is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let meta = rec.meta().expect("worker resolves within the bound");
+        assert!(
+            meta.company.as_deref().unwrap_or("").contains("Microsoft"),
+            "company from the version resource, got {:?}",
+            meta.company
+        );
+
+        // Same image again: the cache hit is applied synchronously, so a
+        // respawn of a known image never reads as pending.
+        let rec2 = ProcessRecord::new(ProcessInfo {
+            seq: 2,
+            pid: 101,
+            image_path: system_image("ntdll.dll"),
+            ..Default::default()
+        });
+        cache.resolve_deferred(Arc::clone(&rec2));
+        assert!(rec2.meta().is_some(), "cache hit must be synchronous");
+    }
+
+    #[test]
+    fn empty_path_resolves_immediately_to_none_fields() {
+        let cache = MetadataCache::new();
+        let rec = ProcessRecord::new(ProcessInfo::default());
+        cache.resolve_deferred(Arc::clone(&rec));
+        let meta = rec.meta().expect("empty path is immediate");
+        assert!(meta.company.is_none() && meta.version.is_none());
+    }
 }

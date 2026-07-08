@@ -15,6 +15,7 @@ use crate::parse::{read_detail_str, str_field_len, DetailMode, OperationView};
 use crate::process::{Module, ProcessInfo, ProcessManager, ProcessRecord};
 use crate::strings;
 use core::mem::size_of;
+use std::sync::Arc;
 
 /// Applies a process lifecycle record to the process table. `metadata` (live
 /// capture only) resolves the new process's image metadata (version + icon) as
@@ -33,7 +34,12 @@ pub(crate) fn track(
                 let pid = info.pid;
                 let rec = ProcessRecord::new(info);
                 if let Some(metadata) = metadata {
-                    rec.set_meta(metadata.resolve(&rec.info.image_path));
+                    // Off-thread: a cache hit fills the record now; a first
+                    // sighting is queued to the metadata worker so this (parse)
+                    // thread never blocks on image I/O. `rec.meta()` is `None`
+                    // until the worker lands (the GUI re-reads per frame; the
+                    // PML writer backfills at finalize).
+                    metadata.resolve_deferred(Arc::clone(&rec));
                     // Seed the module list only for INIT — a process already
                     // running at capture start, whose image-loads predate capture,
                     // so an enumeration is the only source for its pre-existing

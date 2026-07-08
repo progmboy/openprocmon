@@ -123,9 +123,17 @@ impl ProcessRecord {
         self.modules.read().clone()
     }
 
-    /// The image metadata, if it has been resolved yet.
+    /// The image metadata, if it has been resolved yet. The tri-state late-
+    /// arrival contract: `None` = the metadata worker has not landed yet;
+    /// `Some` = final (a `Some` with empty fields means the image has none).
     pub fn meta(&self) -> Option<&ProcessMeta> {
         self.meta.get().map(Arc::as_ref)
+    }
+
+    /// [`meta`](Self::meta) as a shared handle (for callers that outlive the
+    /// borrow, e.g. `EventSource::process_meta`).
+    pub fn meta_arc(&self) -> Option<Arc<ProcessMeta>> {
+        self.meta.get().cloned()
     }
 
     /// Stores the (shared) image metadata; ignored if already set.

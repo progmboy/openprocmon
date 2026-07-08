@@ -214,6 +214,12 @@ impl MonitorController {
         &self.mgr
     }
 
+    /// The shared image-metadata cache (the async worker's backing store; used
+    /// by `EventSource::process_meta` to force-resolve on demand).
+    pub fn metadata(&self) -> &Arc<MetadataCache> {
+        &self.metadata
+    }
+
     /// The address resolver for formatting network hosts.
     pub fn resolver(&self) -> &Arc<AddressResolver> {
         &self.resolver
