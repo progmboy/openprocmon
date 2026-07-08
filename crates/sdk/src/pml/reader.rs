@@ -227,8 +227,13 @@ impl PmlReader {
         // live ETW path uses); pid/time come from the event's process/timestamp.
         if class == EventClass::Network {
             let mut c = Cur::at(data, body)?;
+            // Frames precede the detail blob (like a kernel record); Procmon
+            // records a stack for network events, so decode them too.
+            let mut stack = Vec::with_capacity(stack_depth);
             for _ in 0..stack_depth {
-                c.pvoid(self.sizeof_pvoid)?;
+                stack.push(crate::kernel_types::StackFrame::from_addr(
+                    c.pvoid(self.sizeof_pvoid)?,
+                ));
             }
             let details = c.take(details_size)?;
             let mut net =
@@ -236,6 +241,7 @@ impl PmlReader {
                     .ok_or_else(|| Error::Parse("PML: malformed network blob".into()))?;
             net.pid = self.process(process_index).map(|p| p.pid).unwrap_or(0);
             net.time = date_filetime as i64;
+            net.stack = stack;
             return Ok(crate::event::Event::from_network(
                 std::sync::Arc::new(net),
                 crate::event::ProcessSource::Pml(Arc::clone(self), process_index),

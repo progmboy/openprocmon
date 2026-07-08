@@ -1065,6 +1065,8 @@ mod tests {
             remote_name: None,
             length: 1460,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let ev = Event::from_network(Arc::new(net), crate::event::ProcessSource::Live(None));
 

@@ -158,7 +158,17 @@ impl OperationView for NetView<'_> {
     }
 
     fn detail(&self) -> String {
-        format!("Length: {}", self.net.length)
+        // `Length` (from the binary header) then the ETW MOF extras Procmon
+        // carries in order (seqnum/connid always; mss/… on connect; startime/
+        // endtime on send). Comma-joined single line, like the reg/file detail.
+        let mut s = format!("Length: {}", self.net.length);
+        for (k, v) in &self.net.extra {
+            s.push_str(", ");
+            s.push_str(k);
+            s.push_str(": ");
+            s.push_str(v);
+        }
+        s
     }
 }
 
@@ -202,6 +212,28 @@ pub(crate) fn parse_group1_v4(d: &[u8]) -> Option<(SocketAddr, SocketAddr, u32)>
     let local = SocketAddr::new(IpAddr::V4(saddr), sport);
     let remote = SocketAddr::new(IpAddr::V4(daddr), dport);
     Some((local, remote, size))
+}
+
+/// The `seqnum`/`connid` that trail every classic `TypeGroup1` event (after the
+/// endpoints), rendered as the Detail extras Procmon shows on every network op.
+/// Read defensively — absent when the provider omits the tail. The richer
+/// connect/accept options (mss/wsopt/…) live in separate MOF groups not decoded
+/// here yet, so live capture shows these two; PML replay shows the full set.
+pub(crate) fn group1_extra(d: &[u8], is_ipv6: bool) -> Vec<(Arc<str>, Arc<str>)> {
+    let base = if is_ipv6 { 44 } else { 20 };
+    let mut out = Vec::new();
+    let mut num = |name: &str, at: usize| {
+        if let Some(v) = d
+            .get(at..at + 4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+        {
+            out.push((Arc::from(name), Arc::from(v.to_string().as_str())));
+        }
+    };
+    num("seqnum", base);
+    num("connid", base + 4);
+    out
 }
 
 /// IPv6 `TypeGroup1`: PID(4) size(4) daddr(16) saddr(16) dport(2) sport(2).
@@ -271,7 +303,46 @@ pub(crate) fn decode_pml(
         remote_name,
         length,
         time: 0,
+        extra: parse_extra(blob),
+        stack: Vec::new(),
     })
+}
+
+/// Parses the trailing MOF-extras list of a PML network detail blob: after the
+/// 44-byte binary header comes a run of UTF-16LE NUL-terminated strings paired
+/// as `(name, value)`. An empty name ends the list (Procmon writes a blank
+/// key + padding after the last pair), so trailing binary bytes are ignored.
+fn parse_extra(blob: &[u8]) -> Vec<(Arc<str>, Arc<str>)> {
+    const HEADER: usize = 44;
+    let mut out = Vec::new();
+    let mut off = HEADER;
+    while let Some((key, after_key)) = read_utf16z(blob, off) {
+        if key.is_empty() {
+            break; // blank key terminates the list
+        }
+        let Some((val, after_val)) = read_utf16z(blob, after_key) else {
+            break;
+        };
+        out.push((Arc::from(key.as_str()), Arc::from(val.as_str())));
+        off = after_val;
+    }
+    out
+}
+
+/// Reads a UTF-16LE NUL-terminated string at byte offset `off`, returning it
+/// (without the terminator) and the offset just past the NUL. `None` if there
+/// is no complete 2-byte-aligned terminated string in range.
+fn read_utf16z(blob: &[u8], off: usize) -> Option<(String, usize)> {
+    let mut units = Vec::new();
+    let mut i = off;
+    loop {
+        let unit = u16::from_le_bytes(blob.get(i..i + 2)?.try_into().ok()?);
+        i += 2;
+        if unit == 0 {
+            return Some((String::from_utf16_lossy(&units), i));
+        }
+        units.push(unit);
+    }
 }
 
 /// Serializes a network `Event`'s detail into PML form, mirroring the other
@@ -298,6 +369,20 @@ pub(crate) fn encode_pml(net: &NetworkEvent) -> Vec<u8> {
     b.extend_from_slice(&dst_ip);
     b.extend_from_slice(&net.local.port().to_le_bytes());
     b.extend_from_slice(&net.remote.port().to_le_bytes());
+    // Trailing MOF-extras list: each (name, value) as a UTF-16LE NUL-terminated
+    // string, terminated by a blank key — the layout Procmon reads back (and
+    // `parse_extra` above decodes).
+    let mut push_u16z = |s: &str| {
+        for u in s.encode_utf16() {
+            b.extend_from_slice(&u.to_le_bytes());
+        }
+        b.extend_from_slice(&0u16.to_le_bytes());
+    };
+    for (k, v) in &net.extra {
+        push_u16z(k);
+        push_u16z(v);
+    }
+    push_u16z(""); // blank key terminates the list
     b
 }
 
@@ -421,6 +506,8 @@ mod tests {
             remote_name: None,
             length: 64,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let blob = encode_pml(&net);
         let hosts = HashMap::new();
@@ -431,6 +518,37 @@ mod tests {
         assert_eq!(back.local, net.local);
         assert_eq!(back.remote, net.remote);
         assert_eq!(back.length, net.length);
+    }
+
+    #[test]
+    fn extra_kv_round_trips_through_pml_blob() {
+        // The MOF extras (seqnum/connid/…) survive encode -> decode, and render
+        // in the Detail after Length in order.
+        let net = NetworkEvent {
+            pid: 0,
+            is_tcp: true,
+            op: NetOp::Connect,
+            local: "10.0.0.1:49737".parse().unwrap(),
+            remote: "1.2.3.4:443".parse().unwrap(),
+            local_name: None,
+            remote_name: None,
+            length: 0,
+            time: 0,
+            extra: vec![
+                (Arc::from("mss"), Arc::from("1460")),
+                (Arc::from("seqnum"), Arc::from("0")),
+                (Arc::from("connid"), Arc::from("7")),
+            ],
+            stack: Vec::new(),
+        };
+        let blob = encode_pml(&net);
+        let back =
+            decode_pml(net.op.to_pml(), &blob, &HashMap::new(), &HashMap::new()).expect("decode");
+        assert_eq!(back.extra, net.extra, "MOF extras must round-trip");
+        assert_eq!(
+            NetView::new(&back).detail(),
+            "Length: 0, mss: 1460, seqnum: 0, connid: 7"
+        );
     }
 
     #[test]

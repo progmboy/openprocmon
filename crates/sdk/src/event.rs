@@ -727,12 +727,13 @@ impl Event {
         self.live_record()
     }
 
-    /// The raw call-stack frame addresses (empty for network events; symbol
-    /// resolution is a GUI concern, matching the C++ SDK).
+    /// The raw call-stack frame addresses (symbol resolution is a GUI concern,
+    /// matching the C++ SDK). Network events carry a stack too (from the PML
+    /// blob); live ETW network events are empty until stack-walk is enabled.
     pub fn call_stack(&self) -> &[StackFrame] {
         match &self.backing {
             Backing::KernelRecord { pre, .. } => pre.frames(),
-            Backing::Network(_) => &[],
+            Backing::Network(n) => &n.stack,
         }
     }
 
@@ -884,6 +885,8 @@ mod tests {
             remote_name: None,
             length: 0,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let ev = Event::from_network(Arc::new(net), crate::event::ProcessSource::Live(None));
         assert_eq!(ev.class(), EventClass::Network);

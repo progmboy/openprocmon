@@ -810,6 +810,8 @@ mod tests {
             remote_name: None,
             length: 12,
             time: 0,
+            extra: Vec::new(),
+            stack: Vec::new(),
         };
         let ev = Event::from_network(
             std::sync::Arc::new(net),
@@ -885,6 +887,8 @@ mod tests {
             local_name: None,
             remote_name: None,
             length: 0,
+            stack: Vec::new(),
+            extra: Vec::new(),
             time: 0,
         };
         let ev = Event::from_network(

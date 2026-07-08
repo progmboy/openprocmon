@@ -485,10 +485,17 @@ pub struct LogEntry {
 /// One raw call-stack frame address. Packed so a `&[StackFrame]` can borrow the
 /// frame chain in place even though it starts at the unaligned offset 0x34.
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct StackFrame(u64);
 
 impl StackFrame {
+    /// A frame from a raw instruction-pointer address — for owned stacks that
+    /// don't borrow the wire buffer (e.g. a network event's frames, decoded
+    /// from a PML blob rather than referenced in place).
+    pub fn from_addr(addr: u64) -> Self {
+        StackFrame(addr)
+    }
+
     /// The frame's instruction pointer (a raw address; symbol resolution is a
     /// concern of the GUI layer, matching the C++ SDK).
     pub fn address(self) -> u64 {

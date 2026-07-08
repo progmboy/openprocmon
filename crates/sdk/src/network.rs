@@ -122,6 +122,20 @@ pub struct NetworkEvent {
     /// driver's `LogEntry.time`, so network and driver events order together. The
     /// ETW session requests this with `ClientContext = 2` (see [`start_session`]).
     pub time: i64,
+    /// Extra ETW MOF properties rendered in the Detail column, as ordered
+    /// `(name, value)` pairs — the fields beyond the endpoints/length that
+    /// Procmon carries (`seqnum`/`connid` on every op; `mss`/`sackopt`/… on
+    /// TCP connect/accept; `startime`/`endtime` on send). PML captures decode
+    /// these from the detail blob's trailing string list; live ETW leaves it
+    /// empty for now (the endpoints/length are decoded, the MOF extras are not
+    /// yet extracted). See [`crate::parse::network`].
+    pub extra: Vec<(std::sync::Arc<str>, std::sync::Arc<str>)>,
+    /// Call-stack frames (raw addresses). Procmon records a stack for network
+    /// events too; a PML capture carries them in the event body before the
+    /// detail blob, decoded here. Live ETW leaves it empty (stack-walk capture
+    /// is not enabled yet). Owned (not borrowed from the wire) — network volume
+    /// is low, so the copy is cheap.
+    pub stack: Vec<crate::kernel_types::StackFrame>,
 }
 
 /// Context handed to the ETW callback (via `EVENT_RECORD::UserContext`).
@@ -343,6 +357,8 @@ fn decode(r: &EVENT_RECORD) -> Option<NetworkEvent> {
         length,
         // FILETIME because the session uses ClientContext = 2 (see start_session).
         time: r.EventHeader.TimeStamp,
+        extra: crate::parse::network::group1_extra(data, is_ipv6),
+        stack: Vec::new(),
     })
 }
 
