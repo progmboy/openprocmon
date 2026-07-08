@@ -22,7 +22,9 @@ use rust_i18n::t;
 use crate::model::domain::{EventCategory, EventSummaryRow};
 use crate::theme::{palette, ProcmonPalette};
 
-const BINS: usize = 24;
+// Bin count + index-binning formula are shared with the CLI's `summary` (the
+// parity contract: both views bin identically).
+use procmon_core::{bin_index, BINS};
 
 /// A "top process" aggregate row: name, event count and (optional) app icon.
 type TopProc = (SharedString, usize, Option<Arc<gpui::Image>>);
@@ -60,7 +62,7 @@ impl SummaryStats {
         let mut proc: HashMap<SharedString, ProcStat> = HashMap::new();
 
         for (i, row) in rows.iter().enumerate() {
-            let bin = (i * BINS).checked_div(total).map_or(0, |b| b.min(BINS - 1));
+            let bin = bin_index(i, total);
             rate[bin] += 1.0;
             cat_counts[cat_index(row.category)] += 1;
             if row.category == EventCategory::Network {

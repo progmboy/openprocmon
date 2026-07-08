@@ -283,29 +283,15 @@ pub fn list_processes(reader: &Arc<PmlReader>) -> Vec<ProcessNode> {
 /// itself a captured process (or is self-parented).
 pub fn process_tree(reader: &Arc<PmlReader>) -> Vec<ProcessNode> {
     let nodes: Vec<ProcessNode> = reader.processes().map(ProcessNode::from_pml).collect();
-    let pids: rustc_hash::FxHashSet<u32> = nodes.iter().map(|n| n.pid).collect();
-
-    fn build(parent_pid: u32, nodes: &[ProcessNode]) -> Vec<ProcessNode> {
-        nodes
-            .iter()
-            .filter(|n| n.parent_pid == parent_pid && n.pid != parent_pid)
-            .map(|n| {
-                let mut node = n.clone();
-                node.children = build(n.pid, nodes);
-                node
-            })
-            .collect()
-    }
-
-    nodes
-        .iter()
-        .filter(|n| !pids.contains(&n.parent_pid) || n.parent_pid == n.pid)
-        .map(|n| {
+    procmon_sdk::build_forest(
+        &nodes,
+        |n| (n.pid, n.parent_pid),
+        |n, children| {
             let mut node = n.clone();
-            node.children = build(n.pid, &nodes);
+            node.children = children;
             node
-        })
-        .collect()
+        },
+    )
 }
 
 /// `.PML` metadata, read from the header without scanning events.

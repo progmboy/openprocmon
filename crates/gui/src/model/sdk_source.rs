@@ -360,22 +360,15 @@ fn sym_views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
 
 /// Builds the parent→child process tree from a flat snapshot (by PID).
 fn build_tree(records: &[Arc<ProcessRecord>]) -> Vec<ProcessNode> {
-    let pids: std::collections::HashSet<u32> = records.iter().map(|r| r.info.pid).collect();
-    fn node_of(rec: &ProcessRecord, records: &[Arc<ProcessRecord>]) -> ProcessNode {
-        let mut n = record_node(rec);
-        n.children = records
-            .iter()
-            .filter(|r| r.info.parent_pid == rec.info.pid && r.info.pid != rec.info.pid)
-            .map(|r| node_of(r, records))
-            .collect();
-        n
-    }
-    // Roots are processes whose parent isn't in the snapshot.
-    records
-        .iter()
-        .filter(|r| !pids.contains(&r.info.parent_pid) || r.info.parent_pid == r.info.pid)
-        .map(|r| node_of(r, records))
-        .collect()
+    procmon_sdk::build_forest(
+        records,
+        |r| (r.info.pid, r.info.parent_pid),
+        |r, children| {
+            let mut n = record_node(r);
+            n.children = children;
+            n
+        },
+    )
 }
 
 /// A `ProcessNode` from a tracked record (integrity/user need SID resolution not
@@ -553,25 +546,15 @@ fn pml_kernel_modules(reader: &procmon_sdk::PmlReader) -> Vec<ModuleRow> {
 /// Builds the process tree from the PML's process table (by PID).
 fn pml_tree(reader: &procmon_sdk::PmlReader) -> Vec<ProcessNode> {
     let procs: Vec<&procmon_sdk::PmlProcess> = reader.processes().collect();
-    let pids: std::collections::HashSet<u32> = procs.iter().map(|p| p.pid).collect();
-    fn node(
-        p: &procmon_sdk::PmlProcess,
-        procs: &[&procmon_sdk::PmlProcess],
-        reader: &procmon_sdk::PmlReader,
-    ) -> ProcessNode {
-        let mut n = pml_process_node(p, reader);
-        n.children = procs
-            .iter()
-            .filter(|c| c.parent_pid == p.pid && c.pid != p.pid)
-            .map(|c| node(c, procs, reader))
-            .collect();
-        n
-    }
-    procs
-        .iter()
-        .filter(|p| !pids.contains(&p.parent_pid) || p.parent_pid == p.pid)
-        .map(|p| node(p, &procs, reader))
-        .collect()
+    procmon_sdk::build_forest(
+        &procs,
+        |p| (p.pid, p.parent_pid),
+        |p, children| {
+            let mut n = pml_process_node(p, reader);
+            n.children = children;
+            n
+        },
+    )
 }
 
 #[cfg(test)]

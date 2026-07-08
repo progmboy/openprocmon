@@ -207,6 +207,43 @@ impl Default for ProcessManager {
     }
 }
 
+/// Builds a parent→child forest from a flat process list — the one algorithm
+/// behind every process-tree view. `ids` yields an item's `(pid, parent_pid)`;
+/// `make` builds an output node from an item and its already-built children.
+/// Roots are items whose parent is absent from the pid set or self-referential;
+/// a self-parented item never becomes its own child. O(n²) over the process
+/// count, which is small in any capture.
+pub fn build_forest<T, N>(
+    items: &[T],
+    ids: impl Fn(&T) -> (u32, u32) + Copy,
+    make: impl Fn(&T, Vec<N>) -> N + Copy,
+) -> Vec<N> {
+    fn children_of<T, N>(
+        parent: u32,
+        items: &[T],
+        ids: impl Fn(&T) -> (u32, u32) + Copy,
+        make: impl Fn(&T, Vec<N>) -> N + Copy,
+    ) -> Vec<N> {
+        items
+            .iter()
+            .filter(|t| {
+                let (pid, ppid) = ids(t);
+                ppid == parent && pid != parent
+            })
+            .map(|t| make(t, children_of(ids(t).0, items, ids, make)))
+            .collect()
+    }
+    let pids: std::collections::HashSet<u32> = items.iter().map(|t| ids(t).0).collect();
+    items
+        .iter()
+        .filter(|t| {
+            let (pid, ppid) = ids(t);
+            !pids.contains(&ppid) || ppid == pid
+        })
+        .map(|t| make(t, children_of(ids(t).0, items, ids, make)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +275,25 @@ mod tests {
         assert_eq!(old.exit_time(), Some(42));
         // PID index still resolves to the newer sequence.
         assert_eq!(mgr.by_pid(100).unwrap().info.seq, 11);
+    }
+
+    #[test]
+    fn build_forest_roots_children_and_self_parent() {
+        struct Node(u32, Vec<Node>);
+        // (pid, parent): 1 is a root (parent 99 unknown), 2/3 under 1, 4 under 2,
+        // 5 is self-parented (root, not its own child).
+        let items = [(1u32, 99u32), (2, 1), (3, 1), (4, 2), (5, 5)];
+        let forest = build_forest(&items, |t| (t.0, t.1), |t, children| Node(t.0, children));
+        assert_eq!(forest.len(), 2, "two roots");
+        let one = forest.iter().find(|n| n.0 == 1).expect("root 1");
+        assert_eq!(
+            one.1.iter().map(|c| c.0).collect::<Vec<_>>(),
+            vec![2, 3],
+            "children keep list order"
+        );
+        assert_eq!(one.1[0].1[0].0, 4, "grandchild under 2");
+        let five = forest.iter().find(|n| n.0 == 5).expect("root 5");
+        assert!(five.1.is_empty(), "self-parent has no children");
     }
 
     #[test]

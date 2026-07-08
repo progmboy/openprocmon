@@ -11,8 +11,16 @@ use serde::Serialize;
 
 use crate::record::Category;
 
-/// Number of time bins in the rate sparklines (matches the GUI).
-const BINS: usize = 24;
+/// Number of time bins in the rate sparklines — shared with the GUI's summary
+/// dialog so both views bin identically.
+pub const BINS: usize = 24;
+
+/// The bin for event `i` of `total` under index binning: `(i*BINS)/total`,
+/// clamped to the last bin (0 when `total` is 0). The one formula behind every
+/// rate sparkline.
+pub fn bin_index(i: usize, total: usize) -> usize {
+    (i * BINS).checked_div(total).map_or(0, |b| b.min(BINS - 1))
+}
 
 /// One "top process" row.
 #[derive(Clone, Debug, Serialize)]
@@ -69,9 +77,7 @@ pub fn summary(reader: &Arc<PmlReader>, top: usize) -> Summary {
     let mut rate = vec![0u64; BINS];
     let mut net_rate = vec![0u64; BINS];
     for (i, cat) in seq.iter().enumerate() {
-        let bin = (i * BINS)
-            .checked_div(seq.len())
-            .map_or(0, |b| b.min(BINS - 1));
+        let bin = bin_index(i, seq.len());
         rate[bin] += 1;
         if *cat == Category::Network {
             net_rate[bin] += 1;

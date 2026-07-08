@@ -42,7 +42,7 @@ pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};
 
 pub use pml::{PmlIcon, PmlProcess, PmlReader, PmlWriter};
-pub use process::{Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
+pub use process::{build_forest, Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use resolver::AddressResolver;
 pub use source::EventSource;
 pub use path::basename;

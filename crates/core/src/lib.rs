@@ -34,5 +34,5 @@ pub use export::{export, export_csv, export_xml, Format, StackSymbolizer};
 pub use noise::default_noise;
 pub use query::{parse_column, parse_field, parse_filter, Clause, Expr, Field, GroupRow};
 pub use record::{Category, EventRecord, ModuleRow, ProcessDetail, ProcessNode, StackFrameRow};
-pub use summary::{summary, ProcCount, Summary};
+pub use summary::{bin_index, summary, ProcCount, Summary, BINS};
 pub use vocab::{filter_vocab, FilterVocab};
