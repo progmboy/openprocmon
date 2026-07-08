@@ -143,56 +143,66 @@ pub struct NetworkEvent {
     pub stack: Vec<crate::kernel_types::StackFrame>,
 }
 
+/// Number of recent network events held awaiting their StackWalk events. The
+/// kernel emits a network event's stack as **two** separate StackWalk events —
+/// one kernel-mode, one user-mode, both keyed by the event's timestamp — right
+/// after it, but they can be interleaved with a neighbouring event's StackWalks.
+/// Holding a small window (far larger than the real interleave, which is a
+/// couple of events) lets both attach before the event is sent; the oldest is
+/// flushed once the window fills (its StackWalks have long since arrived).
+const PENDING_WINDOW: usize = 32;
+
 /// Context handed to the ETW callback (via `EVENT_RECORD::UserContext`).
 ///
-/// `pending` holds network events awaiting their StackWalk event — the kernel
-/// emits the stack as a separate event right after the one that triggered it,
-/// correlated by timestamp (Procmon's exact mechanism). Only the single
-/// consumer thread touches this via the callback, so a `RefCell` suffices (no
-/// cross-thread sharing).
+/// `pending` holds recent network events awaiting their StackWalk events,
+/// oldest-first. Only the single consumer thread touches this via the callback,
+/// so a `RefCell` suffices (no cross-thread sharing).
 struct CallbackCtx {
     tx: Sender<NetworkEvent>,
     pending: std::cell::RefCell<Vec<NetworkEvent>>,
 }
 
 impl CallbackCtx {
-    /// Buffers a network event to await its StackWalk. First flushes any older
-    /// pending event: seeing a newer timestamp is the watermark that its stack
-    /// (which would share the older timestamp) is not coming, so it goes out
-    /// stackless rather than lingering — lossless and bounded (the buffer holds
-    /// ~1 entry in practice, since the StackWalk immediately follows its event).
+    /// Buffers a network event to await its StackWalk events, flushing the
+    /// oldest once the window is full (an event that far back has had both its
+    /// StackWalks, which immediately follow it).
     fn push_network(&self, ev: NetworkEvent) {
         let mut pending = self.pending.borrow_mut();
-        let now = ev.time;
-        let mut i = 0;
-        while i < pending.len() {
-            if pending[i].time < now {
-                let _ = self.tx.try_send(pending.remove(i));
-            } else {
-                i += 1;
-            }
-        }
         pending.push(ev);
+        while pending.len() > PENDING_WINDOW {
+            self.send(pending.remove(0));
+        }
     }
 
-    /// Attaches a decoded StackWalk's frames to the pending network event with
-    /// the matching timestamp, then sends it. A StackWalk for an event we did
-    /// not buffer (a non-network event) simply matches nothing.
+    /// Appends a decoded StackWalk's frames to the pending network event with
+    /// the matching timestamp. A network event gets two StackWalks (kernel +
+    /// user); both accumulate here and the event is not sent until it leaves the
+    /// window, so neither is lost. A StackWalk for an event we did not buffer (a
+    /// non-network event) simply matches nothing.
     fn attach_stack(&self, timestamp: i64, frames: Vec<crate::kernel_types::StackFrame>) {
         let mut pending = self.pending.borrow_mut();
-        if let Some(pos) = pending.iter().position(|p| p.time == timestamp) {
-            let mut ev = pending.remove(pos);
-            ev.stack = frames;
-            let _ = self.tx.try_send(ev);
+        if let Some(p) = pending.iter_mut().find(|p| p.time == timestamp) {
+            p.stack.extend(frames);
         }
     }
 
     /// Flushes every still-pending event (the session is stopping, so no more
     /// StackWalks will arrive).
     fn flush_pending(&self) {
-        for ev in self.pending.borrow_mut().drain(..) {
-            let _ = self.tx.try_send(ev);
+        let drained: Vec<NetworkEvent> = self.pending.borrow_mut().drain(..).collect();
+        for ev in drained {
+            self.send(ev);
         }
+    }
+
+    /// Sends a finished event, ordering its frames kernel-first then user (the
+    /// two StackWalks are a single stack split in two — kernel frames innermost
+    /// at the event, user frames the originating call — and may arrive in either
+    /// order). A stable partition preserves each StackWalk's internal order.
+    fn send(&self, mut ev: NetworkEvent) {
+        ev.stack
+            .sort_by_key(|f| !crate::symbols::is_kernel_address(f.address()));
+        let _ = self.tx.try_send(ev);
     }
 }
 
@@ -569,35 +579,55 @@ mod tests {
     }
 
     #[test]
-    fn stackwalk_correlates_by_timestamp() {
+    fn stackwalk_merges_kernel_and_user_walks() {
         use crate::kernel_types::StackFrame;
+        const K: u64 = 0xffff_f800_0000_0000; // a kernel address
+        const U: u64 = 0x0000_7ff0_0000_0000; // a user address
         let (tx, rx) = crossbeam_channel::unbounded();
         let ctx = CallbackCtx {
             tx,
             pending: std::cell::RefCell::new(Vec::new()),
         };
-        // Event arrives, then its StackWalk (same timestamp) → sent with stack.
-        ctx.push_network(net_at(100));
-        assert!(
-            rx.try_recv().is_err(),
-            "held pending until its stack arrives"
-        );
-        ctx.attach_stack(100, vec![StackFrame::from_addr(0xabc)]);
-        let ev = rx.try_recv().expect("sent after stack");
-        assert_eq!(ev.time, 100);
-        assert_eq!(ev.stack.len(), 1);
 
-        // A later event is the watermark that flushes an older stackless one.
+        // An event, then its two StackWalks (kernel then user, same timestamp),
+        // then another event's kernel StackWalk interleaved — both walks of the
+        // first event must still accumulate. The event holds in the window.
+        ctx.push_network(net_at(100));
         ctx.push_network(net_at(200));
-        ctx.push_network(net_at(300));
-        let ev = rx
-            .try_recv()
-            .expect("older event flushed on newer timestamp");
-        assert_eq!(ev.time, 200);
-        assert!(ev.stack.is_empty(), "no stack came for it");
-        // 300 is still pending; flush on session end.
-        assert!(rx.try_recv().is_err());
+        ctx.attach_stack(
+            100,
+            vec![StackFrame::from_addr(K + 1), StackFrame::from_addr(K + 2)],
+        );
+        ctx.attach_stack(200, vec![StackFrame::from_addr(K + 9)]);
+        ctx.attach_stack(
+            100,
+            vec![StackFrame::from_addr(U + 1), StackFrame::from_addr(U + 2)],
+        );
+        assert!(rx.try_recv().is_err(), "held in the window until flushed");
+
         ctx.flush_pending();
-        assert_eq!(rx.try_recv().expect("flushed").time, 300);
+        let ev = rx.try_recv().expect("event 100");
+        assert_eq!(ev.time, 100);
+        // Both walks merged, ordered kernel-first then user.
+        let addrs: Vec<u64> = ev.stack.iter().map(|f| f.address()).collect();
+        assert_eq!(addrs, vec![K + 1, K + 2, U + 1, U + 2]);
+        assert_eq!(rx.try_recv().expect("event 200").time, 200);
+    }
+
+    #[test]
+    fn window_flushes_oldest_when_full() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let ctx = CallbackCtx {
+            tx,
+            pending: std::cell::RefCell::new(Vec::new()),
+        };
+        for t in 0..(PENDING_WINDOW as i64 + 3) {
+            ctx.push_network(net_at(t));
+        }
+        // The 3 oldest were flushed to make room; the window still holds the rest.
+        assert_eq!(rx.try_recv().expect("oldest").time, 0);
+        assert_eq!(rx.try_recv().expect("next").time, 1);
+        assert_eq!(rx.try_recv().expect("next").time, 2);
+        assert!(rx.try_recv().is_err());
     }
 }
