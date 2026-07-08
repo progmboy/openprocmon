@@ -574,219 +574,6 @@ fn pml_tree(reader: &procmon_sdk::PmlReader) -> Vec<ProcessNode> {
         .collect()
 }
 
-// --- CSV / XML export (cf. Procmon's Save As) -------------------------------
-
-/// Writes the selected rows as Procmon-style CSV (BOM + fully-quoted CRLF columns),
-/// using the `csv` crate so commas/quotes/newlines inside fields are escaped right.
-pub(crate) fn export_csv(rows: &[&CapturedEvent], path: &str) -> Result<(), String> {
-    let mut buf: Vec<u8> = vec![0xEF, 0xBB, 0xBF]; // UTF-8 BOM (matches Procmon)
-    {
-        let mut w = csv::WriterBuilder::new()
-            .quote_style(csv::QuoteStyle::Always)
-            .terminator(csv::Terminator::CRLF)
-            .from_writer(&mut buf);
-        w.write_record([
-            "Time of Day",
-            "Process Name",
-            "PID",
-            "Operation",
-            "Path",
-            "Result",
-            "Detail",
-            "User",
-        ])
-        .map_err(|e| e.to_string())?;
-        for row in rows {
-            let (time, name, op, path_col, result, detail) = (
-                row.time(),
-                row.process_name(),
-                row.operation(),
-                row.path(),
-                row.result(),
-                row.detail(),
-            );
-            let pid = row.pid().to_string();
-            let user = row.event().user().unwrap_or_default();
-            w.write_record([
-                time.as_ref(),
-                name.as_ref(),
-                pid.as_str(),
-                op.as_ref(),
-                path_col.as_ref(),
-                result.as_ref(),
-                detail.as_ref(),
-                user.as_str(),
-            ])
-            .map_err(|e| e.to_string())?;
-        }
-        w.flush().map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, buf).map_err(|e| e.to_string())
-}
-
-/// Writes the selected rows as Procmon-style XML (process list + event list, with
-/// optional symbolized stacks), using `quick-xml` so all text is escaped correctly.
-/// `kernel_mods` symbolizes kernel-mode frames.
-pub(crate) fn export_xml(
-    rows: &[&CapturedEvent],
-    include_stacks: bool,
-    kernel_mods: &[ModuleRow],
-    symbols: Option<&procmon_sdk::SymbolResolver>,
-    path: &str,
-) -> Result<(), String> {
-    use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event as Xml};
-    use quick_xml::writer::Writer;
-
-    // Assign a 1-based ProcessIndex per distinct pid, in first-seen order.
-    let mut order: Vec<u32> = Vec::new();
-    let mut index_of: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    let mut sample: std::collections::HashMap<u32, &procmon_sdk::Event> =
-        std::collections::HashMap::new();
-    for row in rows {
-        let ev = row.event();
-        let pid = ev.pid();
-        index_of.entry(pid).or_insert_with(|| {
-            order.push(pid);
-            sample.insert(pid, ev);
-            order.len()
-        });
-    }
-
-    let mut w = Writer::new(Vec::<u8>::new());
-    let start = |w: &mut Writer<Vec<u8>>, n: &str| {
-        w.write_event(Xml::Start(BytesStart::new(n)))
-            .map_err(|err| err.to_string())
-    };
-    let end = |w: &mut Writer<Vec<u8>>, n: &str| {
-        w.write_event(Xml::End(BytesEnd::new(n)))
-            .map_err(|err| err.to_string())
-    };
-
-    w.write_event(Xml::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
-        .map_err(|err| err.to_string())?;
-    start(&mut w, "procmon")?;
-    start(&mut w, "processlist")?;
-    for &pid in &order {
-        let ev = sample[&pid];
-        let parent = ev.parent_pid().unwrap_or(0);
-        let parent_index = index_of.get(&parent).copied().unwrap_or(0);
-        start(&mut w, "process")?;
-        leaf(&mut w, "ProcessIndex", &index_of[&pid].to_string())?;
-        leaf(&mut w, "ProcessId", &pid.to_string())?;
-        leaf(&mut w, "ParentProcessId", &parent.to_string())?;
-        leaf(&mut w, "ParentProcessIndex", &parent_index.to_string())?;
-        leaf(
-            &mut w,
-            "AuthenticationId",
-            &ev.auth_id().unwrap_or_default(),
-        )?;
-        leaf(&mut w, "CreateTime", &ev.process_create_time().to_string())?;
-        leaf(
-            &mut w,
-            "FinishTime",
-            &ev.process_exit_time().unwrap_or(0).to_string(),
-        )?;
-        leaf(
-            &mut w,
-            "IsVirtualized",
-            bit(ev.is_virtualized() == Some(true)),
-        )?;
-        leaf(&mut w, "Is64bit", bit(ev.is_wow64() != Some(true)))?;
-        leaf(&mut w, "Integrity", ev.integrity().unwrap_or(""))?;
-        leaf(&mut w, "Owner", &ev.user().unwrap_or_default())?;
-        leaf(&mut w, "ProcessName", ev.process_name().unwrap_or(""))?;
-        leaf(&mut w, "ImagePath", ev.image_path().unwrap_or(""))?;
-        leaf(&mut w, "CommandLine", ev.command_line().unwrap_or(""))?;
-        leaf(&mut w, "CompanyName", ev.company().unwrap_or(""))?;
-        leaf(&mut w, "Version", ev.version().unwrap_or(""))?;
-        leaf(&mut w, "Description", ev.description().unwrap_or(""))?;
-        start(&mut w, "modulelist")?;
-        for m in ev.modules() {
-            start(&mut w, "module")?;
-            leaf(&mut w, "Timestamp", "0")?;
-            leaf(&mut w, "BaseAddress", &format!("0x{:x}", m.base))?;
-            leaf(&mut w, "Size", &m.size.to_string())?;
-            leaf(&mut w, "Path", &m.path)?;
-            leaf(&mut w, "Version", "")?;
-            leaf(&mut w, "Company", "")?;
-            leaf(&mut w, "Description", "")?;
-            end(&mut w, "module")?;
-        }
-        end(&mut w, "modulelist")?;
-        end(&mut w, "process")?;
-    }
-    end(&mut w, "processlist")?;
-    start(&mut w, "eventlist")?;
-    for row in rows {
-        let ev = row.event();
-        let pidx = index_of.get(&ev.pid()).copied().unwrap_or(0);
-        start(&mut w, "event")?;
-        leaf(&mut w, "ProcessIndex", &pidx.to_string())?;
-        leaf(&mut w, "Time_of_Day", &row.time())?;
-        leaf(&mut w, "Process_Name", &row.process_name())?;
-        leaf(&mut w, "PID", &ev.pid().to_string())?;
-        leaf(&mut w, "Operation", &row.operation())?;
-        leaf(&mut w, "Path", &row.path())?;
-        leaf(&mut w, "Result", &row.result())?;
-        leaf(&mut w, "Detail", &row.detail())?;
-        leaf(&mut w, "User", &ev.user().unwrap_or_default())?;
-        if include_stacks {
-            let proc_mods = rows_from_modules(ev.modules());
-            // Combined module view for symbolization (proc modules + kernel drivers).
-            let symmods: Vec<procmon_sdk::SymModule> = proc_mods
-                .iter()
-                .chain(kernel_mods.iter())
-                .map(|m| procmon_sdk::SymModule {
-                    base: m.base,
-                    size: m.size,
-                    path: m.path.as_ref(),
-                })
-                .collect();
-            start(&mut w, "stack")?;
-            for (depth, frame) in ev.call_stack().iter().enumerate() {
-                let addr = frame.address();
-                let (_, fallback, fpath) = procmon_sdk::resolve_frame(addr, &symmods, &[]);
-                // Prefer a resolved symbol; fall back to "module+offset" otherwise.
-                let location = symbols
-                    .and_then(|r| r.resolve(addr, &symmods))
-                    .map(|s| s.to_string())
-                    .unwrap_or(fallback);
-                start(&mut w, "frame")?;
-                leaf(&mut w, "depth", &depth.to_string())?;
-                leaf(&mut w, "address", &format!("0x{:x}", addr))?;
-                leaf(&mut w, "path", fpath)?;
-                leaf(&mut w, "location", &location)?;
-                end(&mut w, "frame")?;
-            }
-            end(&mut w, "stack")?;
-        }
-        end(&mut w, "event")?;
-    }
-    end(&mut w, "eventlist")?;
-    end(&mut w, "procmon")?;
-
-    let mut out: Vec<u8> = vec![0xEF, 0xBB, 0xBF]; // UTF-8 BOM
-    out.extend_from_slice(&w.into_inner());
-    std::fs::write(path, out).map_err(|err| err.to_string())
-}
-
-fn bit(on: bool) -> &'static str {
-    if on {
-        "1"
-    } else {
-        "0"
-    }
-}
-
-/// Writes a leaf `<name>escaped(text)</name>` element via quick-xml.
-fn leaf(w: &mut quick_xml::writer::Writer<Vec<u8>>, name: &str, text: &str) -> Result<(), String> {
-    use quick_xml::events::BytesText;
-    w.create_element(name)
-        .write_text_content(BytesText::new(text))
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -840,20 +627,21 @@ mod tests {
     }
 
     #[test]
-    fn export_csv_and_xml_produce_expected_shape() {
+    fn export_via_core_produces_expected_shape() {
+        // Mirrors `do_save`: selected rows -> &Event -> the core encoders.
         let reader = open_fixture();
-        let evs: Vec<CapturedEvent> = reader
+        let rows: Vec<CapturedEvent> = reader
             .events()
             .map(|e| CapturedEvent::from_event(e, 0))
             .collect();
-        let refs: Vec<&CapturedEvent> = evs.iter().collect();
-        assert!(refs.len() > 1);
+        let events: Vec<&procmon_sdk::Event> = rows.iter().map(|r| r.event()).collect();
+        assert!(events.len() > 1);
 
         let csv_file = tempfile::Builder::new()
             .suffix(".csv")
             .tempfile()
             .expect("csv temp");
-        export_csv(&refs, csv_file.path().to_str().unwrap()).expect("csv");
+        procmon_core::export_csv(&events, csv_file.path().to_str().unwrap()).expect("csv");
         let csv = std::fs::read_to_string(csv_file.path()).expect("read csv");
         assert!(csv.contains("\"Time of Day\",\"Process Name\",\"PID\""));
         assert!(csv.lines().count() > 1);
@@ -862,7 +650,9 @@ mod tests {
             .suffix(".xml")
             .tempfile()
             .expect("xml temp");
-        export_xml(&refs, true, &[], None, xml_file.path().to_str().unwrap()).expect("xml");
+        let sym = procmon_core::StackSymbolizer::default();
+        procmon_core::export_xml(&events, true, &sym, xml_file.path().to_str().unwrap())
+            .expect("xml");
         let xml = std::fs::read_to_string(xml_file.path()).expect("read xml");
         assert!(xml.contains("<procmon><processlist>"));
         assert!(xml.contains("</processlist><eventlist>"));

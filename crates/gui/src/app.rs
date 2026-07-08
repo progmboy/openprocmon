@@ -287,14 +287,33 @@ impl AppState {
                         .map_err(|e| e.to_string())?;
                 }
             }
-            SaveFormat::Csv => crate::model::sdk_source::export_csv(&selected, &opts.path)?,
-            SaveFormat::Xml => crate::model::sdk_source::export_xml(
-                &selected,
-                opts.stacks,
-                &self.source.kernel_modules(),
-                resolver.as_deref(),
-                &opts.path,
-            )?,
+            SaveFormat::Csv => {
+                let events: Vec<&procmon_sdk::Event> =
+                    selected.iter().map(|r| r.event()).collect();
+                procmon_core::export_csv(&events, &opts.path)?;
+            }
+            SaveFormat::Xml => {
+                let events: Vec<&procmon_sdk::Event> =
+                    selected.iter().map(|r| r.event()).collect();
+                // The core encoder takes owned-string module rows; the kernel
+                // module list is small and fetched once per export.
+                let kernel_mods: Vec<procmon_core::ModuleRow> = self
+                    .source
+                    .kernel_modules()
+                    .iter()
+                    .map(|m| procmon_core::ModuleRow {
+                        name: m.name.to_string(),
+                        path: m.path.to_string(),
+                        base: m.base,
+                        size: m.size,
+                    })
+                    .collect();
+                let sym = procmon_core::StackSymbolizer {
+                    kernel_mods: &kernel_mods,
+                    symbols: resolver.as_deref(),
+                };
+                procmon_core::export_xml(&events, opts.stacks, &sym, &opts.path)?;
+            }
         }
         Ok(n)
     }

@@ -25,11 +25,11 @@ rust-i18n = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.149"
 procmon-sdk = { path = "../sdk" }
+# CSV/XML export encoders (Save dialog) — the single implementation lives in
+# the gpui-free analysis core.
+procmon-core = { path = "../core" }
 # Native file-open dialog for File ▸ Open .PML.
 rfd = "0.15"
-# CSV / XML export writers (Save dialog).
-csv = "1"
-quick-xml = "0.37"
 
 # "Always on Top" is a real OS window flag on Windows (SetWindowPos / HWND_TOPMOST);
 # the HWND comes from gpui's `raw_window_handle::HasWindowHandle` (0.6, matching gpui).

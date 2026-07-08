@@ -1,13 +1,14 @@
 //! Export a (filtered) capture to PML / CSV / XML — the three formats the GUI's
-//! Save dialog writes, so files are interchangeable. CSV/XML are ported from the
-//! GUI's `export_csv`/`export_xml` (`crates/gui/src/model/sdk_source.rs`) on PML
-//! events; PML uses [`procmon_sdk::PmlReader::write_subset`] (raw, byte-faithful).
+//! Save dialog writes, so files are interchangeable. The CSV/XML encoders here
+//! are the single implementation (the GUI calls them on its selected rows);
+//! PML uses [`procmon_sdk::PmlReader::write_subset`] (raw, byte-faithful).
 
 use std::sync::Arc;
 
 use procmon_sdk::{Event, PmlReader, Result};
 
 use crate::query::Expr;
+use crate::record::ModuleRow;
 
 /// Output format for [`export`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +30,15 @@ impl Format {
     }
 }
 
+/// Stack-frame resolution context for [`export_xml`]: the System (PID 4)
+/// kernel-driver modules (so kernel-mode frames resolve) and an optional
+/// dbghelp symbol resolver (frames fall back to `module+offset` without it).
+#[derive(Default)]
+pub struct StackSymbolizer<'a> {
+    pub kernel_mods: &'a [ModuleRow],
+    pub symbols: Option<&'a procmon_sdk::SymbolResolver>,
+}
+
 /// Exports the events matching `filter` (and not `noise`) to `path` in
 /// `format`. `include_stacks` adds call-stack frames to XML. Returns the number
 /// of events written.
@@ -45,11 +55,25 @@ pub fn export(
         Format::Pml => export_pml(reader, &passes, path).map_err(|e| e.to_string()),
         Format::Csv => {
             let matched: Vec<Event> = reader.events().filter(&passes).collect();
-            export_csv(&matched, path)
+            let refs: Vec<&Event> = matched.iter().collect();
+            export_csv(&refs, path)
         }
         Format::Xml => {
             let matched: Vec<Event> = reader.events().filter(&passes).collect();
-            export_xml(&matched, include_stacks, path)
+            let refs: Vec<&Event> = matched.iter().collect();
+            // Kernel frames resolve against the capture's System (PID 4) modules.
+            let kernel_mods = if include_stacks {
+                crate::analyze::get_process(reader, 4)
+                    .map(|p| p.modules)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let sym = StackSymbolizer {
+                kernel_mods: &kernel_mods,
+                symbols: None,
+            };
+            export_xml(&refs, include_stacks, &sym, path)
         }
     }
 }
@@ -69,8 +93,8 @@ fn export_pml(
     })
 }
 
-/// Procmon-style CSV: UTF-8 BOM, fully-quoted, CRLF rows (matches the GUI).
-fn export_csv(events: &[Event], path: &str) -> std::result::Result<usize, String> {
+/// Procmon-style CSV: UTF-8 BOM, fully-quoted, CRLF rows.
+pub fn export_csv(events: &[&Event], path: &str) -> std::result::Result<usize, String> {
     let mut buf: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
     let mut n = 0;
     {
@@ -110,11 +134,13 @@ fn export_csv(events: &[Event], path: &str) -> std::result::Result<usize, String
 }
 
 /// Procmon-style XML: a process list (one entry per distinct pid, first-seen
-/// order) + an event list, with optional `module+offset` stacks. Ported from the
-/// GUI's `export_xml` (symbol resolution deferred — frames are module+offset).
-fn export_xml(
-    events: &[Event],
+/// order) + an event list, with optional stacks. Frames prefer a dbghelp symbol
+/// (when `sym.symbols` is set) and fall back to `module+offset`; kernel-mode
+/// frames resolve against `sym.kernel_mods`.
+pub fn export_xml(
+    events: &[&Event],
     include_stacks: bool,
+    sym: &StackSymbolizer<'_>,
     path: &str,
 ) -> std::result::Result<usize, String> {
     use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event as Xml};
@@ -135,15 +161,15 @@ fn export_xml(
 
     let mut w = Writer::new(Vec::<u8>::new());
     let start = |w: &mut Writer<Vec<u8>>, n: &str| -> std::result::Result<(), String> {
-        w.write_event(Xml::Start(BytesStart::new(n.to_string())))
+        w.write_event(Xml::Start(BytesStart::new(n)))
             .map_err(|e| e.to_string())
     };
     let end = |w: &mut Writer<Vec<u8>>, n: &str| -> std::result::Result<(), String> {
-        w.write_event(Xml::End(BytesEnd::new(n.to_string())))
+        w.write_event(Xml::End(BytesEnd::new(n)))
             .map_err(|e| e.to_string())
     };
     let leaf = |w: &mut Writer<Vec<u8>>, n: &str, text: &str| -> std::result::Result<(), String> {
-        w.create_element(n.to_string())
+        w.create_element(n)
             .write_text_content(BytesText::new(text))
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -219,8 +245,9 @@ fn export_xml(
         leaf(&mut w, "Detail", &ev.detail())?;
         leaf(&mut w, "User", &ev.user().unwrap_or_default())?;
         if include_stacks {
+            // Combined module view: the process's modules + the kernel drivers.
             let modules = ev.modules();
-            let mods: Vec<procmon_sdk::SymModule> = modules
+            let mut symmods: Vec<procmon_sdk::SymModule> = modules
                 .iter()
                 .map(|m| procmon_sdk::SymModule {
                     base: m.base,
@@ -228,10 +255,21 @@ fn export_xml(
                     path: &m.path,
                 })
                 .collect();
+            symmods.extend(sym.kernel_mods.iter().map(|m| procmon_sdk::SymModule {
+                base: m.base,
+                size: m.size,
+                path: &m.path,
+            }));
             start(&mut w, "stack")?;
             for (depth, frame) in ev.call_stack().iter().enumerate() {
                 let addr = frame.address();
-                let (_, location, fpath) = procmon_sdk::resolve_frame(addr, &mods, &[]);
+                let (_, fallback, fpath) = procmon_sdk::resolve_frame(addr, &symmods, &[]);
+                // Prefer a resolved symbol; fall back to "module+offset".
+                let location = sym
+                    .symbols
+                    .and_then(|r| r.resolve(addr, &symmods))
+                    .map(|s| s.to_string())
+                    .unwrap_or(fallback);
                 start(&mut w, "frame")?;
                 leaf(&mut w, "depth", &depth.to_string())?;
                 leaf(&mut w, "address", &format!("0x{addr:x}"))?;
@@ -251,4 +289,3 @@ fn export_xml(
     std::fs::write(path, out).map_err(|e| e.to_string())?;
     Ok(events.len())
 }
-
