@@ -70,6 +70,70 @@ impl Default for MetadataCache {
     }
 }
 
+/// A module's PE version strings, shared cheaply (one `Arc<str>` allocation
+/// per field per distinct image; absent fields are the empty string, matching
+/// Procmon's blank module columns for unversioned images).
+#[derive(Clone)]
+pub struct ModuleVersion {
+    pub version: Arc<str>,
+    pub company: Arc<str>,
+    pub description: Arc<str>,
+}
+
+impl Default for ModuleVersion {
+    fn default() -> Self {
+        Self {
+            version: Arc::from(""),
+            company: Arc::from(""),
+            description: Arc::from(""),
+        }
+    }
+}
+
+/// Resolves and caches module version strings, keyed case-insensitively by
+/// path. No icon extraction (a PML save touches hundreds of module images;
+/// icons are a process-level concern), so it stays cheap enough to run over
+/// every module list at save time — `ntdll.dll` and friends are read once
+/// however many processes load them.
+pub struct ModuleVersionCache {
+    cache: RwLock<HashMap<String, ModuleVersion>>,
+}
+
+impl ModuleVersionCache {
+    pub fn new() -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// The version strings of the image at `path` (a DOS path). Unreadable or
+    /// unversioned images resolve to empty strings (cached too, so a missing
+    /// file is only probed once).
+    pub fn resolve(&self, path: &str) -> ModuleVersion {
+        if path.is_empty() {
+            return ModuleVersion::default();
+        }
+        let key = path.to_ascii_lowercase();
+        if let Some(v) = self.cache.read().get(&key) {
+            return v.clone();
+        }
+        let meta = extract_version(path);
+        let arc = |s: Option<String>| -> Arc<str> { Arc::from(s.as_deref().unwrap_or("")) };
+        let v = ModuleVersion {
+            version: arc(meta.version),
+            company: arc(meta.company),
+            description: arc(meta.description),
+        };
+        self.cache.write().entry(key).or_insert(v).clone()
+    }
+}
+
+impl Default for ModuleVersionCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Extracts an image's version strings and icons (cf. C++ `CProcInfo::Parse`).
 fn extract(path: &str) -> ProcessMeta {
     let mut meta = extract_version(path);

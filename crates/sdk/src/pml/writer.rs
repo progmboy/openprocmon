@@ -67,6 +67,9 @@ pub struct PmlWriter {
     /// / [`add_system_process`](Self::add_system_process) are not here; their
     /// modules are already final.
     proc_records: HashMap<u32, Arc<ProcessRecord>>,
+    /// Per-module version strings (version/company/description), resolved from
+    /// each image's version resource at finalize and cached by path.
+    module_versions: crate::metadata::ModuleVersionCache,
 }
 
 impl PmlWriter {
@@ -84,6 +87,7 @@ impl PmlWriter {
             icons: vec![PmlIcon::default()], // index 0 = empty placeholder
             proc_index: HashMap::new(),
             proc_records: HashMap::new(),
+            module_versions: crate::metadata::ModuleVersionCache::new(),
         }
     }
 
@@ -154,16 +158,20 @@ impl PmlWriter {
             .unwrap_or_default();
 
         let process_index = self.processes.len() as u32;
+        let versions = &self.module_versions;
         let modules = modules
             .iter()
-            .map(|m| PmlModule {
-                base_address: m.base,
-                size: m.size,
-                image_path: Arc::from(m.path.as_str()),
-                version: Arc::from(""),
-                company: Arc::from(""),
-                description: Arc::from(""),
-                timestamp: 0,
+            .map(|m| {
+                let v = versions.resolve(&m.path);
+                PmlModule {
+                    base_address: m.base,
+                    size: m.size,
+                    image_path: Arc::from(m.path.as_str()),
+                    version: v.version,
+                    company: v.company,
+                    description: v.description,
+                    timestamp: 0,
+                }
             })
             .collect();
         self.processes.push(PmlProcess {
@@ -321,7 +329,7 @@ impl PmlWriter {
             .map(|(i, p)| match self.proc_records.get(&(i as u32)) {
                 Some(rec) => {
                     let mut p = p.clone();
-                    p.modules = pml_modules_from(rec);
+                    p.modules = pml_modules_from(rec, &self.module_versions);
                     p
                 }
                 None => p.clone(),
@@ -489,26 +497,37 @@ fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
         description,
         icon_small: 0,
         icon_big: 0,
-        // Filled at finalize from the (then-complete) record — see `to_bytes`.
-        modules: pml_modules_from(rec),
+        // Left empty at intern time — `to_bytes` rebuilds the list from the
+        // (then-complete) record and resolves the per-module version strings,
+        // keeping the capture hot path free of version-resource disk reads.
+        modules: Vec::new(),
     }
 }
 
-/// Converts a record's loaded modules to PML module entries. The SDK module
-/// record carries only base/size/path; PML's per-module version strings are left
-/// empty. Called both when the process is first interned and again at finalize
-/// (`to_bytes`), where the list is complete.
-fn pml_modules_from(rec: &ProcessRecord) -> Vec<PmlModule> {
+/// Converts a record's loaded modules to PML module entries at finalize. The
+/// SDK module record carries only base/size/path; the version/company/
+/// description strings PML stores per module (Procmon shows them in a
+/// process's module list) are resolved from each image's version resource via
+/// the writer's [`ModuleVersionCache`] — one disk read per distinct image,
+/// however many processes load it.
+fn pml_modules_from(
+    rec: &ProcessRecord,
+    versions: &crate::metadata::ModuleVersionCache,
+) -> Vec<PmlModule> {
     rec.modules()
         .iter()
-        .map(|m| PmlModule {
-            base_address: m.base,
-            size: m.size,
-            image_path: Arc::from(crate::path::nt_to_dos(&m.path).as_str()),
-            version: Arc::from(""),
-            company: Arc::from(""),
-            description: Arc::from(""),
-            timestamp: 0,
+        .map(|m| {
+            let dos = crate::path::nt_to_dos(&m.path);
+            let v = versions.resolve(&dos);
+            PmlModule {
+                base_address: m.base,
+                size: m.size,
+                image_path: Arc::from(dos.as_str()),
+                version: v.version,
+                company: v.company,
+                description: v.description,
+                timestamp: 0,
+            }
         })
         .collect()
 }
@@ -1103,6 +1122,58 @@ mod tests {
         let big = r.icon(p.icon_big).expect("big icon");
         assert_eq!(&*big.data, [0xBB; 32].as_slice());
         assert_eq!(big.dimension, 32);
+    }
+
+    /// PML stores version/company/description per module (Procmon shows them
+    /// as the module list's Company/Version columns); the writer resolves them
+    /// from each image's version resource at finalize.
+    #[test]
+    fn module_version_strings_reach_pml() {
+        use crate::event::Event;
+        use crate::kernel_types::synth_record;
+        use crate::process::{Module, ProcessInfo, ProcessRecord};
+
+        let rec = ProcessRecord::new(ProcessInfo {
+            seq: 11,
+            pid: 4242,
+            image_path: "\\Device\\HarddiskVolume1\\Windows\\notepad.exe".into(),
+            ..Default::default()
+        });
+        // A real, always-present image (a DOS path passes nt_to_dos unchanged).
+        let ntdll = format!(
+            "{}\\System32\\ntdll.dll",
+            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+        );
+        rec.add_module(Module {
+            base: 0x1000,
+            size: 0x2000,
+            path: ntdll.as_str().into(),
+        });
+
+        let pre = synth_record(1, 5, 0, &[]).into_boxed_slice();
+        let ev = Event::from_filter(pre, None, Some(rec)).expect("event");
+        let mut w = PmlWriter::new(true);
+        w.push_event(&ev);
+        let bytes = w.to_bytes().expect("serialize");
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(tmp.path(), &bytes).expect("write");
+        let r = PmlReader::open(tmp.path()).expect("read");
+
+        let e = r.event(0).expect("event");
+        let p = r.process(e.process_index).expect("process");
+        assert_eq!(p.modules.len(), 1);
+        let m = &p.modules[0];
+        assert!(m.image_path.ends_with("ntdll.dll"));
+        assert!(
+            m.company.contains("Microsoft"),
+            "module company should come from the version resource, got {:?}",
+            m.company
+        );
+        assert!(!m.version.is_empty(), "module version should be resolved");
+        assert!(
+            !m.description.is_empty(),
+            "module description should be resolved"
+        );
     }
 
     /// A module that loads *after* the process's first event (the common case:
