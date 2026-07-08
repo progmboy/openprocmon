@@ -239,7 +239,29 @@ impl PmlWriter {
 
     /// Interns an event's process into the table, returning its index.
     fn intern_process(&mut self, proc: Option<&Arc<ProcessRecord>>) -> u32 {
-        let Some(rec) = proc else { return 0 };
+        match proc {
+            Some(rec) => self.intern_record(rec),
+            None => 0,
+        }
+    }
+
+    /// Interns every process `mgr` tracks into the PML process table (records
+    /// already interned by [`push_event`](Self::push_event) keep their slot —
+    /// same seq key). Live captures call this before finalizing: a process
+    /// already running at capture start is seeded into the manager by the
+    /// driver's replayed INIT ("Process Defined") record, which the correlator
+    /// drops rather than surfacing as an event — so event-driven interning
+    /// alone would omit any pre-existing process that stayed silent, orphaning
+    /// its children when the PML is reopened. Procmon PMLs likewise carry the
+    /// full process list with zero "Process Defined" event rows.
+    pub fn stamp_processes(&mut self, mgr: &crate::process::ProcessManager) {
+        for rec in mgr.snapshot() {
+            self.intern_record(&rec);
+        }
+    }
+
+    /// Interns one live process record, keyed by its process seq.
+    fn intern_record(&mut self, rec: &Arc<ProcessRecord>) -> u32 {
         let seq = rec.info.seq;
         if let Some(&i) = self.proc_index.get(&seq) {
             return i;

@@ -178,6 +178,10 @@ impl EventSource for SdkSource {
             .map(|r| sdk_modules(&r))
             .unwrap_or_default()
     }
+
+    fn live_processes(&self) -> Option<Arc<procmon_sdk::ProcessManager>> {
+        self.controller.as_ref().map(|c| Arc::clone(c.processes()))
+    }
 }
 
 /// Maps the GUI's per-category toggles to the SDK's `MonitorFlags` (profiling has

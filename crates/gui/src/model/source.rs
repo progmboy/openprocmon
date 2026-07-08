@@ -59,4 +59,11 @@ pub trait EventSource: Send + 'static {
     fn as_pml_reader(&self) -> Option<std::sync::Arc<procmon_sdk::PmlReader>> {
         None
     }
+    /// The live process table (`None` for a PML source). Save-as-PML stamps it
+    /// into the writer (`PmlWriter::stamp_processes`) so pre-existing,
+    /// event-silent processes — seeded by INIT records the correlator never
+    /// surfaces — stay in the saved process table.
+    fn live_processes(&self) -> Option<std::sync::Arc<procmon_sdk::ProcessManager>> {
+        None
+    }
 }

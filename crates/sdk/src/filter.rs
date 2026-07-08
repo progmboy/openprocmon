@@ -412,10 +412,8 @@ impl FilterSet {
 /// IRP/FastIO bookkeeping operations, and NTFS metadata files. Every rule is an
 /// Exclude, so the set is one OR-of-exclusions.
 ///
-/// Note: Process INIT ("Process Defined") records are NOT hidden here — this
-/// list is user-editable (the GUI's Advanced Output toggle removes it). They
-/// are dropped unconditionally at the display layer instead; see
-/// [`Event::is_process_defined`](crate::Event::is_process_defined).
+/// Process INIT ("Process Defined") records never reach any filter — the
+/// correlator drops them after seeding the process table (see `parse`).
 pub fn default_display_filter() -> Vec<Rule> {
     let proc = |name: &str| Rule::new(Column::ProcessName, Relation::Is, name, Action::Exclude);
     let ends = |name: &str| Rule::new(Column::Path, Relation::EndsWith, name, Action::Exclude);

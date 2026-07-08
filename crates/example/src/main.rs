@@ -95,12 +95,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             out.display()
         );
         for ev in source.events().take(SAVE_LIMIT) {
-            // Process INIT ("Process Defined") seed records are always written —
-            // pushing them interns the pre-existing processes into the PML's
-            // process table. They are never displayed.
-            if ev.is_process_defined() || source.is_visible(&ev) {
+            if source.is_visible(&ev) {
                 writer.push_event(&ev);
             }
+        }
+        // Carry the full process table: pre-existing processes emit no events
+        // (their INIT seeds are dropped in the correlator), so event interning
+        // alone would orphan their children in the saved PML.
+        if let Some(ctrl) = source.as_driver() {
+            writer.stamp_processes(ctrl.processes());
         }
         writer.finish_live_to_path(out)?;
         println!("Saved {}.", out.display());
@@ -110,8 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Unified consume loop: stream events (live) or walk them (PML) the same way.
     println!("   PID  Operation               Result            Path");
     for ev in source.events() {
-        // Seed records are never displayed (even with --advanced).
-        if ev.is_process_defined() || !source.is_visible(&ev) {
+        if !source.is_visible(&ev) {
             continue;
         }
         println!(

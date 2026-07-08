@@ -95,14 +95,7 @@ pub fn query(
 /// Whether `ev` passes `filter` and is not matched by any `noise` clause,
 /// sharing one per-event column memo across both (the default noise set alone
 /// has 13 `Path` clauses — without the memo each derives Path independently).
-///
-/// Process INIT ("Process Defined") seed records are dropped unconditionally —
-/// they exist only to populate the PML process table and are never surfaced,
-/// regardless of `--no-noise` or the filter (see `Event::is_process_defined`).
 pub(crate) fn event_passes(ev: &Event, filter: Option<&Expr>, noise: &[Clause]) -> bool {
-    if ev.is_process_defined() {
-        return false;
-    }
     // No filter and no noise (`query --no-noise` without --filter): don't
     // zero-initialize a ~600-byte column memo per event just to return true.
     if filter.is_none() && noise.is_empty() {
@@ -198,7 +191,7 @@ pub fn event_window(
     let mut center = None;
     let mut post: Vec<EventRecord> = Vec::with_capacity(after);
     for (i, ev) in reader.events().enumerate() {
-        if ev.is_process_defined() || (same_process && ev.pid() != pid) {
+        if same_process && ev.pid() != pid {
             continue;
         }
         match i.cmp(&seq) {

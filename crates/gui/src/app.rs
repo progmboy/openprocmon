@@ -274,23 +274,18 @@ impl AppState {
                         .write_subset(&opts.path, |i| keep.contains(&i))
                         .map_err(|e| e.to_string())?;
                 } else {
-                    // Live capture: stamp this machine's host metadata and finish
-                    // with the System (PID 4) process so kernel frames resolve.
-                    // Process INIT ("Process Defined") seed rows are written
-                    // whatever the scope: pushing them interns every pre-existing
-                    // process into the saved process table (they are hidden from
-                    // every view, so a Filtered scope never selects them).
+                    // Live capture: stamp this machine's host metadata, the rows,
+                    // and the full process table (pre-existing processes emit no
+                    // events, so event interning alone would orphan their
+                    // children), then finish with the System (PID 4) process so
+                    // kernel frames resolve.
                     let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
                     writer.stamp_host();
-                    let chosen: std::collections::HashSet<u64> =
-                        selected.iter().map(|r| r.seq()).collect();
-                    n = 0;
-                    for row in rows
-                        .iter()
-                        .filter(|r| r.event().is_process_defined() || chosen.contains(&r.seq()))
-                    {
+                    for row in &selected {
                         writer.push_event(row.event());
-                        n += 1;
+                    }
+                    if let Some(mgr) = self.source.live_processes() {
+                        writer.stamp_processes(&mgr);
                     }
                     writer
                         .finish_live_to_path(&opts.path)
@@ -298,20 +293,11 @@ impl AppState {
                 }
             }
             SaveFormat::Csv => {
-                // Textual exports never contain the hidden seed rows.
-                let events: Vec<&procmon_sdk::Event> = selected
-                    .iter()
-                    .map(|r| r.event())
-                    .filter(|e| !e.is_process_defined())
-                    .collect();
+                let events: Vec<&procmon_sdk::Event> = selected.iter().map(|r| r.event()).collect();
                 n = procmon_core::export_csv(&events, &opts.path)?;
             }
             SaveFormat::Xml => {
-                let events: Vec<&procmon_sdk::Event> = selected
-                    .iter()
-                    .map(|r| r.event())
-                    .filter(|e| !e.is_process_defined())
-                    .collect();
+                let events: Vec<&procmon_sdk::Event> = selected.iter().map(|r| r.event()).collect();
                 // Kernel frames resolve against the source's System (PID 4)
                 // modules; the symbolizer borrows views over the rows directly.
                 let kernel_mods = self.source.kernel_modules();

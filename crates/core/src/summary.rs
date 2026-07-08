@@ -65,10 +65,6 @@ pub fn summary(reader: &Arc<PmlReader>, top: usize) -> Summary {
     let mut seq: Vec<Category> = Vec::new();
 
     for ev in reader.events() {
-        // Process-table seed records are bookkeeping, not activity.
-        if ev.is_process_defined() {
-            continue;
-        }
         let cat: Category = ev.class().into();
         cat_counts[cat_index(cat)] += 1;
         *proc
