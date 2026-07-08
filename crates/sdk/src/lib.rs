@@ -37,6 +37,7 @@ pub use filter::{
     struct_fields, Action, Column, ColumnMemo, FilterFields, FilterSet, Relation, Rule,
     StructField,
 };
+pub use metadata::{MetadataCache, ModuleVersionCache};
 pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};

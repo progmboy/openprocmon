@@ -182,6 +182,12 @@ impl EventSource for SdkSource {
     fn live_processes(&self) -> Option<Arc<procmon_sdk::ProcessManager>> {
         self.controller.as_ref().map(|c| Arc::clone(c.processes()))
     }
+
+    fn live_module_versions(&self) -> Option<Arc<procmon_sdk::ModuleVersionCache>> {
+        self.controller
+            .as_ref()
+            .map(|c| Arc::clone(c.metadata().module_versions()))
+    }
 }
 
 /// Maps the GUI's per-category toggles to the SDK's `MonitorFlags` (profiling has

@@ -50,6 +50,14 @@ pub(crate) fn track(
                     // Live capture only (`metadata` is None for offline PML replay).
                     if entry.notify() == pn::INIT {
                         seed_init_modules(&rec, pid);
+                        // Pre-warm the version strings of the whole seeded
+                        // module list off-thread, so a later PML save is all
+                        // cache hits instead of thousands of blocking reads.
+                        metadata.module_versions().prewarm(
+                            rec.modules()
+                                .iter()
+                                .map(|m| crate::path::nt_to_dos(&m.path)),
+                        );
                     }
                 }
                 mgr.insert(rec);
@@ -67,6 +75,14 @@ pub(crate) fn track(
                 u32::try_from(entry.process_seq),
                 image_module(data, DetailMode::Live),
             ) {
+                // Pre-warm this module's version strings off-thread (deduped, so
+                // the ubiquitous ntdll/kernel32 are read once), spreading the
+                // save-time I/O across the capture. `module.path` is already DOS.
+                if let Some(metadata) = metadata {
+                    metadata
+                        .module_versions()
+                        .prewarm([crate::path::nt_to_dos(&module.path)]);
+                }
                 mgr.add_module(seq, module);
             }
         }

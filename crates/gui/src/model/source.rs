@@ -66,4 +66,11 @@ pub trait EventSource: Send + 'static {
     fn live_processes(&self) -> Option<std::sync::Arc<procmon_sdk::ProcessManager>> {
         None
     }
+    /// The capture's shared module-version cache (`None` for a PML source),
+    /// pre-warmed as image-load events arrive. Save-as-PML hands it to the
+    /// writer so module version strings are already resolved — the finalize
+    /// warm is near-free instead of seconds of blocking I/O.
+    fn live_module_versions(&self) -> Option<std::sync::Arc<procmon_sdk::ModuleVersionCache>> {
+        None
+    }
 }

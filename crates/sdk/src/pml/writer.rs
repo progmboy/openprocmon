@@ -67,9 +67,11 @@ pub struct PmlWriter {
     /// / [`add_system_process`](Self::add_system_process) are not here; their
     /// modules are already final.
     proc_records: HashMap<u32, Arc<ProcessRecord>>,
-    /// Per-module version strings (version/company/description), resolved from
-    /// each image's version resource at finalize and cached by path.
-    module_versions: crate::metadata::ModuleVersionCache,
+    /// Per-module version strings (version/company/description). Shared with
+    /// the capture pipeline via [`use_module_versions`](Self::use_module_versions)
+    /// so a live save reuses the paths pre-warmed during the capture; otherwise
+    /// a fresh cache resolved (in parallel) at finalize.
+    module_versions: Arc<crate::metadata::ModuleVersionCache>,
     /// Finalize fallback for process image metadata: a record whose async
     /// resolution has not landed by save time is resolved synchronously here,
     /// so written PMLs never carry half-resolved processes.
@@ -91,9 +93,17 @@ impl PmlWriter {
             icons: vec![PmlIcon::default()], // index 0 = empty placeholder
             proc_index: HashMap::new(),
             proc_records: HashMap::new(),
-            module_versions: crate::metadata::ModuleVersionCache::new(),
+            module_versions: Arc::new(crate::metadata::ModuleVersionCache::new()),
             image_meta: crate::metadata::MetadataCache::new(),
         }
+    }
+
+    /// Reuses the capture's shared module-version cache (from
+    /// [`MetadataCache::module_versions`]) instead of a fresh one, so a live
+    /// save's module version strings are the paths already pre-warmed during
+    /// the capture — the finalize warm becomes near-free (all cache hits).
+    pub fn use_module_versions(&mut self, cache: Arc<crate::metadata::ModuleVersionCache>) {
+        self.module_versions = cache;
     }
 
     pub fn add_process(&mut self, process: PmlProcess) {
@@ -315,10 +325,10 @@ impl PmlWriter {
         let mut interned: Vec<u32> = self.proc_records.keys().copied().collect();
         interned.sort_unstable(); // deterministic icon-table order
 
-        // Warm the module-version cache in parallel before the per-process
-        // walk: a system-wide capture references thousands of distinct images
-        // (~1ms of version-resource I/O each — seconds per save if resolved
-        // serially inside the loop).
+        // Backstop the pre-warm: resolve (in parallel) any module paths not
+        // already warmed during the capture, so the per-process walk below is
+        // all cache hits. With a live save's shared, pre-warmed cache this is
+        // usually a no-op; an offline/round-trip writer resolves here.
         self.module_versions.warm(interned.iter().flat_map(|i| {
             self.proc_records[i]
                 .modules()

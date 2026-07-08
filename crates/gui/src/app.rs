@@ -281,6 +281,12 @@ impl AppState {
                     // kernel frames resolve.
                     let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
                     writer.stamp_host();
+                    // Reuse the capture's module-version cache (pre-warmed as
+                    // image-load events arrived), so the finalize warm is all
+                    // cache hits instead of resolving thousands of DLLs now.
+                    if let Some(mv) = self.source.live_module_versions() {
+                        writer.use_module_versions(mv);
+                    }
                     for row in &selected {
                         writer.push_event(row.event());
                     }

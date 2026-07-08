@@ -52,6 +52,10 @@ pub struct MetadataCache {
     /// Background resolver, spawned on the first deferred miss. Jobs are the
     /// process records to fill; the worker extracts, caches, and `set_meta`s.
     worker: OnceLock<crossbeam_channel::Sender<Arc<ProcessRecord>>>,
+    /// Module (per-loaded-DLL) version strings, pre-warmed from image-load
+    /// events during the capture so a PML save is all cache hits. Shared with
+    /// the writer via [`module_versions`](Self::module_versions).
+    module_versions: Arc<ModuleVersionCache>,
 }
 
 impl MetadataCache {
@@ -59,7 +63,15 @@ impl MetadataCache {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
             worker: OnceLock::new(),
+            module_versions: Arc::new(ModuleVersionCache::new()),
         }
+    }
+
+    /// The shared module-version cache. The capture pipeline calls
+    /// [`ModuleVersionCache::prewarm`] on it as image-load events arrive; the
+    /// PML writer resolves against the same instance at save time.
+    pub fn module_versions(&self) -> &Arc<ModuleVersionCache> {
+        &self.module_versions
     }
 
     /// Resolves an image's metadata (version strings + icons) **synchronously**,
@@ -155,24 +167,39 @@ impl Default for ModuleVersion {
 }
 
 /// Resolves and caches module version strings, keyed case-insensitively by
-/// path. No icon extraction (a PML save touches hundreds of module images;
+/// path. No icon extraction (a PML save touches thousands of module images;
 /// icons are a process-level concern), so it stays cheap enough to run over
-/// every module list at save time — `ntdll.dll` and friends are read once
-/// however many processes load them.
+/// every module list — `ntdll.dll` and friends are read once however many
+/// processes load them.
+///
+/// Version-resource reads are ~1ms each and a system-wide capture references
+/// thousands of distinct modules — seconds of I/O if all done at save time. So
+/// live capture **pre-warms during the capture** ([`prewarm`](Self::prewarm)):
+/// as image-load events arrive, their paths are queued to a background worker,
+/// so by save time the [`resolve`](Self::resolve) calls are cache hits. The
+/// cache is `Arc`-shared between the capture pipeline (which pre-warms) and the
+/// PML writer (which reads); dropping the last handle ends the worker.
 pub struct ModuleVersionCache {
-    cache: RwLock<HashMap<String, ModuleVersion>>,
+    cache: Arc<RwLock<HashMap<String, ModuleVersion>>>,
+    /// Paths already cached or in flight — dedups the pre-warm queue (ntdll is
+    /// loaded by every process; we resolve it once, not thousands of times).
+    seen: Arc<RwLock<std::collections::HashSet<String>>>,
+    worker: OnceLock<crossbeam_channel::Sender<String>>,
 }
 
 impl ModuleVersionCache {
     pub fn new() -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: Arc::new(RwLock::new(HashMap::new())),
+            seen: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            worker: OnceLock::new(),
         }
     }
 
     /// The version strings of the image at `path` (a DOS path). Unreadable or
     /// unversioned images resolve to empty strings (cached too, so a missing
-    /// file is only probed once).
+    /// file is only probed once). Synchronous — used by the writer at finalize;
+    /// after [`prewarm`](Self::prewarm) most calls are cache hits.
     pub fn resolve(&self, path: &str) -> ModuleVersion {
         if path.is_empty() {
             return ModuleVersion::default();
@@ -181,14 +208,42 @@ impl ModuleVersionCache {
         if let Some(v) = self.cache.read().get(&key) {
             return v.clone();
         }
-        let meta = extract_version(path);
-        let arc = |s: Option<String>| -> Arc<str> { Arc::from(s.as_deref().unwrap_or("")) };
-        let v = ModuleVersion {
-            version: arc(meta.version),
-            company: arc(meta.company),
-            description: arc(meta.description),
-        };
+        let v = extract_module_version(path);
         self.cache.write().entry(key).or_insert(v).clone()
+    }
+
+    /// Queues `paths` (DOS module paths) for background version resolution,
+    /// deduped against everything already cached or queued. Non-blocking: the
+    /// worker (lazily spawned) does the I/O off the capture's parse thread, so
+    /// the version strings are ready by save time. Empty until the first call.
+    pub fn prewarm<I: IntoIterator<Item = String>>(&self, paths: I) {
+        let tx = self.worker.get_or_init(|| {
+            let (tx, rx) = crossbeam_channel::unbounded::<String>();
+            let cache = Arc::clone(&self.cache);
+            let _ = std::thread::Builder::new()
+                .name("procmon-modversion".into())
+                .spawn(move || {
+                    for path in rx {
+                        let key = path.to_ascii_lowercase();
+                        if cache.read().contains_key(&key) {
+                            continue;
+                        }
+                        let v = extract_module_version(&path);
+                        cache.write().entry(key).or_insert(v);
+                    }
+                });
+            tx
+        });
+        let mut seen = self.seen.write();
+        for p in paths {
+            if p.is_empty() {
+                continue;
+            }
+            let key = p.to_ascii_lowercase();
+            if seen.insert(key) {
+                let _ = tx.send(p);
+            }
+        }
     }
 
     /// Pre-resolves `paths` with a bounded thread pool so subsequent
@@ -235,6 +290,19 @@ impl ModuleVersionCache {
 impl Default for ModuleVersionCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Reads just the version strings of a module image into a [`ModuleVersion`]
+/// (absent fields → empty string), the shared body of
+/// [`ModuleVersionCache::resolve`] and its background worker.
+fn extract_module_version(path: &str) -> ModuleVersion {
+    let meta = extract_version(path);
+    let arc = |s: Option<String>| -> Arc<str> { Arc::from(s.as_deref().unwrap_or("")) };
+    ModuleVersion {
+        version: arc(meta.version),
+        company: arc(meta.company),
+        description: arc(meta.description),
     }
 }
 

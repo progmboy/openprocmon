@@ -243,6 +243,9 @@ fn run_capture(
     let own_pid = std::process::id();
     let mut writer = PmlWriter::new(cfg!(target_pointer_width = "64"));
     writer.stamp_host();
+    // Reuse the capture's module-version cache (pre-warmed from image-load
+    // events) so finalize doesn't block on thousands of version-resource reads.
+    writer.use_module_versions(Arc::clone(controller.metadata().module_versions()));
     let mut bytes = 0usize;
     let mut written = 0usize;
     let start = Instant::now();
