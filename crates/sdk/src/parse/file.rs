@@ -157,7 +157,6 @@ pub const FILE_FIELDS: &[(&str, bool, &str)] = &[
 ];
 
 impl FileView<'_> {
-
     /// Detail for read/write: byte offset and length from the FLT parameters.
     fn rw_detail(data: &[u8], is_write: bool) -> String {
         let params = match Self::flt_params(data) {
@@ -336,7 +335,10 @@ mod tests {
         params.Create.Options = disposition << 24;
         // SAFETY: read the union's bytes for serialization.
         let pb = unsafe {
-            core::slice::from_raw_parts(&params as *const _ as *const u8, size_of::<FLT_PARAMETERS>())
+            core::slice::from_raw_parts(
+                &params as *const _ as *const u8,
+                size_of::<FLT_PARAMETERS>(),
+            )
         };
         d.extend_from_slice(pb);
         d.extend_from_slice(&((name.len() / 2) as u16).to_le_bytes()); // NameLength
@@ -348,7 +350,8 @@ mod tests {
 
         let op = FILE_NOTIFY_BASE + irp_mj::CREATE as u16;
         let pre = synth_record(3, op, 0, &d).into_boxed_slice();
-        let post = information.map(|info| synth_record(0, op, 0, &info.to_le_bytes()).into_boxed_slice());
+        let post =
+            information.map(|info| synth_record(0, op, 0, &info.to_le_bytes()).into_boxed_slice());
         Event::from_filter(pre, post, None).expect("event")
     }
 

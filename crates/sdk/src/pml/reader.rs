@@ -11,7 +11,9 @@ use memmap2::Mmap;
 
 use crate::error::{Error, Result};
 use crate::pml::detail::{self, Tables};
-use crate::pml::model::{PmlEvent, PmlEventHeader, PmlIcon, PmlModule, PmlProcess, EVENT_HEADER_SIZE};
+use crate::pml::model::{
+    PmlEvent, PmlEventHeader, PmlIcon, PmlModule, PmlProcess, EVENT_HEADER_SIZE,
+};
 use crate::EventClass;
 
 const HEADER_SIZE: usize = 0x3a8;

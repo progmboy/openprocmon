@@ -268,8 +268,7 @@ fn run_capture(
                 // the PML process table. They are never displayed downstream.
                 if ev.pid() != own_pid
                     && (ev.is_process_defined()
-                        || (scope.contains(&ev)
-                            && filter.as_ref().is_none_or(|f| f.matches(&ev))))
+                        || (scope.contains(&ev) && filter.as_ref().is_none_or(|f| f.matches(&ev))))
                 {
                     writer.push_event(&ev);
                     bytes += ev.byte_size();

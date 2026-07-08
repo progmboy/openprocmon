@@ -356,5 +356,3 @@ fn track(co: &Co, ratio: f32, color: Hsla) -> impl IntoElement {
                 .bg(color),
         )
 }
-
-

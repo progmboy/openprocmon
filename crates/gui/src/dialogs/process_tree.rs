@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, px, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, WeakEntity, Window,
+    div, px, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -255,5 +255,3 @@ fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<gpui::Image>> {
     }
     map
 }
-
-

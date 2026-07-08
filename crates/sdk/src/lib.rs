@@ -41,11 +41,11 @@ pub use monitor::{MonitorController, MonitorFlags};
 pub use network::{NetOp, NetworkEvent};
 pub use parse::{parse_block, parse_block_tracked};
 
+pub use path::basename;
 pub use pml::{PmlIcon, PmlProcess, PmlReader, PmlWriter};
 pub use process::{build_forest, Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use resolver::AddressResolver;
 pub use source::EventSource;
-pub use path::basename;
 pub use symbols::{
     is_kernel_address, resolve_frame, resolve_frame_full, ResolvedFrame, SymModule, SymbolResolver,
 };

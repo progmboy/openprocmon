@@ -353,5 +353,3 @@ fn aggregate(rows: &[EventSummaryRow]) -> Vec<ProcRow> {
     out.sort_by_key(|r| std::cmp::Reverse(r.total));
     out
 }
-
-

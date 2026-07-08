@@ -280,15 +280,15 @@ impl AppState {
                     // whatever the scope: pushing them interns every pre-existing
                     // process into the saved process table (they are hidden from
                     // every view, so a Filtered scope never selects them).
-                    let mut writer =
-                        procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
+                    let mut writer = procmon_sdk::PmlWriter::new(cfg!(target_pointer_width = "64"));
                     writer.stamp_host();
                     let chosen: std::collections::HashSet<u64> =
                         selected.iter().map(|r| r.seq()).collect();
                     n = 0;
-                    for row in rows.iter().filter(|r| {
-                        r.event().is_process_defined() || chosen.contains(&r.seq())
-                    }) {
+                    for row in rows
+                        .iter()
+                        .filter(|r| r.event().is_process_defined() || chosen.contains(&r.seq()))
+                    {
                         writer.push_event(row.event());
                         n += 1;
                     }
