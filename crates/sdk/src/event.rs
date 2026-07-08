@@ -797,14 +797,28 @@ impl Event {
         }
     }
 
-    /// The operation-specific detail string. Empty when there is none to show.
+    /// The operation-specific detail string as one line, fields comma-joined
+    /// (the event table's Detail column and the CLI/MCP output). Empty when
+    /// there is none to show.
     pub fn detail(&self) -> String {
+        self.detail_with(", ")
+    }
+
+    /// The detail with each field on its own line — the detail panel's
+    /// properties-dialog view (matching Procmon). Same fields as [`detail`],
+    /// only the separator differs.
+    pub fn detail_multiline(&self) -> String {
+        self.detail_with("\n")
+    }
+
+    /// The operation-specific detail with fields joined by `sep`.
+    fn detail_with(&self, sep: &str) -> String {
         match &self.backing {
-            Backing::Network(n) => crate::parse::network::NetView::new(n).detail(),
+            Backing::Network(n) => crate::parse::network::NetView::new(n).detail(sep),
             Backing::KernelRecord { .. } => match self.class() {
-                EventClass::File => crate::parse::file::FileView::new(self).detail(),
-                EventClass::Registry => crate::parse::reg::RegView::new(self).detail(),
-                EventClass::Process => crate::parse::proc::ProcView::new(self).detail(),
+                EventClass::File => crate::parse::file::FileView::new(self).detail(sep),
+                EventClass::Registry => crate::parse::reg::RegView::new(self).detail(sep),
+                EventClass::Process => crate::parse::proc::ProcView::new(self).detail(sep),
                 _ => String::new(),
             },
         }

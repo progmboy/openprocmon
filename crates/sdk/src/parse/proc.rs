@@ -287,42 +287,59 @@ impl OperationView for ProcView<'_> {
         }
     }
 
-    fn detail(&self) -> String {
+    fn detail(&self, sep: &str) -> String {
         let data = self.ev.pre_data();
         let mode = self.ev.mode();
         match self.ev.notify_type() {
             pn::INIT | pn::CREATE => match create_info(data, mode) {
-                Some(i) => format!("PID: {}, Command line: {}", i.pid, i.command_line),
+                Some(i) => [
+                    format!("PID: {}", i.pid),
+                    format!("Command line: {}", i.command_line),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             pn::IMAGE_LOAD => match image_module(data, mode) {
-                Some(m) => format!("Image Base: 0x{:x}, Image Size: 0x{:x}", m.base, m.size),
+                Some(m) => [
+                    format!("Image Base: 0x{:x}", m.base),
+                    format!("Image Size: 0x{:x}", m.size),
+                ]
+                .join(sep),
                 None => String::new(),
             },
-            pn::START => start_detail(data, mode),
+            pn::START => start_detail(data, mode, sep),
             pn::THREAD_CREATE => match data.get(0..4) {
-                Some(b) => format!("Thread ID: {}", u32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+                Some(b) => format!(
+                    "Thread ID: {}",
+                    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+                ),
                 None => String::new(),
             },
             pn::THREAD_EXIT => match cast::<LogThreadExit>(data) {
-                Some(t) => format!(
-                    "Exit Status: {}, User Time: {}, Kernel Time: {}",
-                    strings::nt_status_string(t.exit_status as i32),
-                    filetime_secs(t.user_time),
-                    filetime_secs(t.kernel_time),
-                ),
+                Some(t) => [
+                    format!(
+                        "Exit Status: {}",
+                        strings::nt_status_string(t.exit_status as i32)
+                    ),
+                    format!("User Time: {}", filetime_secs(t.user_time)),
+                    format!("Kernel Time: {}", filetime_secs(t.kernel_time)),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             // Process Exit and Process Performance both carry LOG_PROCESSBASIC_INFO.
             pn::EXIT | pn::PERFORMANCE => match cast::<LogProcessBasic>(data) {
-                Some(b) => format!(
-                    "Exit Status: {}, User Time: {}, Kernel Time: {}, Private Bytes: {}, Working Set: {}",
-                    strings::nt_status_string(b.exit_status as i32),
-                    filetime_secs(b.user_time),
-                    filetime_secs(b.kernel_time),
-                    { b.pagefile_usage },
-                    { b.working_set_size },
-                ),
+                Some(b) => [
+                    format!(
+                        "Exit Status: {}",
+                        strings::nt_status_string(b.exit_status as i32)
+                    ),
+                    format!("User Time: {}", filetime_secs(b.user_time)),
+                    format!("Kernel Time: {}", filetime_secs(b.kernel_time)),
+                    format!("Private Bytes: {}", { b.pagefile_usage }),
+                    format!("Working Set: {}", { b.working_set_size }),
+                ]
+                .join(sep),
                 None => String::new(),
             },
             _ => String::new(),
@@ -333,19 +350,19 @@ impl OperationView for ProcView<'_> {
 /// Detail for `NOTIFY_PROCESS_START`: parent PID plus the command line and current
 /// directory that trail the fixed struct (the environment block is skipped). The
 /// string lengths are mode-dependent (PML packs ASCII strings 1 byte/char).
-fn start_detail(data: &[u8], mode: DetailMode) -> String {
+fn start_detail(data: &[u8], mode: DetailMode, sep: &str) -> String {
     let Some(info) = cast::<LogProcessStart>(data) else {
         return String::new();
     };
     let fixed = size_of::<LogProcessStart>();
     let (cmd, cmd_bytes) = read_detail_str(data, fixed, info.command_line_length, mode);
     let (cwd, _) = read_detail_str(data, fixed + cmd_bytes, info.current_directory_length, mode);
-    format!(
-        "Parent PID: {}, Command line: {}, Current directory: {}",
-        { info.parent_id },
-        cmd,
-        cwd
-    )
+    [
+        format!("Parent PID: {}", { info.parent_id }),
+        format!("Command line: {cmd}"),
+        format!("Current directory: {cwd}"),
+    ]
+    .join(sep)
 }
 
 /// Formats a Windows `LARGE_INTEGER` time span (100 ns ticks) as fractional

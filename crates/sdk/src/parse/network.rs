@@ -157,13 +157,13 @@ impl OperationView for NetView<'_> {
         ))
     }
 
-    fn detail(&self) -> String {
+    fn detail(&self, sep: &str) -> String {
         // `Length` (from the binary header) then the ETW MOF extras Procmon
         // carries in order (seqnum/connid always; mss/… on connect; startime/
-        // endtime on send). Comma-joined single line, like the reg/file detail.
+        // endtime on send), `sep`-joined.
         let mut s = format!("Length: {}", self.net.length);
         for (k, v) in &self.net.extra {
-            s.push_str(", ");
+            s.push_str(sep);
             s.push_str(k);
             s.push_str(": ");
             s.push_str(v);
@@ -546,8 +546,13 @@ mod tests {
             decode_pml(net.op.to_pml(), &blob, &HashMap::new(), &HashMap::new()).expect("decode");
         assert_eq!(back.extra, net.extra, "MOF extras must round-trip");
         assert_eq!(
-            NetView::new(&back).detail(),
+            NetView::new(&back).detail(", "),
             "Length: 0, mss: 1460, seqnum: 0, connid: 7"
+        );
+        // Same fields, newline-separated — the detail panel's per-line view.
+        assert_eq!(
+            NetView::new(&back).detail("\n"),
+            "Length: 0\nmss: 1460\nseqnum: 0\nconnid: 7"
         );
     }
 
@@ -573,6 +578,6 @@ mod tests {
         let view = NetView::new(&net);
         assert_eq!(view.op_label(), "TCP Connect");
         assert_eq!(view.path().as_deref(), Some("10.0.0.1:1234 -> 1.2.3.4:443"));
-        assert_eq!(view.detail(), "Length: 512");
+        assert_eq!(view.detail(", "), "Length: 512");
     }
 }

@@ -81,7 +81,7 @@ impl<'a> FileView<'a> {
     }
 
     /// Detail for `IRP_MJ_CREATE`, mirroring Procmon's create columns.
-    fn create_detail(&self, data: &[u8]) -> String {
+    fn create_detail(&self, data: &[u8], sep: &str) -> String {
         let params = match Self::flt_params(data) {
             Some(p) => p,
             None => return String::new(),
@@ -107,19 +107,24 @@ impl<'a> FileView<'a> {
             .map(|c| c.desired_access)
             .unwrap_or(0);
 
-        let mut detail = format!(
-            "Desired Access: {}, Disposition: {}, Options: {}, Attributes: {}, ShareMode: {}, AllocationSize: {}",
-            strings::file_access_mask(desired_access),
-            strings::file_create_disposition(create_disposition),
-            strings::file_create_options(create_options),
-            strings::file_attributes(file_attributes),
-            strings::file_share_access(share_access),
-            allocation_size,
-        );
+        let mut fields = vec![
+            format!(
+                "Desired Access: {}",
+                strings::file_access_mask(desired_access)
+            ),
+            format!(
+                "Disposition: {}",
+                strings::file_create_disposition(create_disposition)
+            ),
+            format!("Options: {}", strings::file_create_options(create_options)),
+            format!("Attributes: {}", strings::file_attributes(file_attributes)),
+            format!("ShareMode: {}", strings::file_share_access(share_access)),
+            format!("AllocationSize: {allocation_size}"),
+        ];
         if let Some(ret) = self.open_result() {
-            detail.push_str(&format!(", OpenResult: {ret}"));
+            fields.push(format!("OpenResult: {ret}"));
         }
-        detail
+        fields.join(sep)
     }
 
     /// A structured file field by name — one of [`FILE_FIELDS`]. `None` for an
@@ -158,7 +163,7 @@ pub const FILE_FIELDS: &[(&str, bool, &str)] = &[
 
 impl FileView<'_> {
     /// Detail for read/write: byte offset and length from the FLT parameters.
-    fn rw_detail(data: &[u8], is_write: bool) -> String {
+    fn rw_detail(data: &[u8], is_write: bool, sep: &str) -> String {
         let params = match Self::flt_params(data) {
             Some(p) => p,
             None => return String::new(),
@@ -171,11 +176,11 @@ impl FileView<'_> {
                 (params.Read.Length, params.Read.ByteOffset)
             }
         };
-        format!("Offset: {offset}, Length: {length}")
+        format!("Offset: {offset}{sep}Length: {length}")
     }
 
     /// Detail for set-information: the information class and buffer length.
-    fn set_info_detail(data: &[u8]) -> String {
+    fn set_info_detail(data: &[u8], sep: &str) -> String {
         let params = match Self::flt_params(data) {
             Some(p) => p,
             None => return String::new(),
@@ -183,7 +188,7 @@ impl FileView<'_> {
         // SAFETY: active arm matches IRP_MJ_SET_INFORMATION.
         let info = unsafe { params.SetFileInformation };
         let (class, length) = (info.FileInformationClass.0, info.Length);
-        format!("FileInformationClass: {class}, Length: {length}")
+        format!("FileInformationClass: {class}{sep}Length: {length}")
     }
 
     /// Detail for set-security: the security information mask.
@@ -201,7 +206,7 @@ impl FileView<'_> {
     }
 
     /// Detail for query-information: the information class and buffer length.
-    fn query_info_detail(data: &[u8]) -> String {
+    fn query_info_detail(data: &[u8], sep: &str) -> String {
         let params = match Self::flt_params(data) {
             Some(p) => p,
             None => return String::new(),
@@ -209,7 +214,7 @@ impl FileView<'_> {
         // SAFETY: active arm matches IRP_MJ_QUERY_INFORMATION.
         let info = unsafe { params.QueryFileInformation };
         let (class, length) = (info.FileInformationClass.0, info.Length);
-        format!("FileInformationClass: {class}, Length: {length}")
+        format!("FileInformationClass: {class}{sep}Length: {length}")
     }
 
     /// Detail for query-security: the security information mask.
@@ -240,7 +245,7 @@ impl FileView<'_> {
 
     /// Detail for byte-range lock/unlock: offset, key and exclusivity (`Length` is
     /// a kernel pointer in `FLT_PARAMETERS`, so it is not available here).
-    fn lock_detail(data: &[u8]) -> String {
+    fn lock_detail(data: &[u8], sep: &str) -> String {
         let params = match Self::flt_params(data) {
             Some(p) => p,
             None => return String::new(),
@@ -248,7 +253,7 @@ impl FileView<'_> {
         // SAFETY: active arm matches IRP_MJ_LOCK_CONTROL.
         let lock = unsafe { params.LockControl };
         let (offset, key, exclusive) = (lock.ByteOffset, lock.Key, lock.ExclusiveLock.0 != 0);
-        format!("Offset: {offset}, Key: {key}, ExclusiveLock: {exclusive}")
+        format!("Offset: {offset}{sep}Key: {key}{sep}ExclusiveLock: {exclusive}")
     }
 }
 
@@ -270,20 +275,20 @@ impl OperationView for FileView<'_> {
         })
     }
 
-    fn detail(&self) -> String {
+    fn detail(&self, sep: &str) -> String {
         let data = self.ev.pre_data();
         match self.major() {
-            Some(irp_mj::CREATE) => self.create_detail(data),
-            Some(irp_mj::READ) => Self::rw_detail(data, false),
-            Some(irp_mj::WRITE) => Self::rw_detail(data, true),
-            Some(irp_mj::SET_INFORMATION) => Self::set_info_detail(data),
-            Some(irp_mj::QUERY_INFORMATION) => Self::query_info_detail(data),
+            Some(irp_mj::CREATE) => self.create_detail(data, sep),
+            Some(irp_mj::READ) => Self::rw_detail(data, false, sep),
+            Some(irp_mj::WRITE) => Self::rw_detail(data, true, sep),
+            Some(irp_mj::SET_INFORMATION) => Self::set_info_detail(data, sep),
+            Some(irp_mj::QUERY_INFORMATION) => Self::query_info_detail(data, sep),
             Some(irp_mj::SET_SECURITY) => Self::set_security_detail(data),
             Some(irp_mj::QUERY_SECURITY) => Self::query_security_detail(data),
             Some(irp_mj::DEVICE_CONTROL) | Some(irp_mj::INTERNAL_DEVICE_CONTROL) => {
                 Self::device_io_detail(data)
             }
-            Some(irp_mj::LOCK_CONTROL) => Self::lock_detail(data),
+            Some(irp_mj::LOCK_CONTROL) => Self::lock_detail(data, sep),
             _ => String::new(),
         }
     }

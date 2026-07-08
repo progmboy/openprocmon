@@ -30,8 +30,14 @@ use std::sync::Arc;
 pub(crate) trait OperationView {
     /// Target path/key/image, or `None` if the operation carries none.
     fn path(&self) -> Option<String>;
-    /// Operation-specific detail, or empty if there is none to show.
-    fn detail(&self) -> String;
+    /// Operation-specific detail, or empty if there is none to show. `sep`
+    /// joins the individual fields: `", "` for the one-line table/CLI form,
+    /// `"\n"` for the detail panel's one-field-per-line view (Procmon's
+    /// properties dialog). Passing the separator here — rather than joining
+    /// with a fixed delimiter and splitting later — keeps field values that
+    /// themselves contain commas or newlines (a registry `REG_SZ`, a command
+    /// line) unambiguous.
+    fn detail(&self, sep: &str) -> String;
 }
 
 /// Where an event's detail bytes came from. The two forms differ ONLY in string

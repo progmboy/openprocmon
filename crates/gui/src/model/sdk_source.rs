@@ -268,7 +268,7 @@ fn event_detail(
         path: row.path(),
         result: row.result(),
         result_kind: row.result_kind(),
-        other_details: row.detail(),
+        other_details: row.detail_multiline(),
         // Target-file version/company/signature are not yet surfaced by the SDK.
         target_version: None,
         target_company: None,
