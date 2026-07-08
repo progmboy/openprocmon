@@ -254,7 +254,17 @@ impl Correlator {
             // the watermark, update the process table, then stage it.
             self.max_seen = self.max_seen.max(time);
             if monitor == MonitorType::Process {
+                let notify = entry.notify();
                 proc::track(mgr, self.metadata.as_deref(), record.entry(), record.data());
+                // A Process INIT record ("Process Defined") is the synthetic entry
+                // the driver replays for every process already running at capture
+                // start — its only purpose is to seed the process table above. It
+                // is never surfaced as an event (cf. C++ `CDataView::Push`, which
+                // drops `MONITOR_TYPE_PROCESS + NOTIFY_PROCESS_INIT`), so no
+                // consumer — GUI, PML, CLI — shows a flood of them.
+                if notify == crate::kernel_types::proc_notify::INIT {
+                    continue;
+                }
             }
 
             if status == STATUS_PENDING {
@@ -563,6 +573,22 @@ mod tests {
         assert_eq!(mgr.by_pid(1234).unwrap().info.image_path, image);
         // And the event carries the process snapshot.
         assert_eq!(ev.process().unwrap().info.pid, 1234);
+    }
+
+    #[test]
+    fn process_init_seeds_table_but_emits_no_event() {
+        // A Process INIT ("Process Defined") record seeds the process table but is
+        // never surfaced as an event (like the C++ GUI's dataview, which drops it).
+        let image = "\\Device\\HarddiskVolume999\\Windows\\explorer.exe";
+        let data = proc_create_data(7, 4321, image, "explorer.exe");
+        let mut pre = entry_bytes(1, proc_notify::INIT, 7, 0, &data);
+        pre[0..4].copy_from_slice(&7i32.to_le_bytes());
+
+        let mgr = ProcessManager::new();
+        let events = parse_block_tracked(&pre, &mgr);
+        assert!(events.is_empty(), "INIT must not emit an event");
+        // But the process table was seeded from it.
+        assert_eq!(mgr.by_pid(4321).unwrap().info.image_path, image);
     }
 
     #[test]
