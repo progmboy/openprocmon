@@ -8,7 +8,6 @@ use std::sync::Arc;
 use procmon_sdk::{Event, PmlReader, Result};
 
 use crate::query::Expr;
-use crate::record::{basename, ModuleRow};
 
 /// Output format for [`export`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,24 +219,23 @@ fn export_xml(
         leaf(&mut w, "Detail", &ev.detail())?;
         leaf(&mut w, "User", &ev.user().unwrap_or_default())?;
         if include_stacks {
-            let mods: Vec<ModuleRow> = ev
-                .modules()
+            let modules = ev.modules();
+            let mods: Vec<procmon_sdk::SymModule> = modules
                 .iter()
-                .map(|m| ModuleRow {
-                    name: basename(&m.path),
-                    path: m.path.clone(),
+                .map(|m| procmon_sdk::SymModule {
                     base: m.base,
                     size: m.size as u64,
+                    path: &m.path,
                 })
                 .collect();
             start(&mut w, "stack")?;
             for (depth, frame) in ev.call_stack().iter().enumerate() {
                 let addr = frame.address();
-                let (location, fpath) = frame_location(addr, &mods);
+                let (_, location, fpath) = procmon_sdk::resolve_frame(addr, &mods, &[]);
                 start(&mut w, "frame")?;
                 leaf(&mut w, "depth", &depth.to_string())?;
                 leaf(&mut w, "address", &format!("0x{addr:x}"))?;
-                leaf(&mut w, "path", &fpath)?;
+                leaf(&mut w, "path", fpath)?;
                 leaf(&mut w, "location", &location)?;
                 end(&mut w, "frame")?;
             }
@@ -254,16 +252,3 @@ fn export_xml(
     Ok(events.len())
 }
 
-/// `("module+0xoff", path)` for an address, or `("0x….", "")` if outside any
-/// known module.
-fn frame_location(addr: u64, mods: &[ModuleRow]) -> (String, String) {
-    mods.iter()
-        .find(|m| m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size))
-        .map(|m| {
-            (
-                format!("{} + 0x{:x}", m.name, addr - m.base),
-                m.path.clone(),
-            )
-        })
-        .unwrap_or_else(|| (format!("0x{addr:016x}"), String::new()))
-}

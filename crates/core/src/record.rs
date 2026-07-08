@@ -139,7 +139,7 @@ impl ProcessDetail {
                 .modules
                 .iter()
                 .map(|m| ModuleRow {
-                    name: basename(&m.image_path),
+                    name: procmon_sdk::basename(&m.image_path).to_string(),
                     path: m.image_path.to_string(),
                     base: m.base_address,
                     size: m.size as u64,
@@ -178,9 +178,4 @@ impl ProcessNode {
             children: Vec::new(),
         }
     }
-}
-
-/// Returns the file-name component of a `\`- or `/`-separated path.
-pub(crate) fn basename(path: &str) -> String {
-    path.rsplit(['\\', '/']).next().unwrap_or(path).to_string()
 }

@@ -134,7 +134,7 @@ impl CaptureSession {
         // launched process (if any). Name matches also grow dynamically.
         let mut scope = PidScope::new(&spec.process_names, &spec.pids, spec.include_children);
         for rec in controller.processes().snapshot() {
-            let base = rec.info.image_path.rsplit(['\\', '/']).next().unwrap_or("");
+            let base = procmon_sdk::basename(&rec.info.image_path);
             if spec
                 .process_names
                 .iter()

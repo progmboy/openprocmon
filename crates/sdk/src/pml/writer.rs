@@ -396,11 +396,7 @@ impl PmlWriter {
 fn pml_process_from(rec: &ProcessRecord, index: u32) -> PmlProcess {
     let info = &rec.info;
     let image_dos = crate::path::nt_to_dos(&info.image_path);
-    let name = image_dos
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let name = crate::path::basename(&image_dos).to_string();
     let (hi, lo) = info.authentication_id;
     let user = info
         .user_sid

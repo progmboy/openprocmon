@@ -520,10 +520,7 @@ impl Event {
     /// Process image file name (basename) (`emProcessName`).
     pub fn process_name(&self) -> Option<&str> {
         match &self.proc {
-            ProcessSource::Live(_) => self.info().map(|i| {
-                let p = &i.image_path;
-                p.rsplit(['\\', '/']).next().unwrap_or(p)
-            }),
+            ProcessSource::Live(_) => self.info().map(|i| crate::path::basename(&i.image_path)),
             ProcessSource::Pml(..) => self.pml_proc().map(|p| p.process_name.as_ref()),
         }
     }

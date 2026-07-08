@@ -45,4 +45,5 @@ pub use pml::{PmlIcon, PmlProcess, PmlReader, PmlWriter};
 pub use process::{Module, ProcessInfo, ProcessManager, ProcessMeta, ProcessRecord};
 pub use resolver::AddressResolver;
 pub use source::EventSource;
-pub use symbols::{SymModule, SymbolResolver};
+pub use path::basename;
+pub use symbols::{is_kernel_address, resolve_frame, SymModule, SymbolResolver};

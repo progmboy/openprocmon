@@ -309,7 +309,7 @@ fn top_procs(co: &Co, stats: &SummaryStats) -> impl IntoElement {
         .max(1) as f32;
     v_flex().children(stats.top_proc.iter().map(|(name, n, icon)| {
         let ratio = *n as f32 / max;
-        let color = proc_color(name, &co.pal);
+        let color = co.pal.proc_color(name);
         h_flex()
             .items_center()
             .gap(px(10.))
@@ -355,14 +355,4 @@ fn track(co: &Co, ratio: f32, color: Hsla) -> impl IntoElement {
         )
 }
 
-fn proc_color(name: &str, pal: &ProcmonPalette) -> Hsla {
-    let h = name.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32));
-    match h % 6 {
-        0 => pal.op_registry,
-        1 => pal.op_file,
-        2 => pal.op_network,
-        3 => pal.op_process,
-        4 => pal.op_thread,
-        _ => pal.op_perf,
-    }
-}
+

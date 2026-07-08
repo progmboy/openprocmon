@@ -47,6 +47,35 @@ pub struct SymModule<'a> {
     pub path: &'a str,
 }
 
+/// Whether `addr` is a kernel-mode address (the canonical upper half) — the
+/// single source for the frame-kind threshold used everywhere a call stack is
+/// displayed or exported.
+pub fn is_kernel_address(addr: u64) -> bool {
+    addr >= 0xFFFF_0000_0000_0000
+}
+
+/// Resolves a frame address to `(module basename, "module + 0xoffset", full
+/// path)`, searching the originating process's modules then the System (PID 4)
+/// kernel-driver modules (so user- and kernel-mode frames both resolve).
+/// Outside every module it falls back to `("<UNKNOWN>", "0x{addr:016x}", "")`.
+/// Module-range resolution only — symbol (PDB) resolution is the separate,
+/// optional [`SymbolResolver`] overlay.
+pub fn resolve_frame<'a>(
+    addr: u64,
+    proc_mods: &'a [SymModule<'a>],
+    kernel_mods: &'a [SymModule<'a>],
+) -> (&'a str, String, &'a str) {
+    proc_mods
+        .iter()
+        .chain(kernel_mods.iter())
+        .find(|m| m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size))
+        .map(|m| {
+            let name = basename(m.path);
+            (name, format!("{} + 0x{:x}", name, addr - m.base), m.path)
+        })
+        .unwrap_or_else(|| ("<UNKNOWN>", format!("0x{addr:016x}"), ""))
+}
+
 // dbghelp entry points we resolve dynamically from the configured DLL (so the call
 // goes to *that* dbghelp, not whatever the loader would bind statically).
 type FnSymSetOptions = unsafe extern "system" fn(u32) -> u32;
@@ -268,11 +297,7 @@ impl Drop for Inner {
     }
 }
 
-/// The file-name component of a `\`/`/`-separated path.
-fn basename(path: &str) -> &str {
-    path.rsplit(['\\', '/']).next().unwrap_or(path)
-}
-
+use crate::path::basename;
 use core::mem::size_of;
 
 #[cfg(test)]
@@ -288,9 +313,27 @@ mod tests {
     }
 
     #[test]
-    fn basename_handles_both_separators() {
-        assert_eq!(basename(r"C:\Windows\System32\ntdll.dll"), "ntdll.dll");
-        assert_eq!(basename("/usr/lib/libc.so"), "libc.so");
-        assert_eq!(basename("kernel32.dll"), "kernel32.dll");
+    fn resolve_frame_hits_and_falls_back() {
+        let mods = [SymModule {
+            base: 0x7FF6_0000_0000,
+            size: 0x1000,
+            path: r"C:\Windows\System32\ntdll.dll",
+        }];
+        let (name, location, path) = resolve_frame(0x7FF6_0000_0010, &mods, &[]);
+        assert_eq!(name, "ntdll.dll");
+        assert_eq!(location, "ntdll.dll + 0x10");
+        assert_eq!(path, r"C:\Windows\System32\ntdll.dll");
+
+        let (name, location, path) = resolve_frame(0x1000, &mods, &[]);
+        assert_eq!(name, "<UNKNOWN>");
+        assert_eq!(location, "0x0000000000001000");
+        assert_eq!(path, "");
+    }
+
+    #[test]
+    fn kernel_address_threshold() {
+        assert!(is_kernel_address(0xFFFF_0000_0000_0000));
+        assert!(is_kernel_address(0xFFFF_8000_0000_0001));
+        assert!(!is_kernel_address(0x7FF6_0000_0000));
     }
 }

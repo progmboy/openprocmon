@@ -241,7 +241,7 @@ fn th(label: String, width: Option<Pixels>, num: bool, co: &Co) -> impl IntoElem
 
 /// One data row (design `.sum-table td` + `tr:hover`).
 fn data_row(r: &ProcRow, co: &Co) -> impl IntoElement {
-    let icon_color = proc_color(&r.name, &co.pal);
+    let icon_color = co.pal.proc_color(&r.name);
     h_flex()
         .items_center()
         .border_b_1()
@@ -354,15 +354,4 @@ fn aggregate(rows: &[EventSummaryRow]) -> Vec<ProcRow> {
     out
 }
 
-/// A deterministic accent for a process's app-icon, varied by name.
-fn proc_color(name: &str, pal: &ProcmonPalette) -> Hsla {
-    let h = name.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32));
-    match h % 6 {
-        0 => pal.op_registry,
-        1 => pal.op_file,
-        2 => pal.op_network,
-        3 => pal.op_process,
-        4 => pal.op_thread,
-        _ => pal.op_perf,
-    }
-}
+

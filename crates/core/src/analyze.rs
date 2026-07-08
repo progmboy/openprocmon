@@ -329,51 +329,44 @@ pub fn pml_info(reader: &Arc<PmlReader>) -> PmlInfo {
     }
 }
 
-/// Resolves each call-stack frame address to `module+offset` (cf. the GUI's
-/// `frame_module`). User-mode frames resolve against the originating process's
-/// modules, kernel-mode frames against the System (PID 4) driver modules; both
-/// lists are searched so either kind resolves. Kernel vs user is inferred from the
-/// high address bits.
+/// Resolves each call-stack frame address to `module+offset` via the SDK's
+/// [`procmon_sdk::resolve_frame`]: user-mode frames against the originating
+/// process's modules, kernel-mode frames against the System (PID 4) driver
+/// modules (both lists are searched so either kind resolves).
 fn resolve_stack(
     ev: &Event,
     proc_mods: &[ModuleRow],
     kernel_mods: &[ModuleRow],
 ) -> Vec<StackFrameRow> {
+    fn views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
+        mods.iter()
+            .map(|m| procmon_sdk::SymModule {
+                base: m.base,
+                size: m.size,
+                path: &m.path,
+            })
+            .collect()
+    }
+    let proc_mods = views(proc_mods);
+    let kernel_mods = views(kernel_mods);
     ev.call_stack()
         .iter()
         .enumerate()
         .map(|(i, f)| {
             let addr = f.address();
-            let kind = if addr >= 0xFFFF_0000_0000_0000 {
+            let kind = if procmon_sdk::is_kernel_address(addr) {
                 "K"
             } else {
                 "U"
             };
-            let (module, location, path) = proc_mods
-                .iter()
-                .chain(kernel_mods.iter())
-                .find(|m| m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size))
-                .map(|m| {
-                    (
-                        m.name.clone(),
-                        format!("{} + 0x{:x}", m.name, addr - m.base),
-                        m.path.clone(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    (
-                        "<UNKNOWN>".to_string(),
-                        format!("0x{addr:016x}"),
-                        String::new(),
-                    )
-                });
+            let (module, location, path) = procmon_sdk::resolve_frame(addr, &proc_mods, &kernel_mods);
             StackFrameRow {
                 frame: i as u32,
                 kind,
-                module,
+                module: module.to_string(),
                 location,
                 address: format!("0x{addr:x}"),
-                path,
+                path: path.to_string(),
             }
         })
         .collect()

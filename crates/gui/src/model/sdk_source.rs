@@ -13,7 +13,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender};
-use procmon_sdk::{DriverLoader, MonitorController, MonitorFlags, ProcessRecord};
+use procmon_sdk::{basename, DriverLoader, MonitorController, MonitorFlags, ProcessRecord};
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{
@@ -314,56 +314,48 @@ fn rows_from_modules(mods: Vec<Arc<procmon_sdk::Module>>) -> Vec<ModuleRow> {
 }
 
 /// The call stack as `StackRow`s. Each frame address is resolved to its loaded
-/// module (name/`module+offset`/path) via the process's module ranges; symbol
-/// resolution is deferred. Kernel vs user is inferred from the high address bits.
+/// module (name/`module+offset`/path) via [`procmon_sdk::resolve_frame`]:
+/// user-mode frames against the originating process's modules, kernel frames
+/// against the System (PID 4) driver modules. Symbol resolution is deferred.
 fn sdk_stack(
     ev: &procmon_sdk::Event,
     proc_mods: &[ModuleRow],
     kernel_mods: &[ModuleRow],
 ) -> Vec<StackRow> {
+    let proc_views = sym_views(proc_mods);
+    let kernel_views = sym_views(kernel_mods);
     ev.call_stack()
         .iter()
         .enumerate()
         .map(|(i, f)| {
             let addr = f.address();
-            let kind = if addr >= 0xFFFF_0000_0000_0000 {
+            let kind = if procmon_sdk::is_kernel_address(addr) {
                 FrameKind::Kernel
             } else {
                 FrameKind::User
             };
-            let (module, location, path) = frame_module(addr, proc_mods, kernel_mods);
+            let (module, location, path) = procmon_sdk::resolve_frame(addr, &proc_views, &kernel_views);
             StackRow {
                 frame: i as u32,
                 kind,
-                module,
-                location,
+                module: module.to_string().into(),
+                location: location.into(),
                 address: addr,
-                path,
+                path: path.to_string().into(),
             }
         })
         .collect()
 }
 
-/// Resolves a frame address to `(module basename, "module+offset", full path)`.
-/// User-mode frames resolve against the originating process's modules; kernel
-/// frames against the System (PID 4) driver modules. Frames outside any known
-/// module fall back to "UNKNOWN" with the raw address and empty path.
-fn frame_module(
-    addr: u64,
-    proc_mods: &[ModuleRow],
-    kernel_mods: &[ModuleRow],
-) -> (gpui::SharedString, gpui::SharedString, gpui::SharedString) {
-    for m in proc_mods.iter().chain(kernel_mods.iter()) {
-        if m.size > 0 && addr >= m.base && addr < m.base.saturating_add(m.size) {
-            let location = format!("{} + 0x{:x}", m.name, addr - m.base).into();
-            return (m.name.clone(), location, m.path.clone());
-        }
-    }
-    (
-        "<UNKNOWN>".into(),
-        format!("0x{addr:016x}").into(),
-        "".into(),
-    )
+/// Borrowed [`procmon_sdk::SymModule`] views over display `ModuleRow`s.
+fn sym_views(mods: &[ModuleRow]) -> Vec<procmon_sdk::SymModule<'_>> {
+    mods.iter()
+        .map(|m| procmon_sdk::SymModule {
+            base: m.base,
+            size: m.size,
+            path: m.path.as_ref(),
+        })
+        .collect()
 }
 
 /// Builds the parent→child process tree from a flat snapshot (by PID).
@@ -416,9 +408,6 @@ fn record_node(rec: &ProcessRecord) -> ProcessNode {
     }
 }
 
-fn basename(path: &str) -> String {
-    path.rsplit(['\\', '/']).next().unwrap_or(path).to_string()
-}
 
 // ---------------------------------------------------------------------------
 // PmlSource — offline File ▸ Open .PML viewing.
@@ -752,16 +741,16 @@ pub(crate) fn export_xml(
             start(&mut w, "stack")?;
             for (depth, frame) in ev.call_stack().iter().enumerate() {
                 let addr = frame.address();
-                let (_, fallback, fpath) = frame_module(addr, &proc_mods, kernel_mods);
+                let (_, fallback, fpath) = procmon_sdk::resolve_frame(addr, &symmods, &[]);
                 // Prefer a resolved symbol; fall back to "module+offset" otherwise.
                 let location = symbols
                     .and_then(|r| r.resolve(addr, &symmods))
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| fallback.to_string());
+                    .unwrap_or(fallback);
                 start(&mut w, "frame")?;
                 leaf(&mut w, "depth", &depth.to_string())?;
                 leaf(&mut w, "address", &format!("0x{:x}", addr))?;
-                leaf(&mut w, "path", &fpath)?;
+                leaf(&mut w, "path", fpath)?;
                 leaf(&mut w, "location", &location)?;
                 end(&mut w, "frame")?;
             }
