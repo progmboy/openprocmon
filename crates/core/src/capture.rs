@@ -14,7 +14,9 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use procmon_sdk::{DriverLoader, Event, MonitorController, MonitorFlags, PmlWriter, Result};
+use procmon_sdk::{
+    DriverLoader, Event, EventClass, MonitorController, MonitorFlags, PmlWriter, Result,
+};
 use serde::Serialize;
 
 use crate::query::Expr;
@@ -153,6 +155,7 @@ impl CaptureSession {
         let thread_stop = Arc::clone(&stop);
         let thread_out = out_path.clone();
         let filter = spec.filter;
+        let monitors = spec.monitors;
         let handle = std::thread::Builder::new()
             .name("procmon-capture".into())
             .spawn(move || {
@@ -161,6 +164,7 @@ impl CaptureSession {
                     rx,
                     scope,
                     filter,
+                    monitors,
                     limits,
                     thread_stop,
                     thread_out,
@@ -229,6 +233,21 @@ pub fn capture(
     CaptureSession::start(loader, spec, limits, out_path)?.wait()
 }
 
+/// Whether an event of `class` should be written, given the user's `--monitor`
+/// selection. Process monitoring is always on at the kernel (infrastructure),
+/// so its events reach here even when the user did not select Process — this
+/// gate keeps them out of the PML unless they asked. Profiling / Other are not
+/// source-selectable, so they pass through.
+fn category_selected(class: EventClass, monitors: MonitorFlags) -> bool {
+    match class {
+        EventClass::Process => monitors.contains(MonitorFlags::PROCESS),
+        EventClass::File => monitors.contains(MonitorFlags::FILE),
+        EventClass::Registry => monitors.contains(MonitorFlags::REGISTRY),
+        EventClass::Network => monitors.contains(MonitorFlags::NETWORK),
+        EventClass::Profiling | EventClass::Other => true,
+    }
+}
+
 /// The relay thread body: drain events into the scoped, filtered PML writer.
 #[allow(clippy::too_many_arguments)]
 fn run_capture(
@@ -236,6 +255,7 @@ fn run_capture(
     rx: crossbeam_channel::Receiver<Event>,
     mut scope: PidScope,
     filter: Option<Expr>,
+    monitors: MonitorFlags,
     limits: CaptureLimits,
     stop: Arc<AtomicBool>,
     out_path: PathBuf,
@@ -265,7 +285,14 @@ fn run_capture(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(ev) => {
                 scope.observe(&ev);
+                // Process monitoring is always on at the kernel (infrastructure:
+                // process table + module list for stack resolution), but only the
+                // categories the user selected via `--monitor` are written — so a
+                // network-only capture gets process metadata/stacks without the
+                // process/image-load event rows. This is the write-side mirror of
+                // the GUI's per-category display filter.
                 if ev.pid() != own_pid
+                    && category_selected(ev.class(), monitors)
                     && scope.contains(&ev)
                     && filter.as_ref().is_none_or(|f| f.matches(&ev))
                 {

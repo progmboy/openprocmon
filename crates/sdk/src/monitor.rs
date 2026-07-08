@@ -49,6 +49,23 @@ impl MonitorFlags {
         }
         bits
     }
+
+    /// The minifilter control bits actually sent to the driver: process
+    /// monitoring is forced on whenever *any* source is active, because it is
+    /// infrastructure — the process table (identity + metadata) and, via
+    /// image-load events, every process's module list (which all call-stack
+    /// resolution depends on). Without it a frame in a module loaded after the
+    /// process was first seen resolves to `<UNKNOWN>`, and an ETW network event
+    /// (which bypasses the driver) has no process at all. Procmon does the same;
+    /// its "Process" toolbar toggle is a display filter, not a kernel gate. Only
+    /// an empty selection (full stop) turns everything off.
+    fn active_minifilter_bits(self) -> u32 {
+        if self.is_empty() {
+            monitor_flags::ALL_CLOSE
+        } else {
+            self.minifilter_bits() | monitor_flags::PROC_ON
+        }
+    }
 }
 
 /// Threads/sessions that exist only while monitoring is active.
@@ -164,7 +181,11 @@ impl MonitorController {
         // Enable the selected sources now that the receiver is running (cf. C++
         // `Start` -> `Control(m_dwControl)`). On error the pipeline is already
         // stored, so `Drop`/`stop` tears it down.
-        self.port.send_control(self.flags.minifilter_bits())?;
+        //
+        // `active_minifilter_bits` forces process monitoring on (infrastructure —
+        // see its doc), so the kernel keeps it on whatever the toolbar selects.
+        self.port
+            .send_control(self.flags.active_minifilter_bits())?;
         Ok(rx_b)
     }
 
@@ -235,5 +256,35 @@ impl MonitorController {
 impl Drop for MonitorController {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_bits_force_process_unless_fully_off() {
+        // Network-only (ETW, no minifilter bits) still turns process on so the
+        // process table / module list exist for the network events.
+        assert_eq!(
+            MonitorFlags::NETWORK.active_minifilter_bits(),
+            monitor_flags::PROC_ON
+        );
+        // Registry-only gets process too (module list stays current for stacks).
+        assert_eq!(
+            MonitorFlags::REGISTRY.active_minifilter_bits(),
+            monitor_flags::REG_ON | monitor_flags::PROC_ON
+        );
+        // A full stop turns everything off.
+        assert_eq!(
+            MonitorFlags::empty().active_minifilter_bits(),
+            monitor_flags::ALL_CLOSE
+        );
+        // Process already selected: idempotent.
+        assert_eq!(
+            (MonitorFlags::PROCESS | MonitorFlags::FILE).active_minifilter_bits(),
+            monitor_flags::PROC_ON | monitor_flags::FILE_ON
+        );
     }
 }
