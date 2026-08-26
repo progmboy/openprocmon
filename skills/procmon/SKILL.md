@@ -200,10 +200,30 @@ procmon-cli pml-info --pml cap.pml      # event count, computer, OS
 
 ## As an MCP server
 
-`procmon-cli mcp` serves the same operations as MCP tools over stdio
-(`capture`, `start_capture`/`stop_capture`, `query_events`, `process_timeline`,
-`event_window`, `get_event`, `get_process`, `list_processes`, `process_tree`,
-`summary`, `export`, `pml_info`, `list_filter_columns`, `driver_status`). Tools take a `source` of a
-finished `session_id` or a `pml_path`, and `query_events`/`export`/`capture` take
-the same `filter` expression string described above. The server's `instructions`
-and the `list_filter_columns` tool carry the same syntax and recipes as this skill.
+`procmon-cli mcp` serves the same operations as MCP tools over stdio. The MCP
+tool names are snake_case and are **not** CLI subcommands — do not call them as
+`procmon-cli <name>`; the CLI only has the kebab-case subcommands shown above
+and a one-shot `capture` (no `start_capture`/`stop_capture`, which are
+MCP-only). MCP tools take a `source` of a finished `session_id` or a `pml_path`,
+and accept the same `filter` expression. Mapping to the CLI:
+
+| MCP tool            | CLI subcommand |
+|---------------------|----------------|
+| `capture`           | `capture`      |
+| `start_capture`     | (MCP-only)     |
+| `stop_capture`      | (MCP-only)     |
+| `query_events`      | `query`        |
+| `process_timeline`  | `timeline`     |
+| `event_window`      | `window`       |
+| `get_event`         | `get-event`    |
+| `get_process`       | `get-process`  |
+| `list_processes`    | `processes`    |
+| `process_tree`      | `tree`         |
+| `summary`           | `summary`      |
+| `export`            | `export`       |
+| `pml_info`          | `pml-info`     |
+| `list_filter_columns` | `vocab`      |
+| `driver_status`     | `driver-status`|
+
+The server's `instructions` and the `list_filter_columns` tool carry the same
+syntax and recipes as this skill.
