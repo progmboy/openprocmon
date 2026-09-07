@@ -13,12 +13,12 @@
 //! to the actions in `actions.rs`, dispatched to `AppView`'s focus context so its
 //! `on_action` handlers run.
 
-use gpui::{
+use gpui_kit::component::{h_flex, menu::PopupMenu, ActiveTheme, Icon, StyledExt, TitleBar};
+use gpui_kit::{
     anchored, deferred, div, prelude::FluentBuilder, px, Anchor, Context, DismissEvent, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
-use gpui_component::{h_flex, menu::PopupMenu, ActiveTheme, Icon, StyledExt, TitleBar};
 use rust_i18n::t;
 
 use crate::app::AppView;
@@ -50,7 +50,7 @@ fn row(
     label: String,
     shortcut: Option<String>,
     check: Option<bool>,
-    cx: &gpui::App,
+    cx: &gpui_kit::App,
 ) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     let accent = cx.theme().primary;
@@ -105,7 +105,7 @@ fn it(
     menu: PopupMenu,
     icon: PmIcon,
     key: &str,
-    action: Box<dyn gpui::Action>,
+    action: Box<dyn gpui_kit::Action>,
     shortcut: Option<&'static str>,
 ) -> PopupMenu {
     let label = t!(key).to_string();
@@ -121,7 +121,7 @@ fn itc(
     icon: PmIcon,
     key: &str,
     checked: bool,
-    action: Box<dyn gpui::Action>,
+    action: Box<dyn gpui_kit::Action>,
     shortcut: Option<&'static str>,
 ) -> PopupMenu {
     let label = t!(key).to_string();
@@ -479,7 +479,7 @@ impl Render for MenuBar {
 
 /// Renders the full title bar: brand mark + the menu bar (left-aligned), inside a
 /// `TitleBar` (which adds the window controls + drag, and hides the OS bar).
-pub(crate) fn render(menu_bar: &Entity<MenuBar>, cx: &gpui::App) -> impl IntoElement {
+pub(crate) fn render(menu_bar: &Entity<MenuBar>, cx: &gpui_kit::App) -> impl IntoElement {
     let fg = cx.theme().foreground;
 
     // Brand (design `.brand`): a 16px gradient logo square + the product name.

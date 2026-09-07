@@ -463,10 +463,14 @@ fn decode_stackwalk(data: &[u8]) -> Option<(i64, Vec<crate::kernel_types::StackF
         return None;
     }
     let timestamp = i64::from_le_bytes(data.get(0..8)?.try_into().ok()?);
-    // x64: each frame is an 8-byte address. `chunks_exact` drops any tail.
+    // x64: each frame is an 8-byte address. `as_chunks` hands back the whole
+    // chunks and any short tail separately, so taking `.0` drops the tail and
+    // each chunk is already a `[u8; 8]` — no fallible conversion to unwrap.
     let frames = data[HEADER..]
-        .chunks_exact(8)
-        .map(|c| StackFrame::from_addr(u64::from_le_bytes(c.try_into().unwrap())))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| StackFrame::from_addr(u64::from_le_bytes(*c)))
         .collect();
     Some((timestamp, frames))
 }

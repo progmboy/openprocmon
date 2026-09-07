@@ -1,6 +1,11 @@
-//! procmon-gui — a gpui + gpui-component rebuild of the OpenProcessMonitor
-//! "Process Monitor" UI, driven by the real kernel-driver SDK (live capture) and
-//! the PML reader (offline `.PML` viewing).
+//! procmon-gui — a gpui-kit rebuild of the OpenProcessMonitor "Process Monitor"
+//! UI, driven by the real kernel-driver SDK (live capture) and the PML reader
+//! (offline `.PML` viewing).
+//!
+//! `gpui-kit` is one crates.io dependency covering the whole stack: `gpui_kit::*`
+//! re-exports gpui itself, `gpui_kit::component` the styled component library
+//! (formerly the standalone `gpui-component` crate), `gpui_kit::assets` its
+//! bundled Lucide icons.
 
 // Release builds are pure GUI apps: use the Windows GUI subsystem so launching the
 // exe never spawns a console window. Debug builds keep the console so `tracing`
@@ -17,19 +22,20 @@ mod sysicon;
 mod theme;
 
 use app::AppView;
-use gpui::{px, size, AppContext, Bounds, WindowBounds, WindowOptions};
-use gpui_component::{Root, TitleBar};
+use gpui_kit::component::{Root, TitleBar};
+use gpui_kit::{px, size, AppContext, Bounds, WindowBounds, WindowOptions};
 use icons::Assets;
 
 // Loads `locales/*.yml` for this crate's `t!` calls (English fallback).
 rust_i18n::i18n!("locales", fallback = "en");
 
 fn main() {
-    // master gpui has no `Application::new()`; the platform-backed app is created
-    // by `gpui_platform::application()` (this is also what the gpui-component story
-    // app uses as its entry point).
-    gpui_platform::application().with_assets(Assets).run(|cx| {
-        gpui_component::init(cx);
+    // gpui has no `Application::new()`; the platform-backed app is created by
+    // `gpui_kit::application()` (this is also what the gpui-kit story app uses as
+    // its entry point).
+    gpui_kit::application().with_assets(Assets).run(|cx| {
+        // Initializes the component layer (and, through it, gpui-base).
+        gpui_kit::init(cx);
         theme::init(cx);
         actions::bind_keys(cx);
 

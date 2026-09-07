@@ -3,11 +3,11 @@
 //! `FormDialog`). Just a gradient logo, the product name, a tagline, a description
 //! and a copyright line, over an OK footer. Stateless, so it's built inline.
 
-use gpui::{div, px, App, IntoElement, ParentElement, Styled};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex, v_flex, ActiveTheme, StyledExt, WindowExt,
 };
+use gpui_kit::{div, px, App, IntoElement, ParentElement, Styled};
 use rust_i18n::t;
 
 /// The card body (design `.about` body: centered, `padding: 30px 26px`).

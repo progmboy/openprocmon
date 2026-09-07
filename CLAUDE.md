@@ -40,7 +40,7 @@ openprocmon/
 │   ├── sdk/               #   procmon-sdk: driver comms + event parsing + PML read/write
 │   │   ├── benches/       #     baseline.rs: CPU+memory bench (see BASELINE.md)
 │   │   └── src/           #     monitor/pipeline/parse/event/filter/pml/...
-│   ├── gui/               #   procmon-gui: gpui-component GUI on top of the SDK
+│   ├── gui/               #   procmon-gui: gpui-kit GUI on top of the SDK
 │   │   ├── locales/       #     en/zh strings (rust-i18n)
 │   │   ├── themes/        #     procmon.json (light/dark ThemeConfig + palette)
 │   │   └── src/           #     app/model/components/dialogs
@@ -155,8 +155,13 @@ Driver loader; installs/starts/stops the kernel driver via the SCM (Service Cont
 ## Rust GUI Notes
 
 ### Stack
-- **gpui** — Zed's UI framework (git)
-- **gpui-component** — component library for gpui (git)
+- **gpui-kit** (crates.io, single dependency) — bundles the whole GPUI stack and
+  pins a matching set. Upstream renamed the `gpui-component` project to
+  `gpui-kit`; the component layer still exists under that name inside it.
+  - `gpui_kit::*` — gpui itself (Zed's UI framework)
+  - `gpui_kit::component` — the styled component library (ex-`gpui-component`)
+  - `gpui_kit::assets` — its bundled Lucide icon assets
+  - `gpui_kit::application()` / `gpui_kit::init(cx)` — entry point + init
 - rust-i18n for en/zh localization; theme in `crates/gui/themes/procmon.json`
 
 ### Structure
@@ -192,6 +197,6 @@ The driver is installed via the SCM; run the GUI elevated. With the default `emb
 - Rust code follows standard Rust style (rustfmt); CI enforces `cargo clippy --workspace --all-targets -- -D warnings`
 - Kernel struct mappings must use `#[repr(C, packed)]` to match the wire layout exactly
 - SDK error handling uses the `Result<T, E>` pattern
-- GUI components follow gpui-component's `Render` / `RenderOnce` trait patterns
+- GUI components follow gpui-kit's `Render` / `RenderOnce` trait patterns
 - Windows API calls live in `unsafe` blocks with safety comments
 - Commit messages in English

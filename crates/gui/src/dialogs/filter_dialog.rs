@@ -5,12 +5,7 @@
 //! `cx.notify`. The column/relation/action selectors are click-to-cycle buttons
 //! styled like dropdowns — functional and state-free across rebuilds.
 
-use gpui::{
-    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
-    Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex,
@@ -18,10 +13,16 @@ use gpui_component::{
     select::{Select, SelectState},
     v_flex, ActiveTheme, Icon, IndexPath, StyledExt, WindowExt,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
+    Window,
+};
 
 use rust_i18n::t;
 
 use crate::app::AppView;
+use crate::components::input_h;
 use crate::icons::PmIcon;
 use crate::model::filter::{FilterAction, FilterColumn, FilterModel, FilterRelation, FilterRule};
 use crate::theme::{palette, ProcmonPalette};
@@ -40,7 +41,7 @@ const FR_VAL: f32 = 1.4;
 const FR_ACT: f32 = 0.9;
 
 /// A flexible grid cell that grows by the given `fr` ratio (design `Nfr`).
-fn fr(grow: f32) -> gpui::Div {
+fn fr(grow: f32) -> gpui_kit::Div {
     div().flex_grow(grow).flex_basis(px(0.)).min_w(px(0.))
 }
 
@@ -217,7 +218,7 @@ impl FilterDialog {
     }
 }
 
-impl gpui::Render for FilterDialog {
+impl gpui_kit::Render for FilterDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let border = cx.theme().border;
@@ -249,12 +250,8 @@ impl gpui::Render for FilterDialog {
                     .child(fr(FR_COL).child(Select::new(&self.col_select).w_full().h(px(34.))))
                     .child(fr(FR_REL).child(Select::new(&self.rel_select).w_full().h(px(34.))))
                     .child(
-                        fr(FR_VAL).child(Input::new(&self.value).w_full().map(|mut i| {
-                            // `Input::h()` is multi-line-only; set the Styled height so
-                            // the single-line value field matches the 34px Selects.
-                            i.style().size.height = Some(px(34.).into());
-                            i
-                        })),
+                        // The value field matches the 34px Selects beside it.
+                        fr(FR_VAL).child(input_h(Input::new(&self.value).w_full(), px(34.))),
                     )
                     .child(fr(FR_ACT).child(Select::new(&self.act_select).w_full().h(px(34.))))
                     .child(

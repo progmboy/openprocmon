@@ -5,7 +5,7 @@
 //! events over a crossbeam channel that the app drains on a frame timer.
 
 use crossbeam_channel::Receiver;
-use gpui::SharedString;
+use gpui_kit::SharedString;
 
 use crate::app::MonitorToggles;
 use crate::model::domain::{CapturedEvent, CategoryCounts, EventDetail, ModuleRow, ProcessNode};

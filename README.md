@@ -10,7 +10,7 @@ An open-source [Process Monitor](https://learn.microsoft.com/en-us/sysinternals/
 
 > **This is a ground-up Rust rewrite** of the SDK and GUI. The kernel driver is unchanged, and the original C++ implementation is kept under [`cpp-backup/`](cpp-backup/) for reference. The Rust SDK is wire-compatible with the original Process Monitor driver and can read/write Procmon `.PML` logs.
 
-An **AI agent can drive capture and analysis** through an MCP server or a skill — see [MCP / Skill](#mcp--skill). The desktop GUI is powered by [GPUI] and [GPUI-Component].
+An **AI agent can drive capture and analysis** through an MCP server or a skill — see [MCP / Skill](#mcp--skill). The desktop GUI is powered by [GPUI] and [GPUI-Kit].
 
 ![Main window](docs/snapshots/main.png)
 
@@ -85,6 +85,10 @@ openprocmon/
 **Settings** — symbol/dbghelp paths, history limits, highlight color, theme and language.
 
 ![Settings](docs/snapshots/settings.png)
+
+**Background Image** - setting custom background image.
+
+![Background image](docs/snapshots/background_img.png)
 
 ## Build
 
@@ -302,7 +306,7 @@ Released under the [MIT License](LICENSE).
 The desktop GUI is built on:
 
 - [GPUI] — Zed's GPU-accelerated Rust UI framework.
-- [GPUI-Component] — a UI component library for GPUI.
+- [GPUI-Kit] — the GPUI application toolkit (component library, base layer, assets).
 
 [GPUI]: https://github.com/zed-industries/zed
-[GPUI-Component]: https://github.com/longbridge/gpui-component
+[GPUI-Kit]: https://github.com/longbridge/gpui-kit

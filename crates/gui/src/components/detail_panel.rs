@@ -4,14 +4,16 @@
 //! close button, underline tabs (Event / Process / Stack), and per-tab content
 //! built from kv-groups, field-boxes, codeblocks, tags and a stack table.
 
-use gpui::{
-    div, prelude::FluentBuilder, px, transparent_black, AppContext, Context, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, WeakEntity, Window,
+use gpui_kit::base::{SelectableText, TextSelection};
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, transparent_black, App, AppContext, Context, ElementId,
+    Entity, Hsla, InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, WindowId,
 };
+use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -23,6 +25,7 @@ use gpui_component::{
 use rust_i18n::t;
 
 use crate::app::AppView;
+use crate::components::input_h;
 use crate::icons::PmIcon;
 use crate::model::domain::{EventDetail, ModuleRow, ProcessNode, StackRow};
 use crate::theme::{palette, ProcmonPalette};
@@ -50,7 +53,7 @@ fn stack_line(f: &StackRow) -> String {
 /// inset tint + 1px border in the event table's `table.active` tokens — the same
 /// construction gpui-component's table uses, so selection looks identical and
 /// costs no layout shift. The host row must be `.relative()`.
-fn sel_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
+fn sel_overlay(co: &Co, radius: gpui_kit::Pixels) -> gpui_kit::Div {
     div()
         .absolute()
         .top(px(0.))
@@ -66,7 +69,7 @@ fn sel_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
 /// Border-only variant of [`sel_overlay`] for the row whose context menu is
 /// open — the event table draws its right-clicked row this way (`selection`
 /// color, no fill).
-fn menu_overlay(co: &Co, radius: gpui::Pixels) -> gpui::Div {
+fn menu_overlay(co: &Co, radius: gpui_kit::Pixels) -> gpui_kit::Div {
     div()
         .absolute()
         .top(px(0.))
@@ -92,7 +95,7 @@ fn mark_menu_row(
         cx.notify();
     });
     let view = view.clone();
-    cx.subscribe(&cx.entity(), move |_, _, _: &gpui::DismissEvent, cx| {
+    cx.subscribe(&cx.entity(), move |_, _, _: &gpui_kit::DismissEvent, cx| {
         let _ = view.update(cx, |v, cx| {
             *field(v) = None;
             cx.notify();
@@ -114,13 +117,13 @@ fn copy_menu<T: 'static>(
     let all = Rc::clone(rows);
     menu.item(
         PopupMenuItem::new(t!("cm.copy").to_string()).on_click(move |_, _, cx| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(one.clone()));
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(one.clone()));
         }),
     )
     .item(
         PopupMenuItem::new(t!("cm.copy_all").to_string()).on_click(move |_, _, cx| {
             let text: Vec<String> = all.iter().map(line).collect();
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.join("\n")));
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text.join("\n")));
         }),
     )
 }
@@ -181,6 +184,10 @@ pub(crate) struct DetailView {
     /// only if its captured generation still matches (guards against the user
     /// switching rows before resolution finishes).
     symbol_gen: u64,
+    /// This panel's window, so [`Self::drop_text_selection`] can reach the window
+    /// selection from callers that have no `&mut Window` (the table's row-select
+    /// subscription runs with a plain `Context`).
+    window_id: WindowId,
 }
 
 impl DetailView {
@@ -213,10 +220,26 @@ impl DetailView {
             menu_frame: None,
             stack_scroll: ScrollHandle::new(),
             symbol_gen: 0,
+            window_id: window.window_handle().window_id(),
         }
     }
 
+    /// Drops any window text selection held by the panel's values.
+    ///
+    /// Call whenever the rendered content is replaced. The selection is stored as
+    /// geometry against the runs that are registered *now*, and the runs keep
+    /// their identity across renders (they are keyed by call site), so a stale
+    /// selection does not disappear on its own — it silently re-projects onto
+    /// whatever text the same rows hold next, leaving arbitrary lines of the new
+    /// event highlighted. Worse, a click that hits no run at all resolves to the
+    /// nearest one above it, so clicking a row in the event table lands inside
+    /// this panel.
+    fn drop_text_selection(&self, cx: &mut App) {
+        TextSelection::clear_for_window(self.window_id, cx);
+    }
+
     pub(crate) fn set_detail(&mut self, detail: EventDetail, cx: &mut Context<Self>) {
+        self.drop_text_selection(cx);
         self.detail = Some(detail);
         self.selected_module = None;
         self.selected_frame = None;
@@ -255,8 +278,11 @@ impl DetailView {
     }
 }
 
-impl gpui::Render for DetailView {
+impl gpui_kit::Render for DetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Restart the selectable-run reading order for this pass (see `sel`).
+        SEL_ORDER.with(|n| n.set(0));
+
         let hex_id = self
             .app
             .upgrade()
@@ -439,6 +465,48 @@ impl gpui::Render for DetailView {
 // Building blocks (mirroring panels.css)
 // ---------------------------------------------------------------------------
 
+thread_local! {
+    /// Reading-order counter for the selectable runs built during one render.
+    /// Reset at the top of [`DetailView::render`]; see [`sel`].
+    static SEL_ORDER: Cell<u64> = const { Cell::new(0) };
+}
+
+/// A text leaf that joins the window-level text selection: drag to select,
+/// Ctrl+C to copy. Procmon lets you copy every value shown in the event
+/// properties tabs; this is what gives us the same.
+///
+/// [`SelectableText`] lays out through gpui's `StyledText`, so it inherits the
+/// ambient text style — color, size, weight, even `truncate`'s ellipsis — from
+/// the surrounding `div`. Dropping it in where a plain string child used to go
+/// therefore changes nothing about the rendering.
+///
+/// `id` must be stable and unique within the panel (the element retains its
+/// selection state under it). The `document_order` decides the order in which a
+/// selection spanning several fields is copied out — the runs are otherwise held
+/// in a hash map and would come out shuffled — so each run takes the next number
+/// in construction order, which is source order, which is reading order.
+fn sel(id: impl Into<ElementId>, text: impl Into<SharedString>) -> SelectableText {
+    let order = SEL_ORDER.with(|n| {
+        let cur = n.get();
+        n.set(cur + 1);
+        cur
+    });
+    SelectableText::new(id, text).document_order(order)
+}
+
+/// The id [`kv`] / [`codeblock`] / [`tag`] give their value: each renders one
+/// value per call site, so the caller's `Location` is a stable unique id without
+/// every call having to name itself.
+///
+/// Must be called directly in the body of a `#[track_caller]` builder —
+/// `#[track_caller]` is not transitive, so routing this through another helper
+/// would hand every call site the same location.
+macro_rules! caller_id {
+    () => {
+        ElementId::from(std::panic::Location::caller())
+    };
+}
+
 /// `.kv-group`: padded section with an optional title (with a leading icon, per
 /// the design's `.kv-title`) + trailing rule.
 fn group(
@@ -475,6 +543,9 @@ fn group(
 }
 
 /// `.kv`: a key (110px, left, muted) + right-aligned value (mono, colored).
+/// The value is selectable; the key is not, so copying a span of rows yields the
+/// values alone.
+#[track_caller]
 fn kv(k: &str, v: impl Into<SharedString>, v_color: Hsla, co: &Co) -> impl IntoElement {
     h_flex()
         .min_h(px(26.))
@@ -491,12 +562,23 @@ fn kv(k: &str, v: impl Into<SharedString>, v_color: Hsla, co: &Co) -> impl IntoE
                 .child(k.to_string()),
         )
         .child(
+            // Right-aligned by pushing the run to the end of a flex row, not by
+            // `text_right()` alone: a plain `div()` is a *block*, so the text box
+            // would fill the width and the glyphs would be shifted right only at
+            // paint time — but the selection highlight is placed from
+            // `position_for_index`, which carries no such offset, so it would be
+            // drawn over on the left. Laid out this way the box hugs the text and
+            // the two agree. `text_right` is kept for the rare value long enough
+            // to wrap, where it still aligns the wrapped lines.
             div()
                 .flex_1()
+                .flex()
+                .items_center()
+                .justify_end()
                 .text_right()
                 .text_color(v_color)
                 .text_sm()
-                .child(v.into()),
+                .child(sel(caller_id!(), v)),
         )
 }
 
@@ -527,6 +609,7 @@ fn field(label: &str, co: &Co, content: impl IntoElement) -> impl IntoElement {
 }
 
 /// `.codeblock`: recessed monospace block.
+#[track_caller]
 fn codeblock(text: impl Into<SharedString>, color: Hsla, co: &Co) -> impl IntoElement {
     div()
         .w_full()
@@ -538,7 +621,7 @@ fn codeblock(text: impl Into<SharedString>, color: Hsla, co: &Co) -> impl IntoEl
         .py(px(9.))
         .text_color(color)
         .text_sm()
-        .child(text.into())
+        .child(sel(caller_id!(), text))
 }
 
 /// `.kv.block`: uppercase key + a code block below it.
@@ -551,6 +634,7 @@ fn kv_block(k: &str, co: &Co, block: impl IntoElement) -> impl IntoElement {
 }
 
 /// `.tag`: small colored pill (fg over an 18%-tinted fill).
+#[track_caller]
 fn tag(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
     div()
         .px_2()
@@ -560,7 +644,7 @@ fn tag(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .font_semibold()
         .text_color(color)
         .bg(color.opacity(0.18))
-        .child(text.into())
+        .child(sel(caller_id!(), text))
 }
 
 /// A custom underline tab (`.tab`): icon + label (+ optional count badge),
@@ -610,6 +694,8 @@ fn tab_btn(
             )
         })
         .on_click(cx.listener(move |this, _, _, cx| {
+            // Switching tabs swaps the content out from under the selection too.
+            this.drop_text_selection(cx);
             this.tab = idx;
             cx.notify();
         }))
@@ -619,7 +705,7 @@ fn tab_btn(
 // Tabs
 // ---------------------------------------------------------------------------
 
-fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
+fn event_tab(d: &EventDetail, co: &Co) -> gpui_kit::AnyElement {
     let cat = d.category.color(&co.pal);
     let res = d.result_kind.color(&co.pal);
 
@@ -645,7 +731,10 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
         .child(field(
             &t!("dt.operation"),
             co,
-            div().text_color(cat).text_lg().child(d.operation.clone()),
+            div()
+                .text_color(cat)
+                .text_lg()
+                .child(sel("dt-operation", d.operation.clone())),
         ))
         // Time group.
         .child(group(
@@ -692,7 +781,7 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
             .text_color(res)
             .text_lg()
             .font_semibold()
-            .child(d.result.clone()),
+            .child(sel("dt-result", d.result.clone())),
     ));
 
     // Target file group (file events with metadata).
@@ -730,11 +819,14 @@ fn event_tab(d: &EventDetail, co: &Co) -> gpui::AnyElement {
     col = col.child(field(
         &t!("dt.other_details"),
         co,
-        v_flex().gap_0p5().children(
-            d.other_details
-                .split('\n')
-                .map(|line| div().text_color(co.text2).text_sm().child(line.to_string())),
-        ),
+        v_flex()
+            .gap_0p5()
+            .children(d.other_details.split('\n').enumerate().map(|(i, line)| {
+                div()
+                    .text_color(co.text2)
+                    .text_sm()
+                    .child(sel(("dt-detail", i), line.to_string()))
+            })),
     ));
 
     col.into_any_element()
@@ -749,7 +841,7 @@ fn process_tab(
     selected: Option<usize>,
     menu_row: Option<usize>,
     cx: &mut Context<DetailView>,
-) -> gpui::AnyElement {
+) -> gpui_kit::AnyElement {
     let weak = cx.entity().downgrade();
     let p: &ProcessNode = &d.process;
     let cat = d.category.color(&co.pal);
@@ -783,13 +875,13 @@ fn process_tab(
                                         .text_color(co.fg)
                                         .text_lg()
                                         .font_semibold()
-                                        .child(p.name.clone()),
+                                        .child(sel("dt-proc-name", p.name.clone())),
                                 )
                                 .child(
                                     div()
                                         .text_color(co.muted)
                                         .text_sm()
-                                        .child(p.company.clone()),
+                                        .child(sel("dt-proc-company", p.company.clone())),
                                 )
                                 .child(
                                     h_flex()
@@ -804,7 +896,7 @@ fn process_tab(
                                             div()
                                                 .text_color(co.text2)
                                                 .text_sm()
-                                                .child(p.version.clone()),
+                                                .child(sel("dt-proc-version", p.version.clone())),
                                         ),
                                 )
                                 .child(
@@ -884,17 +976,17 @@ fn process_tab(
                     // input's own `appearance` (default on) gives the border + the
                     // accent focus highlight (theme.ring) for free.
                     div().w_full().mb_2().child(
-                        Input::new(mod_input)
-                            .small()
-                            .w_full()
-                            .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                            .cleanable(true)
-                            .map(|mut i| {
-                                // Design `.mod-search { height: 30px }`. Single-line
-                                // `Input::h()` is ignored, so force the Styled height.
-                                i.style().size.height = Some(px(30.).into());
-                                i
-                            }),
+                        // Design `.mod-search { height: 30px }`.
+                        input_h(
+                            Input::new(mod_input)
+                                .small()
+                                .w_full()
+                                .prefix(
+                                    Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted),
+                                )
+                                .cleanable(true),
+                            px(30.),
+                        ),
                     ),
                 )
                 .child({
@@ -930,12 +1022,17 @@ fn process_tab(
                                 h_flex()
                                     .justify_between()
                                     .gap_2()
-                                    .child(div().text_color(co.fg).text_sm().child(m.name.clone()))
                                     .child(
                                         div()
-                                            .text_color(co.muted)
-                                            .text_xs()
-                                            .child(format!("0x{:x}", m.base)),
+                                            .text_color(co.fg)
+                                            .text_sm()
+                                            .child(sel(("dt-mod-name", i), m.name.clone())),
+                                    )
+                                    .child(
+                                        div().text_color(co.muted).text_xs().child(sel(
+                                            ("dt-mod-base", i),
+                                            format!("0x{:x}", m.base),
+                                        )),
                                     ),
                             )
                             .child(
@@ -943,7 +1040,7 @@ fn process_tab(
                                     .text_color(co.faint)
                                     .text_xs()
                                     .truncate()
-                                    .child(m.path.clone()),
+                                    .child(sel(("dt-mod-path", i), m.path.clone())),
                             )
                             .when(selected == Some(i), |s| s.child(sel_overlay(co, px(6.))))
                             .when(menu_row == Some(i), |s| s.child(menu_overlay(co, px(6.))))
@@ -968,7 +1065,7 @@ fn stack_tab(
     selected: Option<usize>,
     menu_row: Option<usize>,
     cx: &mut Context<DetailView>,
-) -> gpui::AnyElement {
+) -> gpui_kit::AnyElement {
     let weak = cx.entity().downgrade();
     // `.stack-note`: "Operation <op> call stack · N frames", op emphasized.
     let note = h_flex()
@@ -1021,7 +1118,9 @@ fn stack_tab(
         .child(th("Address", W_ADDR))
         .child(th("Path", W_PATH));
 
-    let td = |w: f32, color: Hsla, text: SharedString, bold: bool| {
+    // `id` names the cell (`(column, row)`); the text is selectable and still
+    // ellipsizes, since `truncate()` applies to the run's ambient text style.
+    let td = |id: (&'static str, usize), w: f32, color: Hsla, text: SharedString, bold: bool| {
         let mut c = div()
             .w(px(w))
             .flex_shrink_0()
@@ -1030,7 +1129,7 @@ fn stack_tab(
             .text_color(color)
             .text_xs()
             .truncate()
-            .child(text);
+            .child(sel(id, text));
         if bold {
             c = c.font_semibold();
         }
@@ -1059,10 +1158,23 @@ fn stack_tab(
                 view.selected_frame = Some(i);
                 cx.notify();
             }))
-            .child(td(W_FRAME, kind_color, f.frame.to_string().into(), true))
-            .child(td(W_MOD, mod_color, f.module.clone(), true))
-            .child(td(W_LOC, co.text2, f.location.clone(), false))
             .child(td(
+                ("stk-frame", i),
+                W_FRAME,
+                kind_color,
+                f.frame.to_string().into(),
+                true,
+            ))
+            .child(td(("stk-mod", i), W_MOD, mod_color, f.module.clone(), true))
+            .child(td(
+                ("stk-loc", i),
+                W_LOC,
+                co.text2,
+                f.location.clone(),
+                false,
+            ))
+            .child(td(
+                ("stk-addr", i),
                 W_ADDR,
                 co.pal.res_success.opacity(0.82),
                 format!("0x{:x}", f.address).into(),
@@ -1072,7 +1184,7 @@ fn stack_tab(
                 // Path cell: truncated like the rest, with the full path as a
                 // tooltip (same pattern as the event table's Path column).
                 let path = f.path.clone();
-                td(W_PATH, co.faint, path.clone(), false)
+                td(("stk-path", i), W_PATH, co.faint, path.clone(), false)
                     .id(("stack-path", i))
                     .when(!path.is_empty(), |c| {
                         c.tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
@@ -1094,7 +1206,7 @@ fn stack_tab(
     // (see `components::h_scroll_area`). With no frames the scroll area would show
     // just an empty header + a stray scrollbar, so render a centered empty state
     // instead (events without a captured stack — e.g. PML logs saved without one).
-    let table: gpui::AnyElement = if d.stack.is_empty() {
+    let table: gpui_kit::AnyElement = if d.stack.is_empty() {
         v_flex()
             .items_center()
             .justify_center()
@@ -1191,5 +1303,38 @@ fn integrity_color(integrity: &str, co: &Co) -> Hsla {
         "Medium" | "Medium+" => co.pal.integrity_medium,
         "Low" | "Untrusted" => co.pal.integrity_low,
         _ => co.muted,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stand-in for `kv` / `codeblock` / `tag`: a `#[track_caller]` builder that
+    /// ids its selectable value by call site.
+    #[track_caller]
+    fn value_id() -> ElementId {
+        caller_id!()
+    }
+
+    /// `SelectableText` panics without a stable *unique* element id, and the leaf
+    /// builders derive theirs from `Location::caller()`. That only works because
+    /// the macro expands into the `#[track_caller]` builder's own body —
+    /// `#[track_caller]` does not propagate through a nested helper, which would
+    /// silently give every call site one shared id.
+    #[test]
+    fn caller_id_is_unique_per_call_site() {
+        let a = value_id();
+        let b = value_id();
+        assert_ne!(a, b, "distinct call sites must get distinct ids");
+        // And stable across renders: one call site always yields the same id, so
+        // a run keeps its retained selection state frame to frame.
+        assert_eq!(value_id_from_fixed_site(), value_id_from_fixed_site());
+    }
+
+    /// One fixed call site, invoked repeatedly — stands in for the same `kv` line
+    /// running on every render.
+    fn value_id_from_fixed_site() -> ElementId {
+        value_id()
     }
 }

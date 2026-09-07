@@ -14,10 +14,12 @@ default = ["embedded-driver"]
 embedded-driver = []
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed"}
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+# The whole GPUI stack ships as one crates.io release: `gpui-kit` pins a matching
+# gpui / gpui-base / gpui-component / assets set and re-exports them (`gpui_kit::*`
+# is gpui, `gpui_kit::component` is the component library, `gpui_kit::assets` the
+# bundled Lucide icons). Upstream renamed the project from `gpui-component` to
+# `gpui-kit` and publishes it, so no git dependencies are needed.
+gpui-kit = "0.6"
 anyhow = "1"
 crossbeam-channel = "0.5"
 rust-embed = "8"

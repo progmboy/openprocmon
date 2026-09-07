@@ -3,11 +3,11 @@
 //! uniform — gray when off, accent-blue (border + soft fill + dot + icon + label)
 //! when on — not per-category colored. No per-category counts.
 
-use gpui::{
+use gpui_kit::component::{h_flex, ActiveTheme, Icon, Sizable};
+use gpui_kit::{
     div, px, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use gpui_component::{h_flex, ActiveTheme, Icon, Sizable};
 
 use crate::app::{AppState, AppView, MonitorKind};
 use crate::icons::PmIcon;

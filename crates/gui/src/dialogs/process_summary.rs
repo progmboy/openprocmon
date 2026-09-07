@@ -10,19 +10,20 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gpui::{
-    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt, WindowExt,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
+};
 use rust_i18n::t;
 
+use crate::components::input_h;
 use crate::icons::PmIcon;
 use crate::model::domain::{EventCategory, EventSummaryRow};
 use crate::theme::{palette, ProcmonPalette};
@@ -40,7 +41,7 @@ const W_TOTAL: f32 = 74.;
 struct ProcRow {
     name: SharedString,
     pid: u32,
-    icon: Option<Arc<gpui::Image>>,
+    icon: Option<Arc<gpui_kit::Image>>,
     file: usize,
     registry: usize,
     network: usize,
@@ -111,17 +112,14 @@ impl Render for ProcessSummaryDialog {
                     .py(px(12.))
                     .border_b_1()
                     .border_color(co.border)
-                    .child(
+                    .child(input_h(
                         Input::new(&self.search)
                             .small()
                             .w_full()
                             .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                            .cleanable(true)
-                            .map(|mut i| {
-                                i.style().size.height = Some(px(30.).into());
-                                i
-                            }),
-                    ),
+                            .cleanable(true),
+                        px(30.),
+                    )),
             )
             // Sticky header row (design `.sum-table th`).
             .child(
@@ -211,7 +209,7 @@ struct Co {
 }
 
 impl Co {
-    fn new(cx: &gpui::App) -> Self {
+    fn new(cx: &gpui_kit::App) -> Self {
         Self {
             fg: cx.theme().foreground,
             muted: cx.theme().muted_foreground,

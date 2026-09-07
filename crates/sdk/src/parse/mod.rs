@@ -111,9 +111,13 @@ pub(crate) fn pml_serialize(ev: &Event) -> (u16, Option<Vec<u8>>) {
 /// units — one allocation (the `String`), no intermediate `Vec<u16>`; the
 /// capacity covers ASCII-only content exactly (1 UTF-8 byte per unit).
 pub(crate) fn decode_utf16(bytes: &[u8]) -> String {
+    // `.0` is the whole 2-byte units; an odd trailing byte is not a unit and is
+    // dropped with the remainder.
     let units = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0);
     let mut out = String::with_capacity(bytes.len() / 2);
     for c in char::decode_utf16(units) {

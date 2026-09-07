@@ -7,23 +7,27 @@
 //! commits it back via `AppView::apply_settings`. Theme/locale/highlight-color/hex
 //! take effect immediately; symbols/history/profiling/boot are stored for the SDK.
 
-use gpui::{
-    black, div, prelude::FluentBuilder, px, transparent_black, white, App, AppContext, Context,
-    Div, Entity, InteractiveElement, IntoElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, WeakEntity, Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     scroll::ScrollableElement,
-    v_flex, ActiveTheme, Icon, StyledExt, ThemeMode, WindowExt,
+    slider::{Slider, SliderEvent, SliderState},
+    v_flex, ActiveTheme, Icon, Sizable, StyledExt, ThemeMode, WindowExt,
+};
+use gpui_kit::{
+    black, div, img, prelude::FluentBuilder, px, transparent_black, white, App, AppContext,
+    Context, Div, Entity, InteractiveElement, IntoElement, ObjectFit, ParentElement, Stateful,
+    StatefulInteractiveElement, Styled, StyledImage, WeakEntity, Window,
 };
 use rust_i18n::t;
 
 use crate::app::AppView;
+use crate::components::input_h;
 use crate::icons::PmIcon;
-use crate::model::config::{AppConfig, HighlightColor, ProfilingInterval};
+use crate::model::config::{
+    AppConfig, HighlightColor, ProfilingInterval, BG_OPACITY_MAX, BG_OPACITY_MIN,
+};
 use crate::theme::palette;
 
 /// Category nav entries (icon + i18n key), in order.
@@ -46,6 +50,9 @@ pub(crate) struct SettingsDialog {
     dbg: Entity<InputState>,
     mb: Entity<InputState>,
     min: Entity<InputState>,
+    /// Background image opacity. The slider owns the live value; its `Change`
+    /// event mirrors it into `draft.bg_opacity`, which is what Apply commits.
+    bg_opacity: Entity<SliderState>,
 }
 
 impl SettingsDialog {
@@ -58,6 +65,20 @@ impl SettingsDialog {
         let dbg = cx.new(|cx| InputState::new(window, cx));
         let mb = cx.new(|cx| InputState::new(window, cx));
         let min = cx.new(|cx| InputState::new(window, cx));
+        let bg_opacity = cx.new(|_| {
+            SliderState::new()
+                .min(f32::from(BG_OPACITY_MIN))
+                .max(f32::from(BG_OPACITY_MAX))
+                .step(5.)
+                .default_value(f32::from(AppConfig::default().bg_opacity))
+        });
+        cx.subscribe(&bg_opacity, |this: &mut Self, _, ev: &SliderEvent, cx| {
+            if let SliderEvent::Change(value) = ev {
+                this.draft.bg_opacity = value.start().round() as u8;
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
             app,
             selected: 0,
@@ -68,7 +89,44 @@ impl SettingsDialog {
             dbg,
             mb,
             min,
+            bg_opacity,
         }
+    }
+
+    /// Picks a background image. The native dialog runs a blocking modal loop, so
+    /// it goes on its own thread (same reason as `SaveDialog::browse`) and the
+    /// result is applied back to the draft on the UI loop.
+    fn browse_background(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (tx, rx) = crossbeam_channel::bounded::<Option<std::path::PathBuf>>(1);
+        std::thread::spawn(move || {
+            let picked = rfd::FileDialog::new()
+                .add_filter(
+                    "Images",
+                    &["png", "jpg", "jpeg", "bmp", "gif", "webp", "svg"],
+                )
+                .pick_file();
+            let _ = tx.send(picked);
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let picked = loop {
+                match rx.try_recv() {
+                    Ok(p) => break p,
+                    Err(crossbeam_channel::TryRecvError::Empty) => {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(30))
+                            .await;
+                    }
+                    Err(_) => break None,
+                }
+            };
+            if let Some(path) = picked {
+                let _ = this.update(cx, |this, cx| {
+                    this.draft.bg_image = path.to_string_lossy().to_string();
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Seeds the draft when opening. The config/theme are passed in (read by the
@@ -96,6 +154,9 @@ impl SettingsDialog {
         self.dbg.update(cx, |s, cx| s.set_value(dbg, window, cx));
         self.mb.update(cx, |s, cx| s.set_value(mb, window, cx));
         self.min.update(cx, |s, cx| s.set_value(min, window, cx));
+        let opacity = f32::from(self.draft.bg_opacity);
+        self.bg_opacity
+            .update(cx, |s, cx| s.set_value(opacity, window, cx));
         cx.notify();
     }
 
@@ -138,7 +199,7 @@ impl SettingsDialog {
     }
 }
 
-impl gpui::Render for SettingsDialog {
+impl gpui_kit::Render for SettingsDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let co = Co::new(cx);
 
@@ -209,6 +270,82 @@ impl gpui::Render for SettingsDialog {
 }
 
 impl SettingsDialog {
+    /// Appearance ▸ Background Image (design `.bg-pick`): a preview thumbnail, the
+    /// file name, and Browse / Remove.
+    ///
+    /// The draft holds the path, so the thumbnail is whatever the user just picked
+    /// rather than what is currently applied — Apply is what commits it.
+    fn bg_picker(&self, co: &Co, cx: &mut Context<Self>) -> impl IntoElement {
+        let path = self.draft.bg_image.trim();
+        let picked = (!path.is_empty()).then(|| std::path::PathBuf::from(path));
+        let name = picked
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| t!("set.bg_none").to_string());
+        h_flex()
+            .items_center()
+            .gap(px(13.))
+            .child(
+                div()
+                    .w(px(78.))
+                    .h(px(50.))
+                    .flex_shrink_0()
+                    .rounded(px(8.))
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(co.border)
+                    .bg(co.panel)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .map(|thumb| match picked.clone() {
+                        Some(path) => {
+                            thumb.child(img(path).size_full().object_fit(ObjectFit::Cover))
+                        }
+                        None => thumb
+                            .text_color(co.faint)
+                            .child(Icon::new(PmIcon::Palette).size(px(18.))),
+                    }),
+            )
+            .child(
+                v_flex()
+                    .min_w(px(0.))
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .max_w(px(300.))
+                            .truncate()
+                            .text_size(px(11.5))
+                            .text_color(co.text2)
+                            .child(name),
+                    )
+                    .child(
+                        h_flex()
+                            .gap(px(8.))
+                            .child(
+                                Button::new("bg-browse")
+                                    .small()
+                                    .label(t!("set.bg_browse").to_string())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.browse_background(window, cx)
+                                    })),
+                            )
+                            .when(picked.is_some(), |row| {
+                                row.child(
+                                    Button::new("bg-remove")
+                                        .small()
+                                        .label(t!("set.bg_remove").to_string())
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.draft.bg_image.clear();
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
+                    ),
+            )
+    }
+
     fn panel_appearance(&self, co: &Co, cx: &mut Context<Self>) -> impl IntoElement {
         let hl = self.draft.highlight_color;
         v_flex()
@@ -279,6 +416,32 @@ impl SettingsDialog {
                 ),
                 co,
             ))
+            .child(set_row_full(
+                t!("set.bg_image").to_string(),
+                Some(t!("set.bg_image_desc").to_string()),
+                self.bg_picker(co, cx),
+                co,
+            ))
+            // Opacity only matters once there is an image to fade (design hides it).
+            .when(!self.draft.bg_image.is_empty(), |panel| {
+                panel.child(set_row(
+                    t!("set.bg_opacity").to_string(),
+                    Some(t!("set.bg_opacity_desc").to_string()),
+                    h_flex()
+                        .items_center()
+                        .gap(px(11.))
+                        .child(div().w(px(130.)).child(Slider::new(&self.bg_opacity)))
+                        .child(
+                            div()
+                                .w(px(38.))
+                                .text_right()
+                                .text_size(px(11.5))
+                                .text_color(co.muted)
+                                .child(format!("{}%", self.draft.bg_opacity)),
+                        ),
+                    co,
+                ))
+            })
             // Preview (design `.set-preview`): a highlighted row + a normal row.
             .child(
                 v_flex()
@@ -479,17 +642,17 @@ impl SettingsDialog {
 
 /// Resolved colors.
 struct Co {
-    fg: gpui::Hsla,
-    text2: gpui::Hsla,
-    muted: gpui::Hsla,
-    faint: gpui::Hsla,
-    border: gpui::Hsla,
-    border_soft: gpui::Hsla,
-    panel: gpui::Hsla,
-    accent: gpui::Hsla,
-    accent_soft: gpui::Hsla,
-    hover: gpui::Hsla,
-    warn: gpui::Hsla,
+    fg: gpui_kit::Hsla,
+    text2: gpui_kit::Hsla,
+    muted: gpui_kit::Hsla,
+    faint: gpui_kit::Hsla,
+    border: gpui_kit::Hsla,
+    border_soft: gpui_kit::Hsla,
+    panel: gpui_kit::Hsla,
+    accent: gpui_kit::Hsla,
+    accent_soft: gpui_kit::Hsla,
+    hover: gpui_kit::Hsla,
+    warn: gpui_kit::Hsla,
 }
 
 impl Co {
@@ -539,9 +702,8 @@ fn fld_label(text: String, co: &Co) -> Div {
 }
 
 /// Forces a single-line `Input` to the design's 34px field height.
-fn fld(mut input: Input) -> Input {
-    input.style().size.height = Some(px(34.).into());
-    input
+fn fld(input: Input) -> Input {
+    input_h(input, px(34.))
 }
 
 /// A `.set-row`: title (+ desc) on the left, control on the right.
@@ -723,10 +885,7 @@ fn limit_line(
         .gap(px(11.))
         .text_size(px(12.5))
         .child(div().w(px(42.)).text_color(co.text2).child(label))
-        .child(fld(Input::new(input).disabled(!enabled)).map(|mut i| {
-            i.style().size.width = Some(px(120.).into());
-            i
-        }))
+        .child(fld(Input::new(input).disabled(!enabled)).w(px(120.)))
         .child(div().text_color(co.muted).child(unit))
 }
 

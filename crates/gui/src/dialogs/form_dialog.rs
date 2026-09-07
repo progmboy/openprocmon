@@ -20,11 +20,11 @@
 //!     .build(window, cx)
 //! ```
 
-use gpui::{
+use gpui_kit::component::{dialog::Dialog, h_flex, ActiveTheme, Icon, StyledExt, WindowExt};
+use gpui_kit::{
     div, px, AnyElement, App, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use gpui_component::{dialog::Dialog, h_flex, ActiveTheme, Icon, StyledExt, WindowExt};
 
 use crate::icons::PmIcon;
 use crate::theme::palette;

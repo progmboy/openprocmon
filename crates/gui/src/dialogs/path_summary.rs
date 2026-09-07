@@ -13,19 +13,20 @@
 
 use std::collections::{HashMap, HashSet};
 
-use gpui::{
-    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     v_flex, ActiveTheme, Icon, Sizable, StyledExt, WindowExt,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, AppContext, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Window,
+};
 use rust_i18n::t;
 
+use crate::components::input_h;
 use crate::icons::PmIcon;
 use crate::model::domain::{EventCategory, EventSummaryRow};
 use crate::theme::{palette, ProcmonPalette};
@@ -180,17 +181,14 @@ impl Render for PathSummaryDialog {
                     .py(px(12.))
                     .border_b_1()
                     .border_color(co.border)
-                    .child(
+                    .child(input_h(
                         Input::new(&self.search)
                             .small()
                             .w_full()
                             .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                            .cleanable(true)
-                            .map(|mut i| {
-                                i.style().size.height = Some(px(30.).into());
-                                i
-                            }),
-                    ),
+                            .cleanable(true),
+                        px(30.),
+                    )),
             )
             // Sticky header row.
             .child(
@@ -264,7 +262,7 @@ struct Co {
 }
 
 impl Co {
-    fn new(cx: &gpui::App) -> Self {
+    fn new(cx: &gpui_kit::App) -> Self {
         Self {
             fg: cx.theme().foreground,
             muted: cx.theme().muted_foreground,
@@ -318,7 +316,7 @@ fn data_row(r: &PathRow, ab_color: Hsla, co: &Co) -> impl IntoElement {
 }
 
 /// A right-aligned numeric cell (design `.sum-table td.num`, mono).
-fn num_cell(text: String, width: f32, color: Hsla) -> gpui::Div {
+fn num_cell(text: String, width: f32, color: Hsla) -> gpui_kit::Div {
     div()
         .w(px(width))
         .px(px(14.))
@@ -422,17 +420,14 @@ impl Render for XrefSummaryDialog {
                     .py(px(12.))
                     .border_b_1()
                     .border_color(co.border)
-                    .child(
+                    .child(input_h(
                         Input::new(&self.search)
                             .small()
                             .w_full()
                             .prefix(Icon::new(PmIcon::Search).size(px(13.)).text_color(co.muted))
-                            .cleanable(true)
-                            .map(|mut i| {
-                                i.style().size.height = Some(px(30.).into());
-                                i
-                            }),
-                    ),
+                            .cleanable(true),
+                        px(30.),
+                    )),
             )
             .child(
                 h_flex()

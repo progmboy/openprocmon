@@ -2,8 +2,8 @@
 //! vertical dividers — capture state, shown/total counts, active filter/highlight/
 //! bookmark indicators, and (right-aligned) the autoscroll state.
 
-use gpui::{div, px, App, Div, Entity, Hsla, IntoElement, ParentElement, SharedString, Styled};
-use gpui_component::{h_flex, ActiveTheme, Icon, StyledExt};
+use gpui_kit::component::{h_flex, ActiveTheme, Icon, StyledExt};
+use gpui_kit::{div, px, App, Div, Entity, Hsla, IntoElement, ParentElement, SharedString, Styled};
 use rust_i18n::t;
 
 use crate::app::AppState;
