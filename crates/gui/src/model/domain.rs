@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use gpui::{Hsla, SharedString};
+use gpui_kit::{Hsla, SharedString};
 
 use crate::theme::ProcmonPalette;
 
@@ -133,7 +133,7 @@ impl EventBackend {
 
     /// The process icon as a prepared render image (assembled + wrapped once;
     /// see [`crate::components::app_image`]).
-    fn icon_image(&self) -> Option<Arc<gpui::Image>> {
+    fn icon_image(&self) -> Option<Arc<gpui_kit::Image>> {
         self.ev
             .icon_small()
             .or_else(|| self.ev.icon_large())
@@ -196,7 +196,7 @@ pub struct CapturedEvent {
     /// Prepared icon image, cached once the icon source is final (live metadata
     /// resolved, or a source that cannot change). Until then it is re-read each
     /// render so an async-arriving icon appears on the next frame.
-    icon_cell: std::cell::OnceCell<Option<Arc<gpui::Image>>>,
+    icon_cell: std::cell::OnceCell<Option<Arc<gpui_kit::Image>>>,
 }
 
 impl CapturedEvent {
@@ -326,7 +326,7 @@ impl CapturedEvent {
     /// Process icon as a prepared render image. Cached once the icon source is
     /// final; while live metadata is still pending it is re-read each render so
     /// the icon appears on the next frame after the async resolve.
-    pub fn icon(&self) -> Option<Arc<gpui::Image>> {
+    pub fn icon(&self) -> Option<Arc<gpui_kit::Image>> {
         if let Some(cached) = self.icon_cell.get() {
             return cached.clone();
         }
@@ -361,7 +361,7 @@ pub struct EventSummaryRow {
     pub operation: SharedString,
     pub path: SharedString,
     pub result: SharedString,
-    pub icon: Option<Arc<gpui::Image>>,
+    pub icon: Option<Arc<gpui_kit::Image>>,
 }
 
 /// Kernel vs user frame, for call-stack coloring.
@@ -424,7 +424,7 @@ pub struct ProcessNode {
     pub start_time: SharedString,
     pub image_path: SharedString,
     pub command_line: SharedString,
-    pub icon: Option<Arc<gpui::Image>>,
+    pub icon: Option<Arc<gpui_kit::Image>>,
     pub children: Vec<ProcessNode>,
 }
 

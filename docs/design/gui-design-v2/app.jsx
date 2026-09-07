@@ -350,6 +350,7 @@ function App() {
   const [bootCapture, setBootCapture] = useState(false);
   const [hexFileOffset, setHexFileOffset] = useState(false);
   const [hexThreadProcId, setHexThreadProcId] = useState(false);
+  const [bgImage, setBgImage] = useState(null);
   // sync display formatters synchronously so all children format correctly this render
   window.__OPM_HEX_IDS = hexThreadProcId;
   window.__OPM_HEX_OFFSET = hexFileOffset;
@@ -495,6 +496,7 @@ function App() {
     setBootCapture(s.bootCapture);
     setHexFileOffset(s.hexFileOffset);
     setHexThreadProcId(s.hexThreadProcId);
+    setBgImage(s.bgImage || null);
     setDialog(null);
     toast(tr("设置已应用", "Settings applied"), "settings");
   }, [toast]);
@@ -564,7 +566,8 @@ function App() {
     visibleCount: rows.length, totalCount: liveEvents.length,
   };
 
-  return React.createElement("div", { className: "app" + (alwaysOnTop ? " pinned" : "") },
+  return React.createElement("div", { className: "app" + (alwaysOnTop ? " pinned" : "") + (bgImage ? " has-bg" : ""),
+      style: bgImage ? { "--bg-img": "url(" + bgImage.url + ")", "--bg-img-op": bgImage.opacity / 100 } : null },
     React.createElement(MenuBar, { ctx }),
     React.createElement(Toolbar, { ctx }),
     React.createElement(MonitorBar, { ctx }),
@@ -594,7 +597,7 @@ function App() {
     dialog === "highlight" && React.createElement(HighlightDialog, { highlights, onChange: setHighlights, onClose: () => setDialog(null) }),
     dialog === "about" && React.createElement(AboutDialog, { onClose: () => setDialog(null) }),
     dialog === "settings" && React.createElement(SettingsDialog, {
-      initial: { theme, lang, highlightColor, symbols, history: historyCfg, profiling, bootCapture, hexFileOffset, hexThreadProcId },
+      initial: { theme, lang, highlightColor, symbols, history: historyCfg, profiling, bootCapture, hexFileOffset, hexThreadProcId, bgImage },
       onApply: applySettings, onClose: () => setDialog(null) }),
     dialog === "save" && React.createElement(SaveDialog, {
       defaults: { scope: filters.length ? "filtered" : "all", format: "pml", profiling: profiling.enabled, path: "D:\\tools\\ProcessMonitor\\Logfile.PML" },

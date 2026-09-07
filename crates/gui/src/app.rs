@@ -8,16 +8,18 @@
 
 use std::time::Duration;
 
-use gpui::{
-    div, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, Styled, Task, Window,
-};
-use gpui_component::{
+use gpui_kit::base::TextSelection;
+use gpui_kit::component::{
     h_flex,
     input::{InputEvent, InputState},
     notification::NotificationType,
     table::{DataTable, TableEvent, TableState},
     v_flex, ActiveTheme, Root, ThemeMode, WindowExt,
+};
+use gpui_kit::{
+    div, img, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Render, Styled,
+    StyledImage, Task, Window,
 };
 
 use crate::actions::{
@@ -50,6 +52,53 @@ use crate::model::filter::{
 };
 use crate::model::source::{EventSource, SourceEvent};
 use crate::theme;
+
+/// Upstream bug in `gpui-base`, **fixed on main but not in any release we can
+/// depend on yet**: the text-selection auto-scroll keeps running after the drag
+/// that started it has ended.
+///
+/// **Symptom.** Click once on any value in the detail panel — selecting text is
+/// not required — then move the pointer, with no button held, towards the top or
+/// bottom of the panel. It scrolls, and keeps scrolling.
+///
+/// **Cause** (`gpui-base` 0.6.0, `src/text_selection.rs`). Releasing the mouse
+/// deliberately keeps the selection anchor whenever the press landed on text, so
+/// that a later shift-click can extend from it. But
+/// `WindowSelectionState::update_auto_scroll`, which the window's mouse-move
+/// observer calls on *every* move, is gated on that anchor alone and never asks
+/// whether a drag is in progress:
+///
+/// ```ignore
+/// let Some(anchor) = self.anchor.as_ref().filter(|anchor| anchor.inside) else {
+///     return;
+/// };
+/// ```
+///
+/// `AutoScroll::compute_delta` then starts scrolling from 16px *inside* the
+/// viewport's top/bottom edge, so the trigger zone is easy to wander into.
+///
+/// **Upstream status.** Fixed by longbridge/gpui-kit#2941 (`12e21c9`,
+/// 2026-09-04), which adds the missing `if !self.is_selecting { return; }` — one
+/// day after 0.6.0 was published, which is why the version we pin still has it.
+/// `gpui-base` 0.6.0 remains the newest release on crates.io.
+///
+/// **What we do about it.** [`AppView::render`] clears the window selection on
+/// mouse-up when nothing ended up selected, which drops the stale anchor for the
+/// common case: a plain click on a value.
+///
+/// **What still misbehaves.** After a drag that *did* select text, the anchor is
+/// live and the panel still auto-scrolls when the pointer nears its edges. No
+/// public API separates the two: the highlight is derived from the anchor
+/// (`snapshot()` needs both endpoints), so clearing it to stop the scrolling
+/// would also erase the selection and leave Ctrl+C with nothing to copy. Keeping
+/// the selection visible is the better trade for as long as this has to stand.
+///
+/// **On upgrade.** Once `gpui-kit` publishes a release built after the commit
+/// above, bump it and delete both the `on_mouse_up` handler in
+/// [`AppView::render`] that references this note and the note itself. The
+/// selection clearing in `DetailView::set_detail` and on tab switches is
+/// unrelated and stays.
+mod upstream_auto_scroll {}
 
 /// Owned inputs for the async call-stack symbol resolver: `(frame index, address)`
 /// pairs plus the originating process's module ranges `(base, size, path)`.
@@ -131,12 +180,16 @@ pub struct AppState {
     pub highlight: FilterModel,
     /// Settings-dialog configuration (highlight color, hex display, symbols, …).
     pub config: AppConfig,
+    /// The main-window background image, resolved from `config.bg_image` whenever
+    /// the config is taken on. Cached because resolving hits the filesystem and
+    /// the render reads it every frame.
+    pub bg_image: Option<std::path::PathBuf>,
 
     source: Box<dyn EventSource>,
     rx: Option<crossbeam_channel::Receiver<SourceEvent>>,
     /// A pending notice (error or save result) to surface as a toast notification
     /// on the next UI tick, tagged with the level it should be shown at.
-    pending_notice: Option<(NotificationType, gpui::SharedString)>,
+    pending_notice: Option<(NotificationType, gpui_kit::SharedString)>,
     /// True while viewing a loaded `.PML` (offline): history limits don't apply, so
     /// the whole capture stays visible.
     offline: bool,
@@ -150,7 +203,10 @@ impl AppState {
     pub fn new() -> Self {
         // Load the persisted config (%USERPROFILE%\openprocmon\config.json), falling
         // back to defaults if it is missing or unreadable.
-        let config = AppConfig::load();
+        let mut config = AppConfig::load();
+        // Resolve the background image once here; a path whose file is gone is
+        // forgotten, putting the app back in the plain no-background state.
+        let bg_image = config.resolve_background_image();
         // Advanced Output (Event menu) defaults to OFF: seed the default display
         // filter so the monitor's own tools / NTFS metadata are excluded and
         // operations show their friendly names out of the box.
@@ -171,6 +227,7 @@ impl AppState {
             advanced_display: false,
             highlight: FilterModel::default(),
             config,
+            bg_image,
             source: make_source(),
             rx: None,
             pending_notice: None,
@@ -211,13 +268,13 @@ impl AppState {
     }
 
     /// Takes the pending notice, if any (drained by the UI into a notification).
-    fn take_notice(&mut self) -> Option<(NotificationType, gpui::SharedString)> {
+    fn take_notice(&mut self) -> Option<(NotificationType, gpui_kit::SharedString)> {
         self.pending_notice.take()
     }
 
     /// Writes the events selected by `opts` to its path, returning a success/error
     /// notice for the caller to surface as a toast.
-    fn save_to_file(&mut self, opts: &SaveOptions) -> (NotificationType, gpui::SharedString) {
+    fn save_to_file(&mut self, opts: &SaveOptions) -> (NotificationType, gpui_kit::SharedString) {
         match self.do_save(opts) {
             Ok(n) => (
                 NotificationType::Success,
@@ -443,6 +500,18 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = cx.new(|_| AppState::new());
         state.update(cx, |s, _| s.start_source());
+
+        // A persisted background image thins the chrome, so the appearance has to
+        // be re-applied once the config is known (`theme::init` ran before the
+        // window existed, with no config to read).
+        let (mode, has_bg) = {
+            let s = state.read(cx);
+            (s.theme_mode, s.bg_image.is_some())
+        };
+        if has_bg {
+            theme::set_background_image(true, cx);
+            theme::set_mode(mode, window, cx);
+        }
 
         let app_weak = cx.entity().downgrade();
         let delegate = EventTableDelegate::new(state.clone(), app_weak.clone());
@@ -796,6 +865,11 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Resolve before persisting, so a background image that has since been
+        // deleted is dropped from the saved config too rather than lingering.
+        let mut config = config;
+        let bg_image = config.resolve_background_image();
+        let has_bg = bg_image.is_some();
         // Persist to %USERPROFILE%\openprocmon\config.json (best-effort; a write
         // failure is surfaced but doesn't block applying the in-memory settings).
         if let Err(e) = config.save() {
@@ -809,11 +883,15 @@ impl AppView {
         }
         self.state.update(cx, |s, _| {
             s.config = config;
+            s.bg_image = bg_image;
             s.apply_retention();
             // Drop the cached resolver so it rebuilds with the new dbghelp/symbols
             // paths the next time a stack is symbolized.
             s.symbols = None;
         });
+        // Set before the appearance is applied: `set_theme_mode` always re-applies,
+        // so the chrome picks up (or drops) its translucency in that one pass.
+        theme::set_background_image(has_bg, cx);
         self.set_theme_mode(theme, window, cx);
         self.set_locale(if zh { "zh" } else { "en" }, window, cx);
         self.notify_table(cx);
@@ -1048,7 +1126,23 @@ impl AppView {
         cx.notify();
     }
 
-    /// Edit ▸ Copy (Ctrl+C): copies the selected row's columns to the clipboard as
+    /// Edit ▸ Copy (Ctrl+C). Text selected in the detail panel wins — the panel's
+    /// values join gpui-kit's window-level text selection, so dragging over them
+    /// and pressing Ctrl+C copies exactly what is highlighted (as Procmon's event
+    /// properties do). With nothing highlighted this falls back to the selected
+    /// event row, which is what the Edit menu's Copy has always done.
+    fn copy(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let selected_text = gpui_kit::base::TextSelection::selected_text(window, cx)
+            .trim()
+            .to_string();
+        if selected_text.is_empty() {
+            self.copy_selected_row(cx);
+        } else {
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(selected_text));
+        }
+    }
+
+    /// Copies the selected row's columns to the clipboard as
     /// tab-separated values (`#`, Time, Process, PID, Operation, Path, Result,
     /// Detail), so it pastes cleanly into a spreadsheet. No-op when nothing is
     /// selected. The Operation honors the Advanced Display toggle, matching the table.
@@ -1071,7 +1165,7 @@ impl AppView {
                 row.detail(),
             )
         };
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
     }
 
     /// Toasts a "not implemented yet" warning for menu items that aren't wired up.
@@ -1321,7 +1415,14 @@ impl AppView {
             .text_sm()
             .child(
                 DataTable::new(&self.table_state)
-                    .stripe(true)
+                    // No zebra over a background image. The stripe is an extra
+                    // `table_even` fill *on top of* the table's own background, and
+                    // two translucent layers stack — the odd rows come out roughly
+                    // 0.92 opaque against the even rows' 0.72, which reads as hard
+                    // banding across the picture rather than as a subtle stripe.
+                    // The design drops its `nth-child(even)` rule under `.app.has-bg`
+                    // for the same reason.
+                    .stripe(self.state.read(cx).bg_image.is_none())
                     .bordered(false),
             );
 
@@ -1349,8 +1450,15 @@ impl Render for AppView {
         // Design `.app.pinned`: an accent strip across the top when "Always on Top".
         let pinned = self.state.read(cx).always_on_top;
         let accent = cx.theme().primary;
+        let background = {
+            let s = self.state.read(cx);
+            s.bg_image
+                .clone()
+                .map(|path| (path, f32::from(s.config.bg_opacity) / 100.))
+        };
         v_flex()
             .size_full()
+            .relative()
             .track_focus(&self.focus_handle)
             .when(pinned, |s| s.border_t_2().border_color(accent))
             .on_action(cx.listener(|view, _: &ToggleCapture, _, cx| view.toggle_capture(cx)))
@@ -1422,15 +1530,53 @@ impl Render for AppView {
             }))
             // Menu items without a backing implementation yet: each shows a "not
             // implemented" toast so the menu is fully clickable.
-            .on_action(cx.listener(|v, _: &Copy, _, cx| v.copy_selected_row(cx)))
+            .on_action(cx.listener(|v, _: &Copy, w, cx| v.copy(w, cx)))
             .on_action(cx.listener(|v, _: &WebSearch, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(cx.listener(|v, _: &ImportSettings, w, cx| v.import_settings(w, cx)))
             .on_action(cx.listener(|v, _: &ExportSettings, w, cx| v.export_settings(w, cx)))
             .on_action(cx.listener(|v, _: &HelpTopics, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(cx.listener(|v, _: &CheckUpdates, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(|_: &Quit, _, cx| cx.quit())
+            // Repaint while a text selection is being dragged. gpui-kit's window
+            // selection updates on mouse-move but only *emits* an event — nothing
+            // marks the window dirty — so the highlight in the detail panel would
+            // otherwise not appear until the next frame something else caused
+            // (in practice: the mouse-up ending the drag). This sits on the window
+            // root so it keeps firing when the drag leaves the panel.
+            .on_mouse_move(|ev, window, cx| {
+                if ev.dragging() && TextSelection::has_selection(window, cx) {
+                    window.refresh();
+                }
+            })
+            // WORKAROUND (gpui-base 0.6.0): selection auto-scroll runs with no
+            // drag in progress. Fixed upstream after 0.6.0 — drop this once a
+            // release carries it; see [`upstream_auto_scroll`].
+            //
+            // Drops the anchor a click leaves behind when it selected nothing,
+            // which is the only part of the bug we can reach from here. Deferred
+            // because the selection's own mouse-up handler is a window observer
+            // and this has to run after it has ended the drag.
+            .on_mouse_up(MouseButton::Left, |_, window, cx| {
+                window.defer(cx, |window, cx| {
+                    if !TextSelection::has_selection(window, cx) {
+                        TextSelection::clear(window, cx);
+                    }
+                });
+            })
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            // The background image, if any: first child, so every region paints
+            // over it, and absolutely positioned so it stays out of the column
+            // layout. `theme::set_background_image` has already thinned the
+            // regions' own surfaces, which is what lets it show through them.
+            .children(background.map(|(path, opacity)| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .overflow_hidden()
+                    .opacity(opacity)
+                    .child(img(path).size_full().object_fit(ObjectFit::Cover))
+            }))
             .child(menubar::render(&self.menu_bar, cx))
             .child(toolbar::render(&self.state, &self.search_input, cx))
             .child(monitorbar::render(&self.state, cx))

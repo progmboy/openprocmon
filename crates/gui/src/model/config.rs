@@ -4,7 +4,7 @@
 //! holds the rest. Some fields are consumed now (highlight color, hex display);
 //! the others (symbols, history, profiling, boot) are stored for the SDK backend.
 
-use gpui::Hsla;
+use gpui_kit::Hsla;
 use serde::{Deserialize, Serialize};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ impl HighlightColor {
     }
 
     pub fn hsla(self) -> Hsla {
-        gpui::rgb(self.rgb()).into()
+        gpui_kit::rgb(self.rgb()).into()
     }
 }
 
@@ -72,6 +72,11 @@ pub struct AppConfig {
     pub history_ring: bool,
     pub history_mb: usize,
     pub history_min: usize,
+    /// Absolute path to the main-window background image; empty means none.
+    pub bg_image: String,
+    /// Background image opacity in percent. Kept low by default so text stays
+    /// legible over it (design Appearance ▸ Background Opacity).
+    pub bg_opacity: u8,
 }
 
 impl Default for AppConfig {
@@ -89,6 +94,8 @@ impl Default for AppConfig {
             history_ring: false,
             history_mb: 512,
             history_min: 60,
+            bg_image: String::new(),
+            bg_opacity: 35,
         }
     }
 }
@@ -148,8 +155,42 @@ impl AppConfig {
     fn sanitize(&mut self) {
         self.history_mb = self.history_mb.max(1);
         self.history_min = self.history_min.max(1);
+        self.bg_opacity = self.bg_opacity.clamp(BG_OPACITY_MIN, BG_OPACITY_MAX);
+    }
+
+    /// The background image to paint, or `None` when none is configured or the
+    /// file is no longer there.
+    ///
+    /// A path that stops resolving falls back to "no background" rather than to
+    /// an error: the image is decoration and the file can disappear at any time
+    /// (the user deletes it, a removable drive goes away). This only reports;
+    /// [`resolve_background_image`](Self::resolve_background_image) is the one
+    /// that also forgets a dead path.
+    pub fn background_image(&self) -> Option<PathBuf> {
+        let path = Path::new(self.bg_image.trim());
+        (!self.bg_image.trim().is_empty() && path.is_file()).then(|| path.to_path_buf())
+    }
+
+    /// [`background_image`](Self::background_image), forgetting a path that no
+    /// longer resolves.
+    ///
+    /// Call this where the config is taken on (load, Apply) rather than per
+    /// frame — it touches the filesystem. Dropping the dead path is what puts the
+    /// app back in the plain no-background state everywhere at once: the window
+    /// stops thinning its chrome and the Settings dialog stops naming a file that
+    /// is not there.
+    pub fn resolve_background_image(&mut self) -> Option<PathBuf> {
+        let resolved = self.background_image();
+        if resolved.is_none() {
+            self.bg_image.clear();
+        }
+        resolved
     }
 }
+
+/// Opacity range of the background image, in percent (design slider bounds).
+pub const BG_OPACITY_MIN: u8 = 5;
+pub const BG_OPACITY_MAX: u8 = 100;
 
 /// Writes `bytes` to `path` (creating parent directories) as the logged-on user.
 ///
@@ -260,5 +301,57 @@ impl Drop for Impersonation {
             RevertToSelf();
             CloseHandle(self.token);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The image is decoration and its file can vanish under us, so a path that
+    /// stops resolving has to put the app back in the plain no-background state
+    /// rather than leave a half-applied setting behind.
+    #[test]
+    fn a_deleted_background_image_falls_back_to_none() {
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        let mut config = AppConfig {
+            bg_image: file.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.resolve_background_image(),
+            Some(file.path().to_path_buf())
+        );
+
+        drop(file); // the user deletes the image
+        assert_eq!(config.resolve_background_image(), None);
+        assert!(
+            config.bg_image.is_empty(),
+            "the dead path is forgotten, so the Settings dialog stops naming it"
+        );
+    }
+
+    #[test]
+    fn a_blank_background_path_is_no_background() {
+        let mut config = AppConfig {
+            bg_image: "   ".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(config.resolve_background_image(), None);
+    }
+
+    /// `config.json` is user-writable, so its opacity is untrusted (see [`load`]).
+    #[test]
+    fn background_opacity_from_the_config_file_is_clamped() {
+        let mut config = AppConfig {
+            bg_opacity: 240,
+            ..Default::default()
+        };
+        config.sanitize();
+        assert_eq!(config.bg_opacity, BG_OPACITY_MAX);
+
+        config.bg_opacity = 0;
+        config.sanitize();
+        assert_eq!(config.bg_opacity, BG_OPACITY_MIN);
     }
 }

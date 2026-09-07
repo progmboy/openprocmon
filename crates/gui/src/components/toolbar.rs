@@ -5,15 +5,15 @@
 //! a dim icon that brightens on hover, the clear button turning red on hover, an
 //! accent fill for active toggles, and an exact 34px button with a 17px icon.
 
-use gpui::{
-    div, prelude::FluentBuilder, px, svg, Context, Div, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled,
-};
-use gpui_component::{
+use gpui_kit::component::{
     h_flex,
     input::{Input, InputState},
     tooltip::Tooltip,
     ActiveTheme, Icon, IconNamed, Sizable, StyledExt,
+};
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, svg, Context, Div, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled,
 };
 use rust_i18n::t;
 
@@ -49,7 +49,7 @@ fn icon_btn(
     danger: bool,
     c: TbColors,
     cx: &mut Context<AppView>,
-    on_click: impl Fn(&mut AppView, &mut gpui::Window, &mut Context<AppView>) + 'static,
+    on_click: impl Fn(&mut AppView, &mut gpui_kit::Window, &mut Context<AppView>) + 'static,
 ) -> Stateful<Div> {
     let tip = SharedString::from(tip.to_string());
     let group = SharedString::from(id);
@@ -145,7 +145,7 @@ pub(crate) fn render(
         // Active-toggle fill = the design's accent blue (same in both themes); the
         // theme's `primary` is near-white in dark mode, so use the palette accent.
         accent: pal.row_sel_bar,
-        accent_fg: gpui::white(),
+        accent_fg: gpui_kit::white(),
         red: pal.res_error,
     };
     let green = pal.res_success;
@@ -318,7 +318,7 @@ pub(crate) fn render(
         // Search box: forced to exactly the button height; `large` keeps the
         // design's 8px icon-text gap. Input renders its own border/bg/prefix.
         .child(
-            gpui::div().flex_1().min_w(px(160.)).child(
+            gpui_kit::div().flex_1().min_w(px(160.)).child(
                 Input::new(search_input)
                     .large()
                     .h(px(BTN))

@@ -39,6 +39,16 @@ function SetRow({ title, desc, control, full }) {
 
 // ---- category panels ----
 function AppearancePanel({ d, set }) {
+  const fileRef = React.useRef(null);
+  const pick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => set({ bgImage: { url: r.result, name: f.name, opacity: (d.bgImage && d.bgImage.opacity) || 35 } });
+    r.readAsDataURL(f);
+    e.target.value = "";
+  };
+  const bg = d.bgImage;
   return React.createElement("div", { className: "set-panel" },
     React.createElement("div", { className: "set-section-title" }, tr("外观", "Appearance")),
     React.createElement(SetRow, {
@@ -68,6 +78,29 @@ function AppearancePanel({ d, set }) {
           style: { background: c.color }, title: tr(c.zh, c.en),
           onClick: () => set({ highlightColor: c.key }),
         }, d.highlightColor === c.key && React.createElement(Icon, { name: "check", size: 14, style: { color: "#111" } })))),
+    }),
+    React.createElement(SetRow, {
+      title: tr("背景图片", "Background Image"),
+      desc: tr("为主界面设置背景图片，默认无", "Set a background image for the main window; none by default"),
+      full: true,
+      control: React.createElement("div", { className: "bg-pick" },
+        React.createElement("input", { type: "file", accept: "image/*", ref: fileRef, style: { display: "none" }, onChange: pick }),
+        bg
+          ? React.createElement("div", { className: "bg-thumb", style: { backgroundImage: "url(" + bg.url + ")" } })
+          : React.createElement("div", { className: "bg-thumb empty" }, React.createElement(Icon, { name: "palette", size: 18 })),
+        React.createElement("div", { className: "bg-pick-text" },
+          React.createElement("div", { className: "bg-name" }, bg ? bg.name : tr("无背景图片", "No background image")),
+          React.createElement("div", { className: "bg-actions" },
+            React.createElement("button", { className: "btn sm", onClick: () => fileRef.current && fileRef.current.click() }, tr("浏览…", "Browse…")),
+            bg && React.createElement("button", { className: "btn sm", onClick: () => set({ bgImage: null }) }, tr("移除", "Remove"))))),
+    }),
+    bg && React.createElement(SetRow, {
+      title: tr("背景不透明度", "Background Opacity"),
+      desc: tr("降低不透明度可保证文字清晰", "Lower opacity keeps text legible"),
+      control: React.createElement("div", { className: "slider-ctl" },
+        React.createElement("input", { type: "range", min: 5, max: 100, step: 5, value: bg.opacity,
+          onChange: e => set({ bgImage: { ...bg, opacity: +e.target.value } }) }),
+        React.createElement("span", { className: "slider-val" }, bg.opacity + "%")),
     }),
     React.createElement("div", { className: "set-preview", style: { "--hl-prev": HL_MAP[d.highlightColor] } },
       React.createElement("div", { className: "set-preview-row hl" }, "chrome.exe   ReadFile   C:\\Windows\\System32\\…"),

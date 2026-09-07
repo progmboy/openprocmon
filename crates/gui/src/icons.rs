@@ -1,22 +1,22 @@
 //! App-specific icon set + asset source.
 //!
-//! gpui-component's `IconName`/`Icon` are Lucide glyphs bundled by
-//! `gpui-component-assets`. The Process Monitor design ships its *own* curated
-//! icon set (`docs/design/gui-design-v2/icons.jsx`) that differs from Lucide — a
+//! The component library's `IconName`/`Icon` are Lucide glyphs bundled in
+//! `gpui_kit::assets`. The Process Monitor design ships its *own* curated icon
+//! set (`docs/design/gui-design-v2/icons.jsx`) that differs from Lucide — a
 //! floppy-disk save, a play/pause capture toggle, a funnel filter, dedicated
 //! per-category glyphs, etc. We embed those SVGs under `assets/icons/pm-*.svg`
-//! and expose them as [`PmIcon`], which implements gpui-component's [`IconNamed`]
+//! and expose them as [`PmIcon`], which implements the library's [`IconNamed`]
 //! trait so it drops into `Icon::new(..)` / raw `svg().path(..)` exactly like the
 //! built-in enum.
 //!
-//! [`Assets`] embeds our SVGs and falls back to `gpui-component-assets` for the
-//! glyphs gpui-component's own components load internally (Select chevrons, the
-//! Input clear button, scrollbars, dialog close, …).
+//! [`Assets`] embeds our SVGs and falls back to `gpui_kit::assets` for the glyphs
+//! the built-in components load internally (Select chevrons, the Input clear
+//! button, scrollbars, dialog close, …).
 
 use std::borrow::Cow;
 
-use gpui::{AssetSource, Result, SharedString};
-use gpui_component::IconNamed;
+use gpui_kit::component::IconNamed;
+use gpui_kit::{AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 
 /// Embeds this crate's `assets/` folder (the design's SVG icon set).
@@ -25,8 +25,8 @@ use rust_embed::RustEmbed;
 #[include = "icons/**/*.svg"]
 struct GuiAssets;
 
-/// The application asset source: our embedded icons first, gpui-component's
-/// bundled Lucide icons as the fallback for built-in component glyphs.
+/// The application asset source: our embedded icons first, gpui-kit's bundled
+/// Lucide icons as the fallback for built-in component glyphs.
 pub struct Assets;
 
 impl AssetSource for Assets {
@@ -37,14 +37,14 @@ impl AssetSource for Assets {
         if let Some(f) = GuiAssets::get(path) {
             return Ok(Some(f.data));
         }
-        gpui_component_assets::Assets.load(path)
+        gpui_kit::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut out: Vec<SharedString> = GuiAssets::iter()
             .filter_map(|p| p.starts_with(path).then(|| p.into()))
             .collect();
-        out.extend(gpui_component_assets::Assets.list(path)?);
+        out.extend(gpui_kit::assets::Assets.list(path)?);
         Ok(out)
     }
 }

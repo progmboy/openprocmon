@@ -11,16 +11,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gpui::{
-    div, px, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    WeakEntity, Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     list::ListItem,
     tree::{tree, TreeItem, TreeState},
     v_flex, ActiveTheme, Icon, StyledExt, WindowExt,
+};
+use gpui_kit::{
+    div, px, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    WeakEntity, Window,
 };
 use rust_i18n::t;
 
@@ -36,7 +36,7 @@ pub(crate) struct ProcessTreeDialog {
     /// PID → description (company, falling back to user) for the right column.
     meta: HashMap<SharedString, SharedString>,
     /// PID → app-icon bytes (only for processes that have one).
-    icons: HashMap<SharedString, Arc<gpui::Image>>,
+    icons: HashMap<SharedString, Arc<gpui_kit::Image>>,
 }
 
 impl ProcessTreeDialog {
@@ -240,9 +240,9 @@ fn meta_map(nodes: &[ProcessNode]) -> HashMap<SharedString, SharedString> {
     map
 }
 
-fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<gpui::Image>> {
+fn icon_map(nodes: &[ProcessNode]) -> HashMap<SharedString, Arc<gpui_kit::Image>> {
     let mut map = HashMap::new();
-    fn walk(node: &ProcessNode, map: &mut HashMap<SharedString, Arc<gpui::Image>>) {
+    fn walk(node: &ProcessNode, map: &mut HashMap<SharedString, Arc<gpui_kit::Image>>) {
         if let Some(icon) = &node.icon {
             map.insert(SharedString::from(node.pid.to_string()), icon.clone());
         }

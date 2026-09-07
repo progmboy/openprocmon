@@ -133,6 +133,29 @@ html, body {
   background: var(--bg);
 }
 .app.pinned { box-shadow: inset 0 2px 0 var(--accent); }
+.app.has-bg { position: relative; isolation: isolate; }
+.app.has-bg::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--bg-img); background-size: cover; background-position: center;
+  opacity: var(--bg-img-op, .35);
+}
+.app.has-bg .table-area { background: transparent; }
+.app.has-bg .evt-table { background: transparent; }
+.app.has-bg .evt-grid tbody tr { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.app.has-bg .evt-grid tbody tr:hover { background: color-mix(in srgb, var(--row-hover) 88%, transparent); }
+.app.has-bg .evt-grid thead th { background: color-mix(in srgb, var(--panel) 88%, transparent); }
+.app.has-bg .empty-rows { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+/* chrome surfaces become translucent so the image reads across the whole window */
+.app.has-bg .menubar,
+.app.has-bg .toolbar,
+.app.has-bg .monbar,
+.app.has-bg .statusbar { background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(7px); }
+.app.has-bg .detail-panel { background: color-mix(in srgb, var(--panel) 84%, transparent); backdrop-filter: blur(9px); }
+.app.has-bg .detail-head,
+.app.has-bg .detail-tabs { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.app.has-bg .field-box,
+.app.has-bg .codeblock,
+.app.has-bg .detail-textarea { background: color-mix(in srgb, var(--bg-2) 78%, transparent); }
 
 /* ========== MENU BAR ========== */
 .menubar {

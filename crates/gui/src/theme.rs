@@ -15,9 +15,9 @@
 
 use std::rc::Rc;
 
-use gpui::{rgb, Anchor, App, Global, Hsla, Window};
-use gpui_component::scroll::ScrollbarShow;
-use gpui_component::{Theme, ThemeConfig, ThemeMode};
+use gpui_kit::component::scroll::ScrollbarMode;
+use gpui_kit::component::{Theme, ThemeConfig, ThemeMode, ThemeToken};
+use gpui_kit::{rgb, Anchor, App, Global, Hsla, Window};
 use serde::Deserialize;
 
 /// The theme definition, embedded at build time. Edit colors here, not in code.
@@ -70,6 +70,28 @@ impl Global for ProcmonPalette {}
 /// Reads the active palette. Cheap (`Copy`) — callers may clone freely.
 pub fn palette(cx: &App) -> ProcmonPalette {
     *cx.global::<ProcmonPalette>()
+}
+
+/// The row tint for a highlighted event, for the active appearance.
+///
+/// The six choices in Settings ▸ Appearance are one fixed set (design
+/// `HL_COLORS`), all pale — they are picked to sit on a dark row. Washed over the
+/// light theme's white rows at the same strength they leave almost no contrast
+/// and the highlight is invisible, so here the colour is darkened and laid on
+/// more strongly. That mirrors what `procmon.json` itself does between its two
+/// palettes: the same hue at a much lower lightness (its amber goes `#f0c36b`
+/// dark → `#b97e12` light), which is also how the design's own light theme
+/// redefines the `--op-*` vars this tint falls back to.
+pub fn highlight_tint(color: Hsla, dark: bool) -> Hsla {
+    if dark {
+        color.opacity(0.18)
+    } else {
+        Hsla {
+            l: color.l.min(0.45),
+            ..color
+        }
+        .opacity(0.30)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +212,22 @@ fn apply(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
         (themes.light.clone(), themes.light_pal)
     };
     Theme::global_mut(cx).apply_config(&config);
+    if cx.global::<BackgroundImage>().0 {
+        thin_chrome(cx);
+    }
+    // `apply_config` writes the theme's public fields, which does not reach the
+    // gpui-base layer's own copy — and base paints on its own: scrollbars, resize
+    // handles, and the text-selection highlight in the detail panel. Without this
+    // they would keep the built-in default colors instead of `procmon.json`'s.
+    Theme::sync_base(cx);
     // Show scrollbars on hover (default is fade-while-scrolling, which hides the
     // event table's horizontal scrollbar). Re-applied here so it survives a theme
     // switch. The `DataTable` reads this global; it has no per-table show mode.
-    Theme::global_mut(cx).scrollbar_show = ScrollbarShow::Hover;
+    // Must go through the setter (it mirrors the mode into the base theme too)
+    // and after `sync_base`, which rebuilds that theme from scratch.
+    Theme::set_scrollbar_mode(ScrollbarMode::Hover, cx);
     // Toasts appear at the bottom-center of the window. Re-applied here so it
-    // survives a theme switch (same reason as `scrollbar_show`).
+    // survives a theme switch (same reason as `scrollbar_mode`).
     Theme::global_mut(cx).notification.placement = Anchor::BottomCenter;
     cx.set_global(pal);
 
@@ -204,10 +236,61 @@ fn apply(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
     }
 }
 
+/// Whether the main window is painting a background image, so [`apply`] knows to
+/// thin out the chrome. A global because the appearance can be re-applied at any
+/// time (light/dark switch) and has to come back translucent.
+#[derive(Clone, Copy, Default)]
+struct BackgroundImage(bool);
+
+impl Global for BackgroundImage {}
+
+/// Makes the surfaces that sit over the window translucent, so a background image
+/// reads through all of them — title bar to status bar — instead of only showing
+/// in the gaps.
+///
+/// This is deliberately done on the *theme*, not on each region: every surface
+/// already paints with one of these tokens, so mixing alpha in here reaches the
+/// whole window (including `DataTable`, which we do not draw ourselves) without a
+/// single component changing how it renders. With no image set, nothing below
+/// runs and the theme is exactly what `procmon.json` describes.
+///
+/// The base layer stays opaque: `tokens.background` is what the window itself is
+/// cleared to, and the image is painted over it, so it must not be see-through.
+/// Percentages come from the design (`gui-design-v2/styles.css`, `.app.has-bg`).
+fn thin_chrome(cx: &mut App) {
+    let theme = Theme::global_mut(cx);
+    // Menu bar, tool bar, monitor bar, status bar, detail panel (design: --panel).
+    theme.title_bar = theme.title_bar.opacity(0.80);
+    theme.secondary = theme.secondary.opacity(0.82);
+    theme.secondary_hover = theme.secondary_hover.opacity(0.82);
+    // The monitor bar and the detail panel's field boxes (design: --bg / --bg-2).
+    theme.background = theme.background.opacity(0.75);
+    theme.table_head = theme.table_head.opacity(0.88);
+    // The event table paints from the semantic tokens rather than the colors above.
+    // Only its container is tinted. A striped row fills `table_even` *over* that
+    // tint, and two translucent layers stack, so the stripe would come out far more
+    // opaque than its neighbours and band the picture. `AppView::render` turns the
+    // stripe off while an image is set; zeroing the token here makes that fill a
+    // no-op as well, so the banding cannot come back through this path alone.
+    theme.tokens.table = fade(theme.tokens.table, 0.72);
+    theme.tokens.table_even = fade(theme.tokens.table_even, 0.);
+    theme.tokens.table_hover = fade(theme.tokens.table_hover, 0.88);
+    theme.tokens.table_head = fade(theme.tokens.table_head, 0.88);
+    theme.tokens.table_foot = fade(theme.tokens.table_foot, 0.88);
+}
+
+/// A semantic token at `alpha` of its opacity. Both halves are faded: a token
+/// carries a flat color *and* a `Background` that may be a gradient, and tables
+/// paint from the latter.
+fn fade(token: ThemeToken, alpha: f32) -> ThemeToken {
+    ThemeToken::new(token.color.opacity(alpha), token.background.opacity(alpha))
+}
+
 /// Installs the default appearance (dark) + its palette. Call once during app
-/// bootstrap, after `gpui_component::init`.
+/// bootstrap, after `gpui_kit::component::init`.
 pub fn init(cx: &mut App) {
     cx.set_global(load());
+    cx.set_global(BackgroundImage::default());
     apply(ThemeMode::Dark, None, cx);
 }
 
@@ -215,4 +298,40 @@ pub fn init(cx: &mut App) {
 /// palette in sync.
 pub fn set_mode(mode: ThemeMode, window: &mut Window, cx: &mut App) {
     apply(mode, Some(window), cx);
+}
+
+/// Records whether the main window paints a background image. Takes effect on the
+/// next [`apply`], so callers pair it with [`set_mode`] (which always re-applies).
+pub fn set_background_image(on: bool, cx: &mut App) {
+    cx.set_global(BackgroundImage(on));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The six highlight choices are pale, tuned to sit on a dark row. Reusing
+    /// that wash on the light theme's white rows leaves no contrast — which is
+    /// the whole reason [`highlight_tint`] branches on the appearance.
+    #[test]
+    fn the_light_highlight_tint_is_darker_and_stronger() {
+        // Design `HL_COLORS` amber — the default highlight color.
+        let amber: Hsla = rgb(0xf0c36b).into();
+        let on_dark = highlight_tint(amber, true);
+        let on_light = highlight_tint(amber, false);
+
+        assert_eq!(on_dark.l, amber.l, "a dark row takes the color as picked");
+        assert!(on_light.l < on_dark.l, "a white row needs a darker tint");
+        assert!(on_light.a > on_dark.a, "laid on more strongly, too");
+        assert_eq!(on_light.h, amber.h, "the hue the user picked is kept");
+    }
+
+    /// Only pale colors are pulled down; a choice that already reads on white is
+    /// left where it is rather than being driven towards black.
+    #[test]
+    fn an_already_dark_highlight_color_keeps_its_lightness() {
+        // `procmon.json`'s light-palette green, well below the clamp.
+        let deep: Hsla = rgb(0x1f9d57).into();
+        assert_eq!(highlight_tint(deep, false).l, deep.l);
+    }
 }

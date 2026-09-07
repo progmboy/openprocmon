@@ -244,6 +244,13 @@ set.lang: { en: Language, zh: 界面语言 }
 set.lang_desc: { en: Menu and UI text language, zh: 菜单与界面文字语言 }
 set.hl_color: { en: Highlight Color, zh: 高亮颜色 }
 set.hl_color_desc: { en: Color used for highlighted event rows, zh: 事件列表中高亮行的颜色 }
+set.bg_image: { en: Background Image, zh: 背景图片 }
+set.bg_image_desc: { en: "Set a background image for the main window; none by default", zh: "为主界面设置背景图片，默认无" }
+set.bg_none: { en: No background image, zh: 无背景图片 }
+set.bg_browse: { en: Browse…, zh: 浏览… }
+set.bg_remove: { en: Remove, zh: 移除 }
+set.bg_opacity: { en: Background Opacity, zh: 背景不透明度 }
+set.bg_opacity_desc: { en: Lower opacity keeps text legible, zh: 降低不透明度可保证文字清晰 }
 set.sym_title: { en: Symbol Configuration, zh: 符号设置 }
 set.sym_lead: { en: "Symbols resolve call-stack addresses into function names.", zh: "符号用于将调用堆栈中的地址解析为函数名。" }
 set.sym_path: { en: "Symbol path (_NT_SYMBOL_PATH)", zh: "符号路径 (_NT_SYMBOL_PATH)" }

@@ -8,14 +8,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gpui::{
-    div, linear_color_stop, linear_gradient, prelude::FluentBuilder, px, relative, App, Hsla,
-    IntoElement, ParentElement, SharedString, Styled,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     chart::AreaChart,
     h_flex, v_flex, ActiveTheme, StyledExt, WindowExt,
+};
+use gpui_kit::{
+    div, linear_color_stop, linear_gradient, prelude::FluentBuilder, px, relative, App, Hsla,
+    IntoElement, ParentElement, SharedString, Styled,
 };
 use rust_i18n::t;
 
@@ -27,9 +27,9 @@ use crate::theme::{palette, ProcmonPalette};
 use procmon_core::{bin_index, BINS};
 
 /// A "top process" aggregate row: name, event count and (optional) app icon.
-type TopProc = (SharedString, usize, Option<Arc<gpui::Image>>);
+type TopProc = (SharedString, usize, Option<Arc<gpui_kit::Image>>);
 /// Per-process accumulator value: running count and first-seen icon.
-type ProcStat = (usize, Option<Arc<gpui::Image>>);
+type ProcStat = (usize, Option<Arc<gpui_kit::Image>>);
 
 /// One sparkline point (`AreaChart` needs an `Into<SharedString>` x label).
 #[derive(Clone)]

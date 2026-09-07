@@ -6,20 +6,21 @@
 //! radio/check rows are bespoke to match the design's `.rc-row` styling. Only PML
 //! writing is implemented; CSV/XML are surfaced but report "not implemented yet".
 
-use gpui::{
-    div, prelude::FluentBuilder, px, App, AppContext, Context, Div, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, WeakEntity, Window,
-};
-use gpui_component::{
+use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     v_flex, ActiveTheme, Icon, StyledExt, WindowExt,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, App, AppContext, Context, Div, Entity, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, WeakEntity, Window,
+};
 use rust_i18n::t;
 
 use crate::app::AppView;
+use crate::components::input_h;
 use crate::icons::PmIcon;
 use crate::theme::palette;
 
@@ -219,7 +220,7 @@ impl Co {
     }
 }
 
-impl gpui::Render for SaveDialog {
+impl gpui_kit::Render for SaveDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let co = Co::new(cx);
         let xml = self.format == SaveFormat::Xml;
@@ -334,10 +335,11 @@ impl gpui::Render for SaveDialog {
                             .flex_shrink_0()
                             .child(t!("dlg.save_path").to_string()),
                     )
-                    .child(div().flex_1().child(Input::new(&self.path).map(|mut i| {
-                        i.style().size.height = Some(px(34.).into());
-                        i
-                    })))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(input_h(Input::new(&self.path), px(34.))),
+                    )
                     .child(
                         Button::new("save-browse")
                             .h(px(34.))
@@ -464,7 +466,7 @@ fn rc_row(
     disabled: bool,
     text: Hsla,
     hover: Hsla,
-) -> gpui::Stateful<Div> {
+) -> gpui_kit::Stateful<Div> {
     let mut row = div()
         .id(id)
         .flex()
@@ -515,7 +517,7 @@ fn check_mark(on: bool, _disabled: bool, co: &Co) -> impl IntoElement {
             d.child(
                 Icon::new(PmIcon::Check)
                     .size(px(12.))
-                    .text_color(gpui::white()),
+                    .text_color(gpui_kit::white()),
             )
         })
 }

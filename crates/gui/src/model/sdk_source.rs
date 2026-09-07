@@ -215,7 +215,7 @@ fn flags_from(t: MonitorToggles) -> MonitorFlags {
 /// Maps an SDK error to a localized, user-facing toast message. The actionable
 /// driver-load failures get a dedicated string; everything else falls back to the
 /// SDK's (English) `Display` wrapped in a localized prefix.
-fn driver_error_message(e: &procmon_sdk::Error) -> gpui::SharedString {
+fn driver_error_message(e: &procmon_sdk::Error) -> gpui_kit::SharedString {
     use procmon_sdk::Error as E;
     match e {
         E::NotElevated => rust_i18n::t!("driver.err.not_elevated").to_string(),
@@ -388,7 +388,7 @@ fn build_tree(records: &[Arc<ProcessRecord>]) -> Vec<ProcessNode> {
 fn record_node(rec: &ProcessRecord) -> ProcessNode {
     let info = &rec.info;
     let meta = rec.meta();
-    let s = |o: Option<&String>| -> gpui::SharedString {
+    let s = |o: Option<&String>| -> gpui_kit::SharedString {
         o.map(|v| v.as_str().to_string()).unwrap_or_default().into()
     };
     ProcessNode {

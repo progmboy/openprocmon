@@ -15,14 +15,15 @@ pub(crate) mod toolbar;
 
 use std::sync::Arc;
 
-use gpui::{
-    div, img, prelude::FluentBuilder, px, white, AnyElement, App, Div, Hsla, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled,
+use gpui_kit::component::{
+    input::Input,
+    scroll::{Scrollbar, ScrollbarAxis, ScrollbarMode},
+    ActiveTheme, InteractiveElementExt, StyledExt,
 };
-use gpui_component::{
-    scroll::{Scrollbar, ScrollbarAxis, ScrollbarShow},
-    ActiveTheme, StyledExt,
+use gpui_kit::{
+    div, img, px, white, AnyElement, App, Div, Hsla, Image, ImageFormat, InteractiveElement,
+    IntoElement, ParentElement, Pixels, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled,
 };
 
 /// The application's own icon — the embedded `.ico` Explorer/the taskbar show
@@ -43,14 +44,14 @@ pub(crate) fn brand_icon(size: f32) -> impl IntoElement {
 }
 
 /// Wraps raw process-icon bytes (`RT_ICON`/`ICONIMAGE` or a full `.ico`) as a
-/// renderable [`gpui::Image`]. Do this ONCE per icon and reuse the `Arc`:
+/// renderable [`gpui_kit::Image`]. Do this ONCE per icon and reuse the `Arc`:
 /// assembling the `.ico` and content-hashing it on every frame is what the
 /// per-row caches exist to avoid.
 pub(crate) fn app_image(bytes: &[u8]) -> Arc<Image> {
     Arc::new(Image::from_bytes(ImageFormat::Ico, ico_bytes(bytes)))
 }
 
-/// The shell's default `.exe` icon as a prepared [`gpui::Image`], resolved and
+/// The shell's default `.exe` icon as a prepared [`gpui_kit::Image`], resolved and
 /// wrapped once per process lifetime.
 fn default_app_image() -> Option<Arc<Image>> {
     use std::sync::OnceLock;
@@ -168,14 +169,23 @@ pub(crate) fn separator(cx: &App) -> Div {
         .bg(cx.theme().border)
 }
 
+/// Gives a single-line [`Input`] an exact height.
+///
+/// `Input::h()` is multi-line-only — it is ignored on a single-line field. The
+/// height therefore goes through the `Styled` refinement, which the component
+/// applies last, so it wins over the size preset. UFCS because the inherent
+/// `h()` would otherwise shadow the trait method.
+pub(crate) fn input_h(input: Input, height: Pixels) -> Input {
+    Styled::h(input, height)
+}
+
 /// A horizontally scrollable area with an always-visible horizontal scrollbar
 /// whose **vertical mouse-wheel is not captured** (it bubbles to the page).
 ///
-/// The built-in `.overflow_x_scrollbar()` wrapper can't express this: it doesn't
-/// expose `restrict_scroll_to_axis` (so a vertical wheel would scroll it
-/// horizontally) nor a per-instance always-show (its default only shows while
-/// scrolling — which never happens once the wheel is restricted). So we assemble
-/// the scroll-area + `Scrollbar` ourselves, once, here.
+/// The built-in `.overflow_x_scrollbar()` wrapper can't express the always-show
+/// part: it has no per-instance mode and follows the theme's (hover). So we
+/// assemble the scroll-area + `Scrollbar` ourselves, once, here — but the
+/// axis lock is `lock_scroll_axis()`, the same thing the built-in wrapper does.
 pub(crate) fn h_scroll_area(
     name: &'static str,
     scroll: &ScrollHandle,
@@ -194,10 +204,7 @@ pub(crate) fn h_scroll_area(
                 // so reserve its height below the content — otherwise it covers the
                 // last row.
                 .pb(px(14.))
-                .map(|mut d| {
-                    d.style().restrict_scroll_to_axis = Some(true);
-                    d
-                })
+                .lock_scroll_axis()
                 .track_scroll(scroll)
                 .child(content),
         )
@@ -212,7 +219,7 @@ pub(crate) fn h_scroll_area(
                     Scrollbar::new(scroll)
                         .id(SharedString::from(format!("{name}-bar")))
                         .axis(ScrollbarAxis::Horizontal)
-                        .scrollbar_show(ScrollbarShow::Always),
+                        .mode(ScrollbarMode::Always),
                 ),
         )
 }

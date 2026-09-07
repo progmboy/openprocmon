@@ -6,21 +6,21 @@
 //! cell per the design (category color for the operation, result-kind color for
 //! the result, dedicated PID/path colors).
 
-use gpui::{
-    div, prelude::FluentBuilder, px, Context, Div, Entity, InteractiveElement, IntoElement,
-    ParentElement, Stateful, StatefulInteractiveElement, Styled, WeakEntity,
-};
-use gpui_component::{
+use gpui_kit::component::{
     h_flex,
     menu::{PopupMenu, PopupMenuItem},
     table::{Column, TableDelegate, TableState},
     tooltip::Tooltip,
     ActiveTheme, StyledExt,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder, px, Context, Div, Entity, InteractiveElement, IntoElement,
+    ParentElement, Stateful, StatefulInteractiveElement, Styled, WeakEntity,
+};
 
 use crate::app::{AppState, AppView};
 use crate::model::filter::{FilterAction, FilterColumn, FilterRelation};
-use crate::theme::palette;
+use crate::theme::{highlight_tint, palette};
 
 /// Column order matches the design's event table.
 pub(crate) struct EventTableDelegate {
@@ -64,15 +64,15 @@ fn build_columns() -> Vec<Column> {
 }
 
 impl TableDelegate for EventTableDelegate {
-    fn columns_count(&self, _cx: &gpui::App) -> usize {
+    fn columns_count(&self, _cx: &gpui_kit::App) -> usize {
         self.columns.len()
     }
 
-    fn rows_count(&self, cx: &gpui::App) -> usize {
+    fn rows_count(&self, cx: &gpui_kit::App) -> usize {
         self.app.read(cx).buffer.visible_len()
     }
 
-    fn column(&self, col_ix: usize, _cx: &gpui::App) -> Column {
+    fn column(&self, col_ix: usize, _cx: &gpui_kit::App) -> Column {
         // master's TableDelegate returns an owned Column (called only on
         // prepare/refresh, so the clone cost is negligible).
         self.columns[col_ix].clone()
@@ -81,7 +81,7 @@ impl TableDelegate for EventTableDelegate {
     fn render_th(
         &mut self,
         col_ix: usize,
-        _window: &mut gpui::Window,
+        _window: &mut gpui_kit::Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         // Design `.thead th`: muted (text-2) color, semibold — not the default
@@ -99,7 +99,7 @@ impl TableDelegate for EventTableDelegate {
         &mut self,
         row_ix: usize,
         col_ix: usize,
-        _window: &mut gpui::Window,
+        _window: &mut gpui_kit::Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let pal = palette(cx);
@@ -201,15 +201,17 @@ impl TableDelegate for EventTableDelegate {
     fn render_tr(
         &mut self,
         row_ix: usize,
-        _window: &mut gpui::Window,
+        _window: &mut gpui_kit::Window,
         cx: &mut Context<TableState<Self>>,
     ) -> Stateful<Div> {
         // Highlighted rows get an amber tint; bookmarked rows get an amber left
         // bar. The built-in selection/stripe styling handles the rest.
         let pal = palette(cx);
+        let dark = cx.theme().is_dark();
         let app = self.app.read(cx);
-        // Highlight tint follows the configured color (Settings ▸ Appearance).
-        let hl = app.config.highlight_color.hsla();
+        // Highlight tint follows the configured color (Settings ▸ Appearance),
+        // adjusted for the appearance so it stays legible on white rows too.
+        let hl = highlight_tint(app.config.highlight_color.hsla(), dark);
         let (highlighted, bookmarked) = app
             .buffer
             .visible(row_ix)
@@ -218,7 +220,7 @@ impl TableDelegate for EventTableDelegate {
 
         div()
             .id(("row", row_ix))
-            .when(highlighted, |this| this.bg(hl.opacity(0.18)))
+            .when(highlighted, |this| this.bg(hl))
             .when(bookmarked, |this| {
                 this.border_l_2().border_color(pal.op_thread)
             })
@@ -230,7 +232,7 @@ impl TableDelegate for EventTableDelegate {
         &mut self,
         row_ix: usize,
         menu: PopupMenu,
-        _window: &mut gpui::Window,
+        _window: &mut gpui_kit::Window,
         cx: &mut Context<TableState<Self>>,
     ) -> PopupMenu {
         // `CapturedEvent` is not Clone — project just the owned strings we need.
@@ -253,7 +255,7 @@ impl TableDelegate for EventTableDelegate {
         // Each item dispatches to an `AppView` quick-action via the weak handle.
         let include = {
             let (view, name) = (view.clone(), name.clone());
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let (view, name) = (view.clone(), name.clone());
                 view.update(cx, |v, cx| {
                     v.quick_filter(FilterColumn::ProcessName, name, FilterAction::Include, cx)
@@ -263,7 +265,7 @@ impl TableDelegate for EventTableDelegate {
         };
         let exclude = {
             let (view, name) = (view.clone(), name.clone());
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let (view, name) = (view.clone(), name.clone());
                 view.update(cx, |v, cx| {
                     v.quick_filter(FilterColumn::ProcessName, name, FilterAction::Exclude, cx)
@@ -273,7 +275,7 @@ impl TableDelegate for EventTableDelegate {
         };
         let highlight = {
             let (view, name) = (view.clone(), name.clone());
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let (view, name) = (view.clone(), name.clone());
                 view.update(cx, |v, cx| v.add_highlight(name, cx)).ok();
             }
@@ -281,7 +283,7 @@ impl TableDelegate for EventTableDelegate {
         // Exclude every event timestamped before (Date & Time less than) this one.
         let exclude_before = {
             let (view, date) = (view.clone(), date.clone());
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let (view, date) = (view.clone(), date.clone());
                 view.update(cx, |v, cx| {
                     v.quick_filter_rel(
@@ -298,7 +300,7 @@ impl TableDelegate for EventTableDelegate {
         // Exclude every event timestamped after (Date & Time more than) this one.
         let exclude_after = {
             let (view, date) = (view.clone(), date.clone());
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let (view, date) = (view.clone(), date.clone());
                 view.update(cx, |v, cx| {
                     v.quick_filter_rel(
@@ -314,14 +316,15 @@ impl TableDelegate for EventTableDelegate {
         };
         let bookmark = {
             let view = view.clone();
-            move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
                 let view = view.clone();
                 view.update(cx, |v, cx| v.toggle_bookmark(row_ix, cx)).ok();
             }
         };
-        let copy_path = move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
-        };
+        let copy_path =
+            move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
+                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(path.clone()));
+            };
 
         menu.item(
             PopupMenuItem::new(rust_i18n::t!("cm.include", name = name).to_string())
