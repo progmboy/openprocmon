@@ -1582,12 +1582,12 @@ impl Render for AppView {
             .child(monitorbar::render(&self.state, cx))
             .child(self.render_workspace(cx))
             .child(statusbar::render(&self.state, cx))
-            // Overlay layers (Root renders only the view, not these).
-            // From gpui-kit 0.7 the follow code is unnecessary
+        // Overlay layers (Root renders only the view, not these).
+        // From gpui-kit 0.7 the follow code is unnecessary
 
-            //.children(Root::render_notification_layer(window, cx))
-            //.children(Root::render_dialog_layer(window, cx))
-            //.children(Root::render_sheet_layer(window, cx))
+        //.children(Root::render_notification_layer(window, cx))
+        //.children(Root::render_dialog_layer(window, cx))
+        //.children(Root::render_sheet_layer(window, cx))
     }
 }
 
