@@ -19,7 +19,9 @@ embedded-driver = []
 # is gpui, `gpui_kit::component` is the component library, `gpui_kit::assets` the
 # bundled Lucide icons). Upstream renamed the project from `gpui-component` to
 # `gpui-kit` and publishes it, so no git dependencies are needed.
-gpui-kit = "0.6"
+
+gpui-kit = "0.8"
+#gpui-kit = { version = "0.8.0", features = ["gpui-fast"] }
 anyhow = "1"
 crossbeam-channel = "0.5"
 rust-embed = "8"

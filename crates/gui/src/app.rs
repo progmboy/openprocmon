@@ -14,7 +14,7 @@ use gpui_kit::component::{
     input::{InputEvent, InputState},
     notification::NotificationType,
     table::{DataTable, TableEvent, TableState},
-    v_flex, ActiveTheme, Root, ThemeMode, WindowExt,
+    v_flex, ActiveTheme, ThemeMode, WindowExt,
 };
 use gpui_kit::{
     div, img, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
@@ -1446,7 +1446,7 @@ impl AppView {
 }
 
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Design `.app.pinned`: an accent strip across the top when "Always on Top".
         let pinned = self.state.read(cx).always_on_top;
         let accent = cx.theme().primary;
@@ -1583,9 +1583,11 @@ impl Render for AppView {
             .child(self.render_workspace(cx))
             .child(statusbar::render(&self.state, cx))
             // Overlay layers (Root renders only the view, not these).
-            .children(Root::render_notification_layer(window, cx))
-            .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_sheet_layer(window, cx))
+            // From gpui-kit 0.7 the follow code is unnecessary
+
+            //.children(Root::render_notification_layer(window, cx))
+            //.children(Root::render_dialog_layer(window, cx))
+            //.children(Root::render_sheet_layer(window, cx))
     }
 }
 

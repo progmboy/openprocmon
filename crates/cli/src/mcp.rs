@@ -16,7 +16,7 @@ use procmon_sdk::PmlReader;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::schemars::{self, JsonSchema};
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServiceExt};
@@ -1039,9 +1039,9 @@ fn json<T: serde::Serialize>(value: &T) -> Result<CallToolResult, McpError> {
             text.len() / 1024,
             MAX_RESPONSE_BYTES / 1024,
         );
-        return Ok(CallToolResult::success(vec![Content::text(msg)]));
+        return Ok(CallToolResult::success(vec![ContentBlock::text(msg)]));
     }
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 /// Wraps any displayable error as an MCP internal error.
