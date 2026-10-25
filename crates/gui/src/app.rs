@@ -18,7 +18,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     div, img, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Render, Styled,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, Styled,
     StyledImage, Task, Window,
 };
 
@@ -52,53 +52,6 @@ use crate::model::filter::{
 };
 use crate::model::source::{EventSource, SourceEvent};
 use crate::theme;
-
-/// Upstream bug in `gpui-base`, **fixed on main but not in any release we can
-/// depend on yet**: the text-selection auto-scroll keeps running after the drag
-/// that started it has ended.
-///
-/// **Symptom.** Click once on any value in the detail panel — selecting text is
-/// not required — then move the pointer, with no button held, towards the top or
-/// bottom of the panel. It scrolls, and keeps scrolling.
-///
-/// **Cause** (`gpui-base` 0.6.0, `src/text_selection.rs`). Releasing the mouse
-/// deliberately keeps the selection anchor whenever the press landed on text, so
-/// that a later shift-click can extend from it. But
-/// `WindowSelectionState::update_auto_scroll`, which the window's mouse-move
-/// observer calls on *every* move, is gated on that anchor alone and never asks
-/// whether a drag is in progress:
-///
-/// ```ignore
-/// let Some(anchor) = self.anchor.as_ref().filter(|anchor| anchor.inside) else {
-///     return;
-/// };
-/// ```
-///
-/// `AutoScroll::compute_delta` then starts scrolling from 16px *inside* the
-/// viewport's top/bottom edge, so the trigger zone is easy to wander into.
-///
-/// **Upstream status.** Fixed by longbridge/gpui-kit#2941 (`12e21c9`,
-/// 2026-09-04), which adds the missing `if !self.is_selecting { return; }` — one
-/// day after 0.6.0 was published, which is why the version we pin still has it.
-/// `gpui-base` 0.6.0 remains the newest release on crates.io.
-///
-/// **What we do about it.** [`AppView::render`] clears the window selection on
-/// mouse-up when nothing ended up selected, which drops the stale anchor for the
-/// common case: a plain click on a value.
-///
-/// **What still misbehaves.** After a drag that *did* select text, the anchor is
-/// live and the panel still auto-scrolls when the pointer nears its edges. No
-/// public API separates the two: the highlight is derived from the anchor
-/// (`snapshot()` needs both endpoints), so clearing it to stop the scrolling
-/// would also erase the selection and leave Ctrl+C with nothing to copy. Keeping
-/// the selection visible is the better trade for as long as this has to stand.
-///
-/// **On upgrade.** Once `gpui-kit` publishes a release built after the commit
-/// above, bump it and delete both the `on_mouse_up` handler in
-/// [`AppView::render`] that references this note and the note itself. The
-/// selection clearing in `DetailView::set_detail` and on tab switches is
-/// unrelated and stays.
-mod upstream_auto_scroll {}
 
 /// Owned inputs for the async call-stack symbol resolver: `(frame index, address)`
 /// pairs plus the originating process's module ranges `(base, size, path)`.
@@ -1547,21 +1500,6 @@ impl Render for AppView {
                 if ev.dragging() && TextSelection::has_selection(window, cx) {
                     window.refresh();
                 }
-            })
-            // WORKAROUND (gpui-base 0.6.0): selection auto-scroll runs with no
-            // drag in progress. Fixed upstream after 0.6.0 — drop this once a
-            // release carries it; see [`upstream_auto_scroll`].
-            //
-            // Drops the anchor a click leaves behind when it selected nothing,
-            // which is the only part of the bug we can reach from here. Deferred
-            // because the selection's own mouse-up handler is a window observer
-            // and this has to run after it has ended the drag.
-            .on_mouse_up(MouseButton::Left, |_, window, cx| {
-                window.defer(cx, |window, cx| {
-                    if !TextSelection::has_selection(window, cx) {
-                        TextSelection::clear(window, cx);
-                    }
-                });
             })
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
