@@ -1288,6 +1288,12 @@ impl AppView {
             t.delegate_mut().retitle();
             t.refresh(cx);
         });
+        // The search box was built with the startup locale's placeholder; it is
+        // state, so it has to be re-set rather than re-rendered.
+        let placeholder = rust_i18n::t!("tb.search").to_string();
+        self.search_input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx)
+        });
         // The menu triggers re-localize on render and the dropdown is rebuilt on
         // each open, so no explicit menu rebuild is needed.
         window.refresh();
