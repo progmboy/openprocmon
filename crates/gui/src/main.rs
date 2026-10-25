@@ -22,7 +22,7 @@ mod sysicon;
 mod theme;
 
 use app::AppView;
-use gpui_kit::component::{Root, TitleBar};
+use gpui_kit::component::TitleBar;
 use gpui_kit::{px, size, AppContext, Bounds, WindowBounds, WindowOptions};
 use icons::Assets;
 
@@ -48,11 +48,10 @@ fn main() {
             ..Default::default()
         };
 
-        cx.open_window(options, |window, cx| {
-            // The window's root entity must be `Root` so the dialog/notification/
-            // sheet layers work; it wraps our actual `AppView`.
-            let view = cx.new(|cx| AppView::new(window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
+        // `open_window` wraps the view in gpui-base's `Root`, which hosts
+        // dialogs, sheets, notifications and the text-selection layer.
+        gpui_kit::open_window(options, cx, |window, cx| {
+            cx.new(|cx| AppView::new(window, cx))
         })
         .expect("failed to open window");
 

@@ -3,8 +3,9 @@
 //! [`AppState`] is the shared entity holding the event source, the retained event
 //! buffer, and the UI toggles that the regions and the table delegate read from.
 //! [`AppView`] is the window's root view: it owns the table state and the
-//! background drain task, lays out the five stacked regions, and renders
-//! gpui-component's overlay layers (which `Root` itself does not render).
+//! background drain task, lays out the five stacked regions. Dialogs, sheets,
+//! notifications and the text-selection layer are hosted by gpui-base's `Root`,
+//! which `gpui_kit::open_window` places above this view.
 
 use std::time::Duration;
 
@@ -1520,12 +1521,6 @@ impl Render for AppView {
             .child(monitorbar::render(&self.state, cx))
             .child(self.render_workspace(cx))
             .child(statusbar::render(&self.state, cx))
-        // Overlay layers (Root renders only the view, not these).
-        // From gpui-kit 0.7 the follow code is unnecessary
-
-        //.children(Root::render_notification_layer(window, cx))
-        //.children(Root::render_dialog_layer(window, cx))
-        //.children(Root::render_sheet_layer(window, cx))
     }
 }
 
