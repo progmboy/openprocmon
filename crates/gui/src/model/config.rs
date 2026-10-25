@@ -124,7 +124,11 @@ impl AppConfig {
     /// Reads and parses a config from `path` (used by Import). Sanitized on success.
     pub fn load_from(path: &Path) -> Result<Self, String> {
         let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let mut cfg: Self = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        // Editors on Windows commonly save UTF-8 with a BOM; `serde_json` rejects
+        // it, and `load()` turns that into "use defaults", silently dropping every
+        // setting. Accept both forms.
+        let data = data.strip_prefix('\u{feff}').unwrap_or(&data);
+        let mut cfg: Self = serde_json::from_str(data).map_err(|e| e.to_string())?;
         cfg.sanitize();
         Ok(cfg)
     }
@@ -307,6 +311,25 @@ impl Drop for Impersonation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Windows editors often save UTF-8 with a BOM. `serde_json` rejects it, and
+    /// `load()` swallows the error into defaults — so every setting would silently
+    /// disappear. A BOM must parse exactly like the same JSON without one.
+    #[test]
+    fn bom_prefixed_config_loads() {
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        let expected = AppConfig {
+            bg_opacity: 65,
+            bg_image: "C:\\pics\\bg.png".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&expected).unwrap();
+        std::fs::write(file.path(), format!("\u{feff}{json}")).unwrap();
+
+        let loaded = AppConfig::load_from(file.path()).expect("BOM must not break parsing");
+        assert_eq!(loaded.bg_opacity, 65);
+        assert_eq!(loaded.bg_image, "C:\\pics\\bg.png");
+    }
 
     /// The image is decoration and its file can vanish under us, so a path that
     /// stops resolving has to put the app back in the plain no-background state

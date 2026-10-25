@@ -138,6 +138,9 @@ pub struct AppState {
     /// the config is taken on. Cached because resolving hits the filesystem and
     /// the render reads it every frame.
     pub bg_image: Option<std::path::PathBuf>,
+    /// Live opacity (percent) while the Settings slider moves, so the main window
+    /// previews the change before Apply. `None` means use `config.bg_opacity`.
+    pub bg_opacity_preview: Option<u8>,
 
     source: Box<dyn EventSource>,
     rx: Option<crossbeam_channel::Receiver<SourceEvent>>,
@@ -182,6 +185,7 @@ impl AppState {
             highlight: FilterModel::default(),
             config,
             bg_image,
+            bg_opacity_preview: None,
             source: make_source(),
             rx: None,
             pending_notice: None,
@@ -796,8 +800,16 @@ impl AppView {
         };
         self.settings_dialog
             .update(cx, |d, cx| d.load(config, theme, window, cx));
+        // Any preview from a previous session of the dialog is stale now.
+        self.state.update(cx, |s, cx| {
+            s.bg_opacity_preview = None;
+            cx.notify();
+        });
         let dialog = self.settings_dialog.clone();
+        let state = self.state.clone();
         window.open_dialog(cx, move |d, window, cx| {
+            let dismiss_state = state.clone();
+            let close_state = state.clone();
             FormDialog::new(d)
                 .icon(PmIcon::Settings)
                 .title(rust_i18n::t!("set.title").to_string())
@@ -805,7 +817,21 @@ impl AppView {
                 .estimated_height(px(560.))
                 .footer(SettingsDialog::footer(&dialog))
                 .body(dialog.clone())
+                .on_dismiss(move |_, cx| {
+                    dismiss_state.update(cx, |s, cx| {
+                        s.bg_opacity_preview = None;
+                        cx.notify();
+                    });
+                })
                 .build(window, cx)
+                // Escape, a backdrop press or confirm close through the dialog,
+                // not through our own buttons, so the preview is dropped here too.
+                .on_close(move |_, _, cx| {
+                    close_state.update(cx, |s, cx| {
+                        s.bg_opacity_preview = None;
+                        cx.notify();
+                    });
+                })
         });
     }
 
@@ -838,6 +864,8 @@ impl AppView {
         self.state.update(cx, |s, _| {
             s.config = config;
             s.bg_image = bg_image;
+            // The applied config now owns the opacity; drop the live preview.
+            s.bg_opacity_preview = None;
             s.apply_retention();
             // Drop the cached resolver so it rebuilds with the new dbghelp/symbols
             // paths the next time a stack is symbolized.
@@ -1407,9 +1435,10 @@ impl Render for AppView {
         let accent = cx.theme().primary;
         let background = {
             let s = self.state.read(cx);
+            let opacity = s.bg_opacity_preview.unwrap_or(s.config.bg_opacity);
             s.bg_image
                 .clone()
-                .map(|path| (path, f32::from(s.config.bg_opacity) / 100.))
+                .map(|path| (path, f32::from(opacity) / 100.))
         };
         v_flex()
             .size_full()

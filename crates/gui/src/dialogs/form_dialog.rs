@@ -20,6 +20,8 @@
 //!     .build(window, cx)
 //! ```
 
+use std::rc::Rc;
+
 use gpui_kit::component::{dialog::Dialog, h_flex, ActiveTheme, Icon, StyledExt, WindowExt};
 use gpui_kit::{
     div, px, AnyElement, App, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
@@ -28,6 +30,9 @@ use gpui_kit::{
 
 use crate::icons::PmIcon;
 use crate::theme::palette;
+
+/// Dismiss callback for the header close button.
+type DismissHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Builder that applies the shared form-dialog chrome to a gpui-component [`Dialog`].
 pub(crate) struct FormDialog {
@@ -41,6 +46,10 @@ pub(crate) struct FormDialog {
     est_height: Pixels,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
+    /// Runs when the header's close button is used. `Dialog::on_close` covers
+    /// Escape/backdrop/confirm, but this button closes through the window, so a
+    /// caller that keeps transient state (the settings preview) has to be told.
+    on_dismiss: Option<DismissHandler>,
 }
 
 impl FormDialog {
@@ -54,6 +63,7 @@ impl FormDialog {
             est_height: px(360.),
             body: None,
             footer: None,
+            on_dismiss: None,
         }
     }
 
@@ -79,6 +89,13 @@ impl FormDialog {
 
     pub(crate) fn estimated_height(mut self, height: Pixels) -> Self {
         self.est_height = height;
+        self
+    }
+
+    /// Called when the header close button dismisses the dialog. Escape, a
+    /// backdrop press and a confirm go through `Dialog::on_close` instead.
+    pub(crate) fn on_dismiss(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Rc::new(f));
         self
     }
 
@@ -126,6 +143,7 @@ impl FormDialog {
         // — we disable gpui's built-in one below so it can sit inside the header row,
         // which also makes the header the design height.
         let hover_bg = cx.theme().secondary_hover;
+        let dismiss = self.on_dismiss.clone();
         header = header.child(div().flex_1()).child(
             div()
                 .id("dialog-close")
@@ -138,7 +156,12 @@ impl FormDialog {
                 .text_color(muted)
                 .hover(move |s| s.bg(hover_bg).text_color(fg))
                 .child(Icon::new(crate::icons::PmIcon::X).size(px(16.)))
-                .on_click(|_, window, cx| window.close_dialog(cx)),
+                .on_click(move |_, window, cx| {
+                    if let Some(f) = &dismiss {
+                        f(window, cx);
+                    }
+                    window.close_dialog(cx);
+                }),
         );
 
         let vh = window.viewport_size().height;
