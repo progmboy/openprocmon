@@ -19,8 +19,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     div, img, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, Styled,
-    StyledImage, Task, Window,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, Styled, StyledImage, Task,
+    Window,
 };
 
 use crate::actions::{
@@ -1486,12 +1486,17 @@ impl Render for AppView {
             .on_action(cx.listener(|v, _: &HelpTopics, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(cx.listener(|v, _: &CheckUpdates, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(|_: &Quit, _, cx| cx.quit())
-            // Repaint while a text selection is being dragged. gpui-kit's window
-            // selection updates on mouse-move but only *emits* an event — nothing
-            // marks the window dirty — so the highlight in the detail panel would
-            // otherwise not appear until the next frame something else caused
-            // (in practice: the mouse-up ending the drag). This sits on the window
-            // root so it keeps firing when the drag leaves the panel.
+            // Repaint while a text selection is being dragged. The window
+            // selection state updates on mouse-move but only *emits* an event,
+            // and it is an entity no window renders, so its notify cannot mark
+            // anything dirty: the highlight in the detail panel would otherwise
+            // not appear until the next frame something else caused (in practice:
+            // the mouse-up ending the drag). gpui-base's per-run
+            // `refresh_window_on_change` does not fit here — `SelectableText`
+            // keeps its `TextSelectionHandle` private, and one handle shared by
+            // the panel's runs would replace each run's projected copy text.
+            // This sits on the window root so it keeps firing when the drag
+            // leaves the panel.
             .on_mouse_move(|ev, window, cx| {
                 if ev.dragging() && TextSelection::has_selection(window, cx) {
                     window.refresh();
