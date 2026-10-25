@@ -28,7 +28,7 @@ rmcp = { version = "2", features = ["server", "macros", "transport-io", "schemar
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 # Self-elevation orchestration (procmon-cli mcp / capture when unelevated):
 # duplex named pipe between the unelevated parent and the elevated worker.
-interprocess = "=2.4.6"
+interprocess = "2"
 # Win32: ShellExecuteExW (runas), token elevation check, WaitForSingleObject.
 windows = { version = "0.58", features = [
     "Win32_Foundation",

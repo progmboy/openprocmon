@@ -10,25 +10,63 @@
 //! `Stop` for background `stop_capture` (one-shot captures self-stop at their
 //! duration limit and need no message).
 
-use std::io::BufReader;
+use std::io::{self, BufReader, Read, Write};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use interprocess::local_socket::{
-    prelude::*, GenericNamespaced, ListenerOptions, RecvHalf, SendHalf, Stream,
-};
+use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions, Stream};
 
 use crate::ipc::{read_msg, write_msg, ChildMsg, ParentMsg};
+
+/// A reference-counted handle to the duplex pipe, usable as both reader and
+/// writer.
+///
+/// `interprocess` 2.4 deprecated `Stream::split()`/`RecvHalf`/`SendHalf` in
+/// favour of sharing the stream via `Rc`/`Arc`: `&Stream` implements `Read` and
+/// `Write`, so one stream serves both directions. This wrapper turns that
+/// borrow into an owned `Read + Write` handle that `BufReader` and the worker
+/// loop can hold.
+#[derive(Clone)]
+pub struct SharedStream(Arc<Stream>);
+
+impl SharedStream {
+    fn new(stream: Stream) -> Self {
+        Self(Arc::new(stream))
+    }
+}
+
+// `&Stream` implements `Read`/`Write` (that is why 2.4 deprecated splitting),
+// and those impls take `&mut &Stream`, so each call borrows the shared stream
+// afresh; no allocation, no lock, both directions usable at once.
+impl Read for SharedStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut stream: &Stream = &self.0;
+        stream.read(buf)
+    }
+}
+
+impl Write for SharedStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut stream: &Stream = &self.0;
+        stream.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut stream: &Stream = &self.0;
+        stream.flush()
+    }
+}
 
 /// A unique pipe name for one capture session. `seq` disambiguates within a pid.
 pub fn pipe_name(seq: u64) -> String {
     format!("procmon-cli-{}-{}.sock", std::process::id(), seq)
 }
 
-/// The accepted connection to the elevated worker, split into owned read/write
-/// halves, plus the child handle.
+/// The accepted connection to the elevated worker, split into an owned reader
+/// and writer, plus the child handle.
 pub struct WorkerLink {
-    pub reader: BufReader<RecvHalf>,
-    pub writer: SendHalf,
+    pub reader: BufReader<SharedStream>,
+    pub writer: SharedStream,
     // Held only to keep the elevated process handle open until the link drops
     // (RAII close). Completion is detected over the pipe, never by waiting on it.
     #[cfg(windows)]
@@ -99,25 +137,22 @@ pub fn launch_worker(name: &str, mut worker_args: Vec<String>) -> Result<WorkerL
     let child = crate::elevate::relaunch_elevated(&worker_args)
         .map_err(|e| anyhow!("elevation failed: {e}"))?;
 
-    // Accept the worker (it connects shortly after launch). Split the duplex
-    // stream into an owned reader and writer.
-    let conn = listener.accept().context("accept worker connection")?;
-    let (rh, sh) = conn.split();
+    // Accept the worker (it connects shortly after launch).
+    let conn = SharedStream::new(listener.accept().context("accept worker connection")?);
     Ok(WorkerLink {
-        reader: BufReader::new(rh),
-        writer: sh,
+        writer: conn.clone(),
+        reader: BufReader::new(conn),
         child,
     })
 }
 
 /// Connects to the parent's pipe as the worker (client side). Used in worker mode.
-pub fn connect_worker(name: &str) -> Result<(BufReader<RecvHalf>, SendHalf)> {
+pub fn connect_worker(name: &str) -> Result<(BufReader<SharedStream>, SharedStream)> {
     let ns = name
         .to_ns_name::<GenericNamespaced>()
         .context("pipe name")?;
-    let conn = Stream::connect(ns).context("connect to parent pipe")?;
-    let (rh, sh) = conn.split();
-    Ok((BufReader::new(rh), sh))
+    let conn = SharedStream::new(Stream::connect(ns).context("connect to parent pipe")?);
+    Ok((BufReader::new(conn.clone()), conn))
 }
 
 #[cfg(test)]

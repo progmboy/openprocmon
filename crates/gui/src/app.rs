@@ -3,8 +3,9 @@
 //! [`AppState`] is the shared entity holding the event source, the retained event
 //! buffer, and the UI toggles that the regions and the table delegate read from.
 //! [`AppView`] is the window's root view: it owns the table state and the
-//! background drain task, lays out the five stacked regions, and renders
-//! gpui-component's overlay layers (which `Root` itself does not render).
+//! background drain task, lays out the five stacked regions. Dialogs, sheets,
+//! notifications and the text-selection layer are hosted by gpui-base's `Root`,
+//! which `gpui_kit::open_window` places above this view.
 
 use std::time::Duration;
 
@@ -18,8 +19,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     div, img, prelude::FluentBuilder, px, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Render, Styled,
-    StyledImage, Task, Window,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, Styled, StyledImage, Task,
+    Window,
 };
 
 use crate::actions::{
@@ -52,53 +53,6 @@ use crate::model::filter::{
 };
 use crate::model::source::{EventSource, SourceEvent};
 use crate::theme;
-
-/// Upstream bug in `gpui-base`, **fixed on main but not in any release we can
-/// depend on yet**: the text-selection auto-scroll keeps running after the drag
-/// that started it has ended.
-///
-/// **Symptom.** Click once on any value in the detail panel — selecting text is
-/// not required — then move the pointer, with no button held, towards the top or
-/// bottom of the panel. It scrolls, and keeps scrolling.
-///
-/// **Cause** (`gpui-base` 0.6.0, `src/text_selection.rs`). Releasing the mouse
-/// deliberately keeps the selection anchor whenever the press landed on text, so
-/// that a later shift-click can extend from it. But
-/// `WindowSelectionState::update_auto_scroll`, which the window's mouse-move
-/// observer calls on *every* move, is gated on that anchor alone and never asks
-/// whether a drag is in progress:
-///
-/// ```ignore
-/// let Some(anchor) = self.anchor.as_ref().filter(|anchor| anchor.inside) else {
-///     return;
-/// };
-/// ```
-///
-/// `AutoScroll::compute_delta` then starts scrolling from 16px *inside* the
-/// viewport's top/bottom edge, so the trigger zone is easy to wander into.
-///
-/// **Upstream status.** Fixed by longbridge/gpui-kit#2941 (`12e21c9`,
-/// 2026-09-04), which adds the missing `if !self.is_selecting { return; }` — one
-/// day after 0.6.0 was published, which is why the version we pin still has it.
-/// `gpui-base` 0.6.0 remains the newest release on crates.io.
-///
-/// **What we do about it.** [`AppView::render`] clears the window selection on
-/// mouse-up when nothing ended up selected, which drops the stale anchor for the
-/// common case: a plain click on a value.
-///
-/// **What still misbehaves.** After a drag that *did* select text, the anchor is
-/// live and the panel still auto-scrolls when the pointer nears its edges. No
-/// public API separates the two: the highlight is derived from the anchor
-/// (`snapshot()` needs both endpoints), so clearing it to stop the scrolling
-/// would also erase the selection and leave Ctrl+C with nothing to copy. Keeping
-/// the selection visible is the better trade for as long as this has to stand.
-///
-/// **On upgrade.** Once `gpui-kit` publishes a release built after the commit
-/// above, bump it and delete both the `on_mouse_up` handler in
-/// [`AppView::render`] that references this note and the note itself. The
-/// selection clearing in `DetailView::set_detail` and on tab switches is
-/// unrelated and stays.
-mod upstream_auto_scroll {}
 
 /// Owned inputs for the async call-stack symbol resolver: `(frame index, address)`
 /// pairs plus the originating process's module ranges `(base, size, path)`.
@@ -184,6 +138,9 @@ pub struct AppState {
     /// the config is taken on. Cached because resolving hits the filesystem and
     /// the render reads it every frame.
     pub bg_image: Option<std::path::PathBuf>,
+    /// Live opacity (percent) while the Settings slider moves, so the main window
+    /// previews the change before Apply. `None` means use `config.bg_opacity`.
+    pub bg_opacity_preview: Option<u8>,
 
     source: Box<dyn EventSource>,
     rx: Option<crossbeam_channel::Receiver<SourceEvent>>,
@@ -228,6 +185,7 @@ impl AppState {
             highlight: FilterModel::default(),
             config,
             bg_image,
+            bg_opacity_preview: None,
             source: make_source(),
             rx: None,
             pending_notice: None,
@@ -510,7 +468,7 @@ impl AppView {
         };
         if has_bg {
             theme::set_background_image(true, cx);
-            theme::set_mode(mode, window, cx);
+            theme::set_mode(mode, cx);
         }
 
         let app_weak = cx.entity().downgrade();
@@ -842,8 +800,16 @@ impl AppView {
         };
         self.settings_dialog
             .update(cx, |d, cx| d.load(config, theme, window, cx));
+        // Any preview from a previous session of the dialog is stale now.
+        self.state.update(cx, |s, cx| {
+            s.bg_opacity_preview = None;
+            cx.notify();
+        });
         let dialog = self.settings_dialog.clone();
+        let state = self.state.clone();
         window.open_dialog(cx, move |d, window, cx| {
+            let dismiss_state = state.clone();
+            let close_state = state.clone();
             FormDialog::new(d)
                 .icon(PmIcon::Settings)
                 .title(rust_i18n::t!("set.title").to_string())
@@ -851,7 +817,21 @@ impl AppView {
                 .estimated_height(px(560.))
                 .footer(SettingsDialog::footer(&dialog))
                 .body(dialog.clone())
+                .on_dismiss(move |_, cx| {
+                    dismiss_state.update(cx, |s, cx| {
+                        s.bg_opacity_preview = None;
+                        cx.notify();
+                    });
+                })
                 .build(window, cx)
+                // Escape, a backdrop press or confirm close through the dialog,
+                // not through our own buttons, so the preview is dropped here too.
+                .on_close(move |_, _, cx| {
+                    close_state.update(cx, |s, cx| {
+                        s.bg_opacity_preview = None;
+                        cx.notify();
+                    });
+                })
         });
     }
 
@@ -884,6 +864,8 @@ impl AppView {
         self.state.update(cx, |s, _| {
             s.config = config;
             s.bg_image = bg_image;
+            // The applied config now owns the opacity; drop the live preview.
+            s.bg_opacity_preview = None;
             s.apply_retention();
             // Drop the cached resolver so it rebuilds with the new dbghelp/symbols
             // paths the next time a stack is symbolized.
@@ -892,7 +874,7 @@ impl AppView {
         // Set before the appearance is applied: `set_theme_mode` always re-applies,
         // so the chrome picks up (or drops) its translucency in that one pass.
         theme::set_background_image(has_bg, cx);
-        self.set_theme_mode(theme, window, cx);
+        self.set_theme_mode(theme, cx);
         self.set_locale(if zh { "zh" } else { "en" }, window, cx);
         self.notify_table(cx);
         cx.notify();
@@ -1304,26 +1286,21 @@ impl AppView {
 
     /// Flips light/dark mode, keeping the gpui-component theme and our custom
     /// palette in sync (see [`theme::set_mode`]).
-    pub(crate) fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         let next = if self.state.read(cx).theme_mode.is_dark() {
             ThemeMode::Light
         } else {
             ThemeMode::Dark
         };
         self.state.update(cx, |s, _| s.theme_mode = next);
-        theme::set_mode(next, window, cx);
+        theme::set_mode(next, cx);
         cx.notify();
     }
 
     /// Switches to a specific appearance (Options ▸ Theme submenu).
-    pub(crate) fn set_theme_mode(
-        &mut self,
-        mode: ThemeMode,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn set_theme_mode(&mut self, mode: ThemeMode, cx: &mut Context<Self>) {
         self.state.update(cx, |s, _| s.theme_mode = mode);
-        theme::set_mode(mode, window, cx);
+        theme::set_mode(mode, cx);
         cx.notify();
     }
 
@@ -1338,6 +1315,12 @@ impl AppView {
         self.table_state.update(cx, |t, cx| {
             t.delegate_mut().retitle();
             t.refresh(cx);
+        });
+        // The search box was built with the startup locale's placeholder; it is
+        // state, so it has to be re-set rather than re-rendered.
+        let placeholder = rust_i18n::t!("tb.search").to_string();
+        self.search_input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx)
         });
         // The menu triggers re-localize on render and the dropdown is rebuilt on
         // each open, so no explicit menu rebuild is needed.
@@ -1452,9 +1435,10 @@ impl Render for AppView {
         let accent = cx.theme().primary;
         let background = {
             let s = self.state.read(cx);
+            let opacity = s.bg_opacity_preview.unwrap_or(s.config.bg_opacity);
             s.bg_image
                 .clone()
-                .map(|path| (path, f32::from(s.config.bg_opacity) / 100.))
+                .map(|path| (path, f32::from(opacity) / 100.))
         };
         v_flex()
             .size_full()
@@ -1517,8 +1501,8 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|view, _: &About, window, cx| view.open_about_dialog(window, cx)),
             )
-            .on_action(cx.listener(|view, action: &SwitchThemeMode, window, cx| {
-                view.set_theme_mode(action.0, window, cx)
+            .on_action(cx.listener(|view, action: &SwitchThemeMode, _, cx| {
+                view.set_theme_mode(action.0, cx)
             }))
             .on_action(cx.listener(|view, action: &SelectLocale, window, cx| {
                 let code = if action.0.starts_with("zh") {
@@ -1537,31 +1521,21 @@ impl Render for AppView {
             .on_action(cx.listener(|v, _: &HelpTopics, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(cx.listener(|v, _: &CheckUpdates, w, cx| v.notify_unimplemented(w, cx)))
             .on_action(|_: &Quit, _, cx| cx.quit())
-            // Repaint while a text selection is being dragged. gpui-kit's window
-            // selection updates on mouse-move but only *emits* an event — nothing
-            // marks the window dirty — so the highlight in the detail panel would
-            // otherwise not appear until the next frame something else caused
-            // (in practice: the mouse-up ending the drag). This sits on the window
-            // root so it keeps firing when the drag leaves the panel.
+            // Repaint while a text selection is being dragged. The window
+            // selection state updates on mouse-move but only *emits* an event,
+            // and it is an entity no window renders, so its notify cannot mark
+            // anything dirty: the highlight in the detail panel would otherwise
+            // not appear until the next frame something else caused (in practice:
+            // the mouse-up ending the drag). gpui-base's per-run
+            // `refresh_window_on_change` does not fit here — `SelectableText`
+            // keeps its `TextSelectionHandle` private, and one handle shared by
+            // the panel's runs would replace each run's projected copy text.
+            // This sits on the window root so it keeps firing when the drag
+            // leaves the panel.
             .on_mouse_move(|ev, window, cx| {
                 if ev.dragging() && TextSelection::has_selection(window, cx) {
                     window.refresh();
                 }
-            })
-            // WORKAROUND (gpui-base 0.6.0): selection auto-scroll runs with no
-            // drag in progress. Fixed upstream after 0.6.0 — drop this once a
-            // release carries it; see [`upstream_auto_scroll`].
-            //
-            // Drops the anchor a click leaves behind when it selected nothing,
-            // which is the only part of the bug we can reach from here. Deferred
-            // because the selection's own mouse-up handler is a window observer
-            // and this has to run after it has ended the drag.
-            .on_mouse_up(MouseButton::Left, |_, window, cx| {
-                window.defer(cx, |window, cx| {
-                    if !TextSelection::has_selection(window, cx) {
-                        TextSelection::clear(window, cx);
-                    }
-                });
             })
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
@@ -1582,12 +1556,6 @@ impl Render for AppView {
             .child(monitorbar::render(&self.state, cx))
             .child(self.render_workspace(cx))
             .child(statusbar::render(&self.state, cx))
-        // Overlay layers (Root renders only the view, not these).
-        // From gpui-kit 0.7 the follow code is unnecessary
-
-        //.children(Root::render_notification_layer(window, cx))
-        //.children(Root::render_dialog_layer(window, cx))
-        //.children(Root::render_sheet_layer(window, cx))
     }
 }
 

@@ -150,6 +150,22 @@ pub(crate) fn render(
     };
     let green = pal.res_success;
 
+    // With a background image behind the window, every surface here owns exactly
+    // one translucent layer: the bar at 62%, controls on it at 30% instead of the
+    // component's own (opaque-ish) input colour. Two 80%-ish layers would multiply
+    // to ~96% and hide the image entirely (see `theme::thin_chrome`).
+    let bg_on = crate::theme::has_background_image(cx);
+    let bar_bg = if bg_on {
+        cx.theme().secondary.opacity(0.62)
+    } else {
+        cx.theme().secondary
+    };
+    let box_bg = if bg_on {
+        cx.theme().secondary.opacity(0.30)
+    } else {
+        cx.theme().secondary
+    };
+
     // Capture: a fixed-width labeled button, green while capturing. The eye glyph
     // is an `svg` so it brightens on hover (see `icon_btn`); the label text is the
     // div's own text and changes via the div hover.
@@ -209,7 +225,7 @@ pub(crate) fn render(
         .items_center()
         .gap(px(4.))
         .px(px(10.))
-        .bg(cx.theme().secondary)
+        .bg(bar_bg)
         .border_b_1()
         .border_color(cx.theme().border)
         .child(icon_btn(
@@ -317,15 +333,20 @@ pub(crate) fn render(
         ))
         // Search box: forced to exactly the button height; `large` keeps the
         // design's 8px icon-text gap. Input renders its own border/bg/prefix.
-        .child(
-            gpui_kit::div().flex_1().min_w(px(160.)).child(
-                Input::new(search_input)
-                    .large()
-                    .h(px(BTN))
-                    .prefix(Icon::new(PmIcon::Search).with_size(px(15.)))
-                    .cleanable(true),
-            ),
-        )
+        .child(gpui_kit::div().flex_1().min_w(px(160.)).child({
+            let search = Input::new(search_input)
+                .large()
+                .h(px(BTN))
+                .prefix(Icon::new(PmIcon::Search).with_size(px(15.)))
+                .cleanable(true);
+            if bg_on {
+                // Replace the component's near-opaque input background: it would
+                // stack on the bar and read as solid.
+                Styled::bg(search, box_bg)
+            } else {
+                search
+            }
+        }))
         .child(separator(cx))
         // Language toggle: a custom segmented control (design `.lang-toggle`) so
         // the active segment gets the design's accent-blue fill + white text — the
@@ -339,7 +360,7 @@ pub(crate) fn render(
                 .overflow_hidden()
                 .border_1()
                 .border_color(cx.theme().border)
-                .bg(cx.theme().secondary)
+                .bg(box_bg)
                 .child(lang_seg("zh", "中", is_zh, c, cx))
                 .child(lang_seg("en", "EN", !is_zh, c, cx)),
         )
@@ -351,6 +372,6 @@ pub(crate) fn render(
             false,
             c,
             cx,
-            |v, w, cx| v.toggle_theme(w, cx),
+            |v, _, cx| v.toggle_theme(cx),
         ))
 }

@@ -74,7 +74,20 @@ impl SettingsDialog {
         });
         cx.subscribe(&bg_opacity, |this: &mut Self, _, ev: &SliderEvent, cx| {
             if let SliderEvent::Change(value) = ev {
-                this.draft.bg_opacity = value.start().round() as u8;
+                let opacity = value.start().round().clamp(0., 100.) as u8;
+                this.draft.bg_opacity = opacity;
+                // Preview on the main window while the user drags; Apply commits
+                // it, Cancel/Escape/close clear the preview (see `cancel` and the
+                // dialog's `on_close`).
+                if let Some(view) = this.app.upgrade() {
+                    view.update(cx, |view, cx| {
+                        view.state.update(cx, |s, cx| {
+                            s.bg_opacity_preview = Some(opacity);
+                            cx.notify();
+                        });
+                        cx.notify();
+                    });
+                }
                 cx.notify();
             }
         })
@@ -175,8 +188,24 @@ impl SettingsDialog {
         window.close_dialog(cx);
     }
 
+    /// Cancel: drop the live background-opacity preview before closing, so the
+    /// main window returns to the applied config.
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(view) = self.app.upgrade() {
+            view.update(cx, |view, cx| {
+                view.state.update(cx, |s, cx| {
+                    s.bg_opacity_preview = None;
+                    cx.notify();
+                });
+                cx.notify();
+            });
+        }
+        window.close_dialog(cx);
+    }
+
     /// Footer: Cancel + Apply.
     pub(crate) fn footer(dialog: &Entity<Self>) -> impl IntoElement {
+        let cancel = dialog.clone();
         let ok = dialog.clone();
         h_flex()
             .w_full()
@@ -187,7 +216,7 @@ impl SettingsDialog {
                 Button::new("set-cancel")
                     .h(px(34.))
                     .label(t!("dlg.cancel").to_string())
-                    .on_click(|_, window, cx| window.close_dialog(cx)),
+                    .on_click(move |_, window, cx| cancel.update(cx, |d, cx| d.cancel(window, cx))),
             )
             .child(
                 Button::new("set-apply")
@@ -301,7 +330,14 @@ impl SettingsDialog {
                     .justify_center()
                     .map(|thumb| match picked.clone() {
                         Some(path) => {
-                            thumb.child(img(path).size_full().object_fit(ObjectFit::Cover))
+                            // The thumbnail previews the draft opacity too, so the
+                            // slider has immediate feedback next to it.
+                            thumb.child(
+                                img(path)
+                                    .size_full()
+                                    .object_fit(ObjectFit::Cover)
+                                    .opacity(f32::from(self.draft.bg_opacity) / 100.),
+                            )
                         }
                         None => thumb
                             .text_color(co.faint)
