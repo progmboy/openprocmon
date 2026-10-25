@@ -256,7 +256,11 @@ impl Global for BackgroundImage {}
 ///
 /// The base layer stays opaque: `tokens.background` is what the window itself is
 /// cleared to, and the image is painted over it, so it must not be see-through.
-/// Percentages come from the design (`gui-design-v2/styles.css`, `.app.has-bg`).
+/// Where the design stacks two translucent surfaces (the table's container under
+/// its header, a search box over the toolbar) we keep only one layer: two 70–90%
+/// layers multiply to ~95%, which reads as a solid colour with no image behind it.
+/// Percentages come from the design (`gui-design-v2/styles.css`, `.app.has-bg`),
+/// minus its `backdrop-filter`, which GPUI has no equivalent for.
 fn thin_chrome(cx: &mut App) {
     let theme = Theme::global_mut(cx);
     // Menu bar, tool bar, monitor bar, status bar, detail panel (design: --panel).
@@ -265,18 +269,38 @@ fn thin_chrome(cx: &mut App) {
     theme.secondary_hover = theme.secondary_hover.opacity(0.82);
     // The monitor bar and the detail panel's field boxes (design: --bg / --bg-2).
     theme.background = theme.background.opacity(0.75);
-    theme.table_head = theme.table_head.opacity(0.88);
+    theme.table_head = theme.table_head.opacity(0.76);
     // The event table paints from the semantic tokens rather than the colors above.
-    // Only its container is tinted. A striped row fills `table_even` *over* that
-    // tint, and two translucent layers stack, so the stripe would come out far more
-    // opaque than its neighbours and band the picture. `AppView::render` turns the
-    // stripe off while an image is set; zeroing the token here makes that fill a
-    // no-op as well, so the banding cannot come back through this path alone.
-    theme.tokens.table = fade(theme.tokens.table, 0.72);
+    // The container must stay out of the way: DataTable fills it across the whole
+    // grid, and the header then paints `table_head` on top, so a tinted container
+    // makes the header ~96% opaque. Keep it empty and let `EventTableDelegate`
+    // paint each row at the design's 72%; the header is then a single 76% layer.
+    //
+    // A striped row would also stack (`table_even` over that tint) and band the
+    // picture; `AppView::render` turns the stripe off while an image is set and
+    // `table_even` is zeroed here as a second guard.
+    theme.tokens.table = fade(theme.tokens.table, 0.);
     theme.tokens.table_even = fade(theme.tokens.table_even, 0.);
     theme.tokens.table_hover = fade(theme.tokens.table_hover, 0.88);
-    theme.tokens.table_head = fade(theme.tokens.table_head, 0.88);
-    theme.tokens.table_foot = fade(theme.tokens.table_foot, 0.88);
+    // The header paints `table_head` twice — once on the header row, once on the
+    // inner horizontally-scrolling column container — so two 76% layers would
+    // square to 94%. 51% squares to 76%, which is the single-layer value wanted.
+    theme.tokens.table_head = fade(theme.tokens.table_head, 0.51);
+    theme.tokens.table_foot = fade(theme.tokens.table_foot, 0.76);
+}
+
+/// The per-row surface over the background image: the design's 72% of `--bg`.
+/// Only drawn while an image is set; without one the table paints `tokens.table`
+/// itself and this is not used.
+pub(crate) fn table_row_bg(cx: &App) -> Option<Hsla> {
+    has_background_image(cx).then(|| Theme::global(cx).table.opacity(0.72))
+}
+
+/// Whether the main window is painting a background image. Regions that would
+/// otherwise stack their own surface on a translucent parent check this and pick
+/// a single, explicitly translucent colour instead.
+pub(crate) fn has_background_image(cx: &App) -> bool {
+    cx.global::<BackgroundImage>().0
 }
 
 /// A semantic token at `alpha` of its opacity. Both halves are faded: a token

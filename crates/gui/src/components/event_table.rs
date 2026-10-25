@@ -218,8 +218,13 @@ impl TableDelegate for EventTableDelegate {
             .map(|r| (r.highlighted(), r.bookmarked()))
             .unwrap_or((false, false));
 
+        // The table's own container is transparent while a background image is
+        // set (theme::thin_chrome), so each row paints the design's 72% surface.
+        let row_bg = crate::theme::table_row_bg(cx);
+
         div()
             .id(("row", row_ix))
+            .when_some(row_bg, |this, bg| this.bg(bg))
             .when(highlighted, |this| this.bg(hl))
             .when(bookmarked, |this| {
                 this.border_l_2().border_color(pal.op_thread)
