@@ -464,7 +464,7 @@ impl AppView {
         };
         if has_bg {
             theme::set_background_image(true, cx);
-            theme::set_mode(mode, window, cx);
+            theme::set_mode(mode, cx);
         }
 
         let app_weak = cx.entity().downgrade();
@@ -846,7 +846,7 @@ impl AppView {
         // Set before the appearance is applied: `set_theme_mode` always re-applies,
         // so the chrome picks up (or drops) its translucency in that one pass.
         theme::set_background_image(has_bg, cx);
-        self.set_theme_mode(theme, window, cx);
+        self.set_theme_mode(theme, cx);
         self.set_locale(if zh { "zh" } else { "en" }, window, cx);
         self.notify_table(cx);
         cx.notify();
@@ -1258,26 +1258,21 @@ impl AppView {
 
     /// Flips light/dark mode, keeping the gpui-component theme and our custom
     /// palette in sync (see [`theme::set_mode`]).
-    pub(crate) fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         let next = if self.state.read(cx).theme_mode.is_dark() {
             ThemeMode::Light
         } else {
             ThemeMode::Dark
         };
         self.state.update(cx, |s, _| s.theme_mode = next);
-        theme::set_mode(next, window, cx);
+        theme::set_mode(next, cx);
         cx.notify();
     }
 
     /// Switches to a specific appearance (Options ▸ Theme submenu).
-    pub(crate) fn set_theme_mode(
-        &mut self,
-        mode: ThemeMode,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn set_theme_mode(&mut self, mode: ThemeMode, cx: &mut Context<Self>) {
         self.state.update(cx, |s, _| s.theme_mode = mode);
-        theme::set_mode(mode, window, cx);
+        theme::set_mode(mode, cx);
         cx.notify();
     }
 
@@ -1471,8 +1466,8 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|view, _: &About, window, cx| view.open_about_dialog(window, cx)),
             )
-            .on_action(cx.listener(|view, action: &SwitchThemeMode, window, cx| {
-                view.set_theme_mode(action.0, window, cx)
+            .on_action(cx.listener(|view, action: &SwitchThemeMode, _, cx| {
+                view.set_theme_mode(action.0, cx)
             }))
             .on_action(cx.listener(|view, action: &SelectLocale, window, cx| {
                 let code = if action.0.starts_with("zh") {

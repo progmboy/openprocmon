@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use gpui_kit::component::scroll::ScrollbarMode;
 use gpui_kit::component::{Theme, ThemeConfig, ThemeMode, ThemeToken};
-use gpui_kit::{rgb, Anchor, App, Global, Hsla, Window};
+use gpui_kit::{rgb, Anchor, App, Global, Hsla};
 use serde::Deserialize;
 
 /// The theme definition, embedded at build time. Edit colors here, not in code.
@@ -200,7 +200,7 @@ fn load() -> ProcmonThemes {
 
 /// Applies the given appearance: the gpui-component config (on top of the
 /// built-in defaults) plus the matching semantic palette.
-fn apply(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
+fn apply(mode: ThemeMode, cx: &mut App) {
     // Ensures the `Theme` global exists, sets the mode, and applies the built-in
     // default as the base before our overrides.
     Theme::change(mode, None, cx);
@@ -215,25 +215,25 @@ fn apply(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
     if cx.global::<BackgroundImage>().0 {
         thin_chrome(cx);
     }
-    // `apply_config` writes the theme's public fields, which does not reach the
-    // gpui-base layer's own copy — and base paints on its own: scrollbars, resize
-    // handles, and the text-selection highlight in the detail panel. Without this
-    // they would keep the built-in default colors instead of `procmon.json`'s.
-    Theme::sync_base(cx);
-    // Show scrollbars on hover (default is fade-while-scrolling, which hides the
-    // event table's horizontal scrollbar). Re-applied here so it survives a theme
-    // switch. The `DataTable` reads this global; it has no per-table show mode.
-    // Must go through the setter (it mirrors the mode into the base theme too)
-    // and after `sync_base`, which rebuilds that theme from scratch.
-    Theme::set_scrollbar_mode(ScrollbarMode::Hover, cx);
-    // Toasts appear at the bottom-center of the window. Re-applied here so it
-    // survives a theme switch (same reason as `scrollbar_mode`).
-    Theme::global_mut(cx).notification.placement = Anchor::BottomCenter;
+    // One write path for everything above: `Theme::update` reconciles the solid
+    // colors with the renderable tokens, rebuilds the gpui-base projection
+    // (scrollbars, resize handles, selection) and refreshes every window. Doing
+    // that by hand needed a `sync_base` plus a window refresh, and
+    // `set_scrollbar_mode` — itself a `Theme::update` — repeated both.
+    //
+    // The config and `thin_chrome` stay outside: reconcile derives a token from
+    // its color whenever the color changed, which would replace the gradients
+    // `procmon.json` defines for some backgrounds.
+    Theme::update(cx, |theme| {
+        // Show scrollbars on hover (default is fade-while-scrolling, which hides
+        // the event table's horizontal scrollbar). Re-applied here so it survives
+        // a theme switch.
+        theme.scrollbar_mode = ScrollbarMode::Hover;
+        // Toasts appear at the bottom-center of the window. Re-applied here so it
+        // survives a theme switch, for the same reason.
+        theme.notification.placement = Anchor::BottomCenter;
+    });
     cx.set_global(pal);
-
-    if let Some(window) = window {
-        window.refresh();
-    }
 }
 
 /// Whether the main window is painting a background image, so [`apply`] knows to
@@ -291,13 +291,13 @@ fn fade(token: ThemeToken, alpha: f32) -> ThemeToken {
 pub fn init(cx: &mut App) {
     cx.set_global(load());
     cx.set_global(BackgroundImage::default());
-    apply(ThemeMode::Dark, None, cx);
+    apply(ThemeMode::Dark, cx);
 }
 
 /// Switches the appearance (light/dark), keeping the gpui-component theme and our
 /// palette in sync.
-pub fn set_mode(mode: ThemeMode, window: &mut Window, cx: &mut App) {
-    apply(mode, Some(window), cx);
+pub fn set_mode(mode: ThemeMode, cx: &mut App) {
+    apply(mode, cx);
 }
 
 /// Records whether the main window paints a background image. Takes effect on the

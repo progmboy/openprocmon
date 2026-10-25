@@ -351,6 +351,6 @@ pub(crate) fn render(
             false,
             c,
             cx,
-            |v, w, cx| v.toggle_theme(w, cx),
+            |v, _, cx| v.toggle_theme(cx),
         ))
 }
